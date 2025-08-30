@@ -1,0 +1,29 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "brightbuds-15065",
+          "appId": "1:953113321611:android:29f4505f50027448ce748e",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "brightbuds-15065",
+          "configurations": {
+            "android": "1:953113321611:android:29f4505f50027448ce748e",
+            "ios": "1:953113321611:ios:4bf3654136d975e0ce748e",
+            "web": "1:953113321611:web:f281cdf043d866e4ce748e"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "database": "(default)",
+    "location": "asia-southeast1",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

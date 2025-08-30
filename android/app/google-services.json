@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "953113321611",
+    "project_id": "brightbuds-15065",
+    "storage_bucket": "brightbuds-15065.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:953113321611:android:f97358790e8d8f86ce748e",
+        "android_client_info": {
+          "package_name": "com.example.brightbuds"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUwqer2Qqdr-KrNUD6L4V39rPhzG-7GsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:953113321611:android:29f4505f50027448ce748e",
+        "android_client_info": {
+          "package_name": "com.example.brightbuds_new"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUwqer2Qqdr-KrNUD6L4V39rPhzG-7GsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
