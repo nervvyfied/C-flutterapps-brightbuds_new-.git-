@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '/data/models/parent_model.dart';
@@ -84,10 +85,16 @@ class UserRepository {
   }
 
   Future<ChildUser?> fetchChildAndCache(String parentUid, String childId) async {
-    final child = await _firestore.getChildById(parentUid, childId);
-    if (child != null) await cacheChild(child);
-    return child;
+  final child = await _firestore.getChildById(parentUid, childId);
+  if (child != null) {
+    // Ensure parentUid is correct
+    final updatedChild = child.copyWith(parentUid: parentUid);
+    await cacheChild(updatedChild);
+    return updatedChild;
   }
+  return null;
+}
+
 
   Future<ChildUser?> getChildByAccessCode(String parentUid, String code) async {
     final child = await _firestore.getChildByAccessCode(parentUid, code);
@@ -133,35 +140,64 @@ class UserRepository {
     }
   }
 
-  Future<void> updateChildBalance(String parentUid, String childId, int amount) async {
+  Future<ChildUser?> fetchChildAndCacheById(String childId) async {
   try {
-    // 1️⃣ Get cached child
-    final child = getCachedChild(childId);
-    if (child == null) {
-      if (kDebugMode) print('Child not found in cache: $childId');
-      return;
+    // 🔍 Search across all parents
+    final parentSnapshot = await _firestore.collection('users').get();
+
+    for (var parentDoc in parentSnapshot.docs) {
+      final childDoc = await _firestore
+          .collection('users')
+          .doc(parentDoc.id)
+          .collection('children')
+          .doc(childId)
+          .get();
+
+      if (childDoc.exists) {
+        final child = ChildUser.fromMap(childDoc.data()!, childDoc.id);
+        await cacheChild(child);
+        return child;
+      }
     }
 
-    // 2️⃣ Calculate new balance
-    final newBalance = child.balance + amount;
-    final updatedChild = child.copyWith(balance: newBalance);
-
-    // 3️⃣ Update locally in Hive
-    await cacheChild(updatedChild);
-
-    // 4️⃣ Update remotely in Firestore
-    await _firestore.collection('users')
-        .doc(parentUid)
-        .collection('children')
-        .doc(childId)
-        .update({'balance': newBalance});
-
-    if (kDebugMode) {
-      print('Updated child balance: ${childId}, new balance: $newBalance');
-    }
+    return null;
   } catch (e) {
-    if (kDebugMode) print('Error updating child balance: $e');
+    print("Error fetching child by id: $e");
+    return null;
   }
+}
+
+
+  Future<void> updateChildBalance(
+  String parentUid,
+  String childId,
+  int amount,
+) async {
+  if (parentUid.isEmpty || childId.isEmpty) {
+    throw ArgumentError("parentUid and childId cannot be empty.");
+  }
+
+  final childRef = _firestore
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .doc(childId);
+
+  await _firestore.runTransaction((transaction) async {
+    final snapshot = await transaction.get(childRef);
+    if (!snapshot.exists) {
+      throw Exception("Child $childId not found under parent $parentUid");
+    }
+
+    final current = (snapshot.data()?['balance'] ?? 0) as int;
+    final newBalance = current + amount;
+
+    transaction.update(childRef, {
+      'balance': newBalance,
+    });
+  });
+
+  await fetchChildAndCache(parentUid, childId);
 }
 
 }

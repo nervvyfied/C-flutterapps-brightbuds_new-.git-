@@ -39,26 +39,27 @@ class ChildUser {
 
   Map<String, dynamic> toMap() {
     return {
+      "cid": cid,
       "name": name,
       "balance": balance,
       "streak": streak,
+      "parentUid": parentUid,
     };
   }
 
   ChildUser copyWith({
-  String? cid,
-  String? name,
-  int? balance,
-  int? streak,
-  String? parentUid,
-}) {
-  return ChildUser(
-    cid: cid ?? this.cid,
-    name: name ?? this.name,
-    balance: balance ?? this.balance,
-    streak: streak ?? this.streak,
-    parentUid: parentUid ?? this.parentUid,
-  );
-}
-
+    String? cid,
+    String? name,
+    int? balance,
+    int? streak,
+    String? parentUid,
+  }) {
+    return ChildUser(
+      cid: cid ?? this.cid,
+      name: name ?? this.name,
+      balance: balance ?? this.balance,
+      streak: streak ?? this.streak,
+      parentUid: parentUid ?? this.parentUid,
+    );
+  }
 }

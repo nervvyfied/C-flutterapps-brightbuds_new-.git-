@@ -32,6 +32,7 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
   MaterialPageRoute(
     builder: (_) => ChildNavigationShell(
       childId: child.cid,
+      parentId: child.parentUid,
       childName: child.name,
     ),
   ),

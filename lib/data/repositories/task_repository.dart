@@ -36,78 +36,117 @@ class TaskRepository {
   }
 
   // ---------------- FIRESTORE (REMOTE) ----------------
-  CollectionReference get _tasksRef => _firestore.collection('tasks');
+  CollectionReference _childTasksRef(String parentId, String childId) {
+  if (parentId.isEmpty || childId.isEmpty) {
+    throw ArgumentError("parentId and childId must not be empty");
+  }
+  return _firestore
+      .collection('users')
+      .doc(parentId)
+      .collection('children')
+      .doc(childId)
+      .collection('tasks');
+}
 
   Future<void> saveTaskRemote(TaskModel task) async {
-    await _tasksRef
+    await _childTasksRef(task.parentId, task.childId)
         .doc(task.id)
         .set(task.toFirestore(), SetOptions(merge: true));
   }
 
-  Future<TaskModel?> getTaskRemote(String id) async {
-    final doc = await _tasksRef.doc(id).get();
+  Future<TaskModel?> getTaskRemote(String parentId, String childId, String id) async {
+    final doc = await _childTasksRef(parentId, childId).doc(id).get();
     if (doc.exists && doc.data() != null) {
-      return TaskModel.fromFirestore(
-          doc.data() as Map<String, dynamic>, doc.id);
+      return TaskModel.fromFirestore(doc.data() as Map<String, dynamic>, doc.id);
     }
     return null;
   }
 
   Future<List<TaskModel>> getAllTasksRemote({
-  String? parentId,
-  String? childId,
-}) async {
-  Query query = _tasksRef;
-
-  if (parentId != null) {
-    query = query.where('parentId', isEqualTo: parentId);
-  }
-  if (childId != null) {
-    query = query.where('childId', isEqualTo: childId);
+    required String parentId,
+    required String childId,
+  }) async {
+    final snapshot = await _childTasksRef(parentId, childId).get();
+    return snapshot.docs
+        .map((doc) => TaskModel.fromFirestore(doc.data() as Map<String, dynamic>, doc.id))
+        .toList();
   }
 
-  final snapshot = await query.get();
-  return snapshot.docs
-      .map((doc) =>
-          TaskModel.fromFirestore(doc.data() as Map<String, dynamic>, doc.id))
-      .toList();
-}
-
-
-  Future<void> deleteTaskRemote(String id) async {
-    await _tasksRef.doc(id).delete();
+  Future<void> deleteTaskRemote(String parentId, String childId, String id) async {
+    await _childTasksRef(parentId, childId).doc(id).delete();
   }
 
   // ---------------- SYNC HELPERS ----------------
 
   /// Save task both locally and remotely (always updates lastUpdated)
   Future<void> saveTask(TaskModel task) async {
+  // 1️⃣ Validate parentId and childId
+  if (task.parentId.isEmpty) {
+    throw Exception("Cannot save task: parentId is empty.");
+  }
+  if (task.childId.isEmpty) {
+    throw Exception("Cannot save task: childId is empty.");
+  }
+
+  // 2️⃣ Ensure task has a valid ID and timestamp
   final updatedTask = task.copyWith(
     id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
     lastUpdated: DateTime.now(),
   );
 
+  // 3️⃣ Save locally and remotely
   await saveTaskLocal(updatedTask);
   await saveTaskRemote(updatedTask);
+
+  debugPrint("Task ${updatedTask.id} saved locally and remotely.");
 }
 
   /// Delete task both locally and remotely
-  Future<void> deleteTask(String id) async {
+  Future<void> deleteTask(String parentId, String childId, String id) async {
     await deleteTaskLocal(id);
-    await deleteTaskRemote(id);
+    await deleteTaskRemote(parentId, childId, id);
   }
 
   /// Pull tasks for parent (only one child, so this is enough)
   Future<void> pullParentTasks(String parentId) async {
-    final remoteTasks = await getAllTasksRemote(parentId: parentId);
+  // Fetch that single child’s document
+  final childSnapshot = await _firestore
+      .collection('users')
+      .doc(parentId)
+      .collection('children')
+      .get();
+
+  if (childSnapshot.docs.isEmpty) return;
+
+  // For safety, still loop — but you’ll only ever have 1
+  for (var childDoc in childSnapshot.docs) {
+    final childId = childDoc.id;
+
+    final remoteTasks = await getAllTasksRemote(
+      parentId: parentId,
+      childId: childId,
+    );
+
     await _mergeRemoteTasks(remoteTasks);
   }
+}
+
 
   /// Pull tasks for child (optional, but useful on child login)
-  Future<void> pullChildTasks(String childId) async {
-  final remoteTasks = await getAllTasksRemote(childId: childId);
+  Future<void> pullChildTasks(String parentId, String childId) async {
+  final remoteTasks = await getAllTasksRemote(parentId: parentId, childId: childId);
+
+  // Clear local tasks for this child first
+  final existing = getAllTasksLocal()
+      .where((t) => t.parentId == parentId && t.childId == childId)
+      .toList();
+  for (final t in existing) {
+    await deleteTaskLocal(t.id);
+  }
+
   await _mergeRemoteTasks(remoteTasks);
 }
+
 
 
   /// Push local tasks that are newer than Firestore
@@ -115,7 +154,7 @@ class TaskRepository {
     final localTasks = getAllTasksLocal();
 
     for (final task in localTasks) {
-      final remote = await getTaskRemote(task.id);
+      final remote = await getTaskRemote(task.parentId, task.childId, task.id);
 
       if (remote == null) {
         await saveTaskRemote(task);
@@ -154,54 +193,121 @@ class TaskRepository {
   }
 
   // ---------------- STATUS UPDATES ----------------
-Future<void> markTaskAsDone(String taskId, String childUid) async {
+Future<void> markTaskAsDone(String taskId, String childId) async {
   try {
-    final local = getTaskLocal(taskId);
-    if (local != null) {
-      final updated = local.copyWith(
-        isDone: true,
-        doneAt: DateTime.now(),
-        lastUpdated: DateTime.now(),
-      );
-
-      // Always update Hive first
-      await saveTaskLocal(updated);
-
-      // Try pushing to Firestore (safe if offline → retried later)
-      await saveTaskRemote(updated);
-
-      // Update streak locally too if you track streaks offline
-      await _streakRepo.updateStreak(childUid);
+    // 1️⃣ Get local task
+    final localTask = getTaskLocal(taskId);
+    if (localTask == null) {
+      debugPrint("Task $taskId not found locally.");
+      return;
     }
-  } catch (e) {
-    debugPrint('Error marking task as done: $e');
+
+    // 2️⃣ Check childId validity
+    if (childId.isEmpty) {
+      debugPrint("Cannot mark task as done: childId is empty.");
+      return;
+    }
+
+    // 3️⃣ Mark task as done
+    final updatedTask = localTask.copyWith(
+      isDone: true,
+      doneAt: DateTime.now(),
+      lastUpdated: DateTime.now(),
+    );
+
+    // 4️⃣ Save locally first
+    await saveTaskLocal(updatedTask);
+    debugPrint("Task $taskId marked as done locally.");
+
+    // 5️⃣ Save remotely
+    final parentId = localTask.parentId;
+    if (parentId.isEmpty) {
+      debugPrint("Cannot push task to remote: parentId is empty.");
+    } else {
+      await saveTaskRemote(updatedTask);
+      debugPrint("Task $taskId marked as done remotely.");
+    }
+
+    // 6️⃣ Update streak (safe check for child existence)
+    final userRepo = UserRepository();
+    var child = userRepo.getCachedChild(childId);
+    if (child == null && parentId.isNotEmpty) {
+      child = await userRepo.fetchChildAndCache(parentId, childId);
+    }
+
+    if (child != null) {
+      await _streakRepo.updateStreak(child.cid);
+      debugPrint("Streak updated for child ${child.cid}.");
+    } else {
+      debugPrint("Cannot update streak: child $childId not found.");
+    }
+  } catch (e, st) {
+    debugPrint('Error in markTaskAsDone: $e\n$st');
     rethrow;
   }
 }
 
+
 Future<void> verifyTask(String taskId, String childId) async {
-  final localTask = getTaskLocal(taskId);
-  if (localTask == null || localTask.verified) return;
+  try {
+    // 1️⃣ Get local task
+    final localTask = getTaskLocal(taskId);
+    if (localTask == null) {
+      debugPrint("Task $taskId not found locally.");
+      return;
+    }
 
-  // 1️⃣ Mark task as verified
-  final updatedTask = localTask.copyWith(
-    verified: true,
-    lastUpdated: DateTime.now(),
-  );
+    if (localTask.verified) {
+      debugPrint("Task $taskId is already verified.");
+      return;
+    }
 
-  await saveTask(updatedTask); // save both Hive & Firestore
+    final parentId = localTask.parentId;
+    if (parentId.isEmpty || childId.isEmpty) {
+      debugPrint(
+          "Cannot verify task: parentId or childId is empty. parentId='$parentId', childId='$childId'");
+      return;
+    }
 
-  // 2️⃣ Grant reward
-  final userRepo = UserRepository();
+    // 2️⃣ Mark task as verified
+    final updatedTask = localTask.copyWith(
+      verified: true,
+      lastUpdated: DateTime.now(),
+    );
 
-  // fetch child to get correct parentUid
-  final child = await userRepo.getCachedChild(childId);
-  if (child != null) {
-    await userRepo.updateChildBalance(child.parentUid, child.cid, localTask.reward);
+    await saveTask(updatedTask); // saves both locally + remotely
+    debugPrint("Task $taskId marked as verified locally and remotely.");
+
+    // 3️⃣ Get or fetch child
+    final userRepo = UserRepository();
+    var child = userRepo.getCachedChild(childId);
+
+    if (child == null) {
+      child = await userRepo.fetchChildAndCache(parentId, childId);
+
+      if (child == null) {
+        debugPrint("Child $childId under parent $parentId not found.");
+        return; // exit early if child cannot be fetched
+      }
+    }
+
+    // 4️⃣ Ensure child has a valid parentUid
+    final childParentUid = child.parentUid.isNotEmpty ? child.parentUid : parentId;
+
+    // 5️⃣ Update child balance
+    await userRepo.updateChildBalance(
+      childParentUid,
+      child.cid,
+      updatedTask.reward,
+    );
+
+    debugPrint(
+        "Task $taskId verified and child ${child.cid} balance updated successfully.");
+  } catch (e, st) {
+    debugPrint('Error in verifyTask: $e\n$st');
+    rethrow;
   }
 }
-
-
 
 
 }

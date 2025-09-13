@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
 import '/data/repositories/user_repository.dart';
@@ -40,7 +39,7 @@ class SyncService {
 
     // 3️⃣ Sync tasks per child
     for (var child in children) {
-      await _taskRepo.pullChildTasks(child.cid);       // Pull remote → merge into Hive
+      await _taskRepo.pullChildTasks(parentUid, child.cid);       // Pull remote → merge into Hive
       await _taskRepo.pushPendingLocalChanges();       // Push any local changes
     }
 
@@ -50,21 +49,20 @@ class SyncService {
 
   // ---------------- CHILD ----------------
   Future<void> _syncChild(String accessCode) async {
-    // 1️⃣ Fetch parent UID and child profile by access code
-    final Map<String, dynamic>? result =
-        await _userRepo.fetchParentAndChildByAccessCode(accessCode);
-    if (result == null) return;
+  final Map<String, dynamic>? result =
+      await _userRepo.fetchParentAndChildByAccessCode(accessCode);
+  if (result == null) return;
 
-    final String parentUid = result['parentUid'];
-    final ChildUser child = result['child'];
+  final parent = result['parent'] as ParentUser?;
+  final child = result['child'] as ChildUser?;
 
-    // 2️⃣ Sync tasks for this child
-    await _taskRepo.pullChildTasks(child.cid);       // Pull remote → merge into Hive
-    await _taskRepo.pushPendingLocalChanges();       // Push any local changes
+  if (parent == null || child == null) return;
 
-    // 3️⃣ Optional: sync streaks/rewards if offline changes exist
-    //await _streakRepo.pushPendingLocalChanges();
-  }
+  // Pull tasks using parent.uid + child.cid
+  await _taskRepo.pullChildTasks(parent.uid, child.cid);
+  await _taskRepo.pushPendingLocalChanges();
+}
+
 
   // ---------------- GLOBAL SYNC ----------------
   /// Call this periodically or on connectivity regained

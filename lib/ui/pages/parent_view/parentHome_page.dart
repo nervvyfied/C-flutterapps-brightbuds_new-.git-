@@ -124,7 +124,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       );
     }
 
-    final parent = current as ParentUser;
+    final parent = current;
 
     return Scaffold(
       appBar: AppBar(

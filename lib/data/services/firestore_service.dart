@@ -9,6 +9,12 @@ class FirestoreService {
     return _db.collection(path);
   }
 
+  Future<T> runTransaction<T>(
+  Future<T> Function(Transaction transaction) action,
+) {
+  return _db.runTransaction(action);
+}
+
   // ---------------- PARENT ----------------
   Future<void> createParent(ParentUser parent) async {
     await _db.collection('users').doc(parent.uid).set(parent.toMap());
@@ -139,8 +145,6 @@ Future<ParentUser?> getParentByAccessCode(String code) async {
 
   return ChildUser.fromMap(childDoc.data()!, childDoc.id);
 }
-
-
 
   Future<ChildUser?> getChildById(String parentUid, String childId) async {
     final doc = await _db

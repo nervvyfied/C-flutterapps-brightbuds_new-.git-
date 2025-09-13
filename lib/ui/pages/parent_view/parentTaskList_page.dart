@@ -24,7 +24,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     super.initState();
     Future.microtask(() {
       Provider.of<TaskProvider>(context, listen: false)
-          .loadTasks(parentId: widget.parentId);
+          .loadTasks(parentId: widget.parentId, childId: widget.childId);
     });
   }
 
@@ -42,7 +42,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                 final task = taskProvider.tasks[index];
                 return ListTile(
                   title: Text(task.name),
-                  subtitle: Text("Child: ${task.childId}"),
+                  subtitle: Text("Difficulty: ${task.difficulty} • Reward: ${task.reward} tokens",),
                   trailing: task.verified
                       ? const Icon(Icons.verified, color: Colors.green)
                       : task.isDone

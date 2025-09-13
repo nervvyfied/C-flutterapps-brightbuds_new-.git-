@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class ChildQuestsPage extends StatefulWidget {
+  final String parentId;
   final String childId;
   final String childName;
 
   const ChildQuestsPage({
+    required this.parentId,
     required this.childId,
     required this.childName,
     super.key,
@@ -23,7 +25,9 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     // Load tasks filtered by childId
     Future.microtask(() {
       Provider.of<TaskProvider>(context, listen: false)
-          .loadTasks(childId: widget.childId);
+  .loadTasks(parentId: widget.parentId, childId: widget.childId);
+
+
     });
   }
 
@@ -33,8 +37,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
     // Filter tasks to ensure they belong to this child and have valid fields
     final childTasks = taskProvider.tasks.where((task) {
-      return task.childId != null &&
-          task.childId == widget.childId &&
+      return task.childId == widget.childId &&
           task.name.isNotEmpty;
     }).toList();
 
@@ -54,7 +57,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                       child: ListTile(
                         title: Text(task.name),
                         subtitle: Text(
-                            "Routine: ${task.routine ?? 'Anytime'} • Reward: ${task.reward ?? 0} tokens"),
+                            "Routine: ${task.routine} • Reward: ${task.reward} tokens"),
                         trailing: task.isDone
                             ? (task.verified
                                 ? const Icon(Icons.verified, color: Colors.blue)

@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 class ChildNavigationShell extends StatefulWidget {
   final String childId;
   final String childName;
+  final String parentId;
 
   const ChildNavigationShell({
     super.key,
     required this.childId,
     required this.childName,
+    required this.parentId,
   });
 
   @override
@@ -27,7 +29,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     _pages = [
       ChildQuestsPage(
         childId: widget.childId,
-        childName: widget.childName,
+        childName: widget.childName, parentId: widget.parentId,
       ),
       const PlaceholderPage(title: 'Journal'),
       const PlaceholderPage(title: 'Power Pack'),

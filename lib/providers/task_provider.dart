@@ -1,4 +1,6 @@
 import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/models/parent_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../data/models/task_model.dart';
@@ -25,33 +27,32 @@ class TaskProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   // ---------------- LOAD TASKS ----------------
-  Future<void> loadTasks({String? parentId, String? childId}) async {
-    _isLoading = true;
-    notifyListeners();
+  Future<void> loadTasks({String? parentId, String? childId, bool isParent = false}) async {
+  _isLoading = true;
+  notifyListeners();
 
-    try {
-      if (parentId != null) {
-        await _taskRepo.pullParentTasks(parentId);
-        _tasks = _taskRepo
-            .getAllTasksLocal()
-            .where((t) => t.parentId == parentId)
-            .toList();
-      } else if (childId != null) {
-        await _taskRepo.pullChildTasks(childId);
-        if (childId == null || childId.isEmpty) {
-  _tasks = [];
-} else {
-  _tasks = _taskRepo.getAllTasksLocal()
-      .where((t) => t.childId == childId)
-      .toList();
-}
-
-      }
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+  try {
+    if (isParent && parentId != null && parentId.isNotEmpty) {
+      await _taskRepo.pullParentTasks(parentId);
+      _tasks = _taskRepo
+          .getAllTasksLocal()
+          .where((t) => t.parentId == parentId)
+          .toList();
+    } else if (!isParent && parentId != null && childId != null && parentId.isNotEmpty && childId.isNotEmpty) {
+      await _taskRepo.pullChildTasks(parentId, childId);
+      _tasks = _taskRepo
+          .getAllTasksLocal()
+          .where((t) => t.parentId == parentId && t.childId == childId)
+          .toList();
+    } else {
+      debugPrint("⚠️ loadTasks skipped: parentId=$parentId, childId=$childId");
+      _tasks = [];
     }
+  } finally {
+    _isLoading = false;
+    notifyListeners();
   }
+}
 
   // ---------------- TASK CRUD ----------------
   Future<void> addTask(TaskModel task) async {
@@ -76,8 +77,8 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteTask(String taskId) async {
-    await _taskRepo.deleteTask(taskId);
+  Future<void> deleteTask(String taskId, String parentId, String childId) async {
+    await _taskRepo.deleteTask(taskId, parentId, childId);
     _tasks.removeWhere((t) => t.id == taskId);
     notifyListeners();
   }
@@ -160,17 +161,26 @@ class TaskProvider extends ChangeNotifier {
     // Reload tasks locally after sync
     if (isParent && uid != null) {
       // Parent login: load tasks by parentId
-      await loadTasks(parentId: uid);
+      await loadTasks(
+  parentId: uid,
+  isParent: true,
+);
+
     } else if (!isParent && accessCode != null) {
       // Child login: get parent & child info first
       final result = await _userRepo.fetchParentAndChildByAccessCode(accessCode);
-ChildUser? child;
 if (result != null) {
-  child = result['child'] as ChildUser?;
-}
+  final parent = result['parent'] as ParentUser?;
+  final child = result['child'] as ChildUser?;
+  if (parent != null && child != null) {
+    // now load with both parentId and childId so pullChildTasks works
+    await loadTasks(
+  parentId: parent.uid,
+  childId: child.cid,
+  isParent: false,
+);
 
-if (child != null) {
-  await loadTasks(childId: child.cid);
+  }
 }
 
     }

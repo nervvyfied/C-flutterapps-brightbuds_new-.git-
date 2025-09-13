@@ -65,11 +65,21 @@ class AuthService {
 
   if (child == null) throw Exception("Child not found for this access code");
 
-  await _userRepo.cacheParent(parent);
-  await _userRepo.cacheChild(child);
+  // ✅ Make sure child has parentUid set
+  final updatedChild = ChildUser(
+    cid: child.cid,
+    parentUid: parent.uid, // 👈 force assign here
+    name: child.name,
+    balance: child.balance,
+    streak: child.streak,
+  );
 
-  return child;
+  await _userRepo.cacheParent(parent);
+  await _userRepo.cacheChild(updatedChild);
+
+  return updatedChild;
 }
+
 
   // ---------------- SIGN OUT ----------------
   Future<void> signOut() async {

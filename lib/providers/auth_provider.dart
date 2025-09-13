@@ -116,9 +116,6 @@ Future<void> loginChild(String accessCode) async {
   notifyListeners();
 }
 
-
-
-
   // ---------------- SIGN OUT ----------------
   Future<void> signOut() async {
     await _auth.signOut();
