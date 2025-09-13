@@ -14,5 +14,35 @@ service cloud.firestore {
       // update your rules.
       allow read, write: if request.time < timestamp.date(2025, 9, 28);
     }
+    // Users collection
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read: if request.auth != null;
+      
+      // Parent can update/verify tasks they created
+      allow create, update, delete: if request.auth != null &&
+        request.resource.data.parentId == request.auth.uid;
+
+      // Child can only update status to "pending_verification"
+     allow update: if request.auth != null &&
+        request.resource.data.childId == request.auth.uid &&
+        request.resource.data.keys().hasOnly(['status', 'completedAt', 'note']);
+    
+      // Everyone involved can read
+      allow read: if request.auth != null 
+        && (resource.data.parentId == request.auth.uid 
+         || resource.data.childId == request.auth.uid);
+    }
+
+    // Streak collection
+    match /streaks/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
   }
 }

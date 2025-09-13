@@ -1,20 +1,75 @@
-import '../repositories/task_repository.dart';
-import '../repositories/user_repository.dart';
+import 'package:flutter/foundation.dart';
+import '/data/models/parent_model.dart';
+import '/data/models/child_model.dart';
+import '/data/repositories/user_repository.dart';
+import '/data/repositories/task_repository.dart';
+import '/data/repositories/streak_repository.dart';
 
 class SyncService {
-  final UserRepository _userRepo = UserRepository();
+  final UserRepository _userRepo;
+  final TaskRepository _taskRepo;
+  final StreakRepository _streakRepo;
 
-  // Call on login: fetch user, pull tasks, push local
-  Future<void> syncOnLogin(String uid, {required bool isParent}) async {
-    await _userRepo.fetchUserAndCache(uid);
+  SyncService(
+      this._userRepo, this._taskRepo, this._streakRepo);
+
+  /// Called on user login
+  /// isParent: true for parent login, false for child login
+  Future<void> syncOnLogin({
+    String? uid,
+    String? accessCode,
+    required bool isParent,
+  }) async {
     if (isParent) {
-      // parent: pull tasks they created
-      //await _taskRepo.pullTasksForUser(uid, asParent: true);
+      if (uid == null) return;
+      await _syncParent(uid);
     } else {
-      // child: pull tasks assigned to them
-      //await _taskRepo.pullTasksForUser(uid, asParent: false);
+      if (accessCode == null) return;
+      await _syncChild(accessCode);
     }
-    // push any local changes to Firestore
-    //await _taskRepo.pushAllLocalToFirestore();
+  }
+
+  // ---------------- PARENT ----------------
+  Future<void> _syncParent(String parentUid) async {
+    // 1️⃣ Fetch parent profile
+    final ParentUser? parent = await _userRepo.fetchParentAndCache(parentUid);
+    if (parent == null) return;
+
+    // 2️⃣ Fetch all children under this parent
+    final List<ChildUser> children = await _userRepo.fetchChildrenAndCache(parentUid);
+
+    // 3️⃣ Sync tasks per child
+    for (var child in children) {
+      await _taskRepo.pullChildTasks(child.cid);       // Pull remote → merge into Hive
+      await _taskRepo.pushPendingLocalChanges();       // Push any local changes
+    }
+
+    // 4️⃣ Optional: sync streaks/rewards if offline changes exist
+    //await _streakRepo.pushPendingLocalChanges();
+  }
+
+  // ---------------- CHILD ----------------
+  Future<void> _syncChild(String accessCode) async {
+    // 1️⃣ Fetch parent UID and child profile by access code
+    final Map<String, dynamic>? result =
+        await _userRepo.fetchParentAndChildByAccessCode(accessCode);
+    if (result == null) return;
+
+    final String parentUid = result['parentUid'];
+    final ChildUser child = result['child'];
+
+    // 2️⃣ Sync tasks for this child
+    await _taskRepo.pullChildTasks(child.cid);       // Pull remote → merge into Hive
+    await _taskRepo.pushPendingLocalChanges();       // Push any local changes
+
+    // 3️⃣ Optional: sync streaks/rewards if offline changes exist
+    //await _streakRepo.pushPendingLocalChanges();
+  }
+
+  // ---------------- GLOBAL SYNC ----------------
+  /// Call this periodically or on connectivity regained
+  Future<void> syncAllPendingChanges() async {
+    await _taskRepo.pushPendingLocalChanges();
+    //await _streakRepo.pushPendingLocalChanges();
   }
 }

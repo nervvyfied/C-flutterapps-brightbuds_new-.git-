@@ -1,7 +1,8 @@
-import 'package:brightbuds_new/ui/pages/testchild.dart';
+import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/providers/auth_provider.dart';
+import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '/providers/auth_provider.dart';
 
 class ChildAuthPage extends StatefulWidget {
   const ChildAuthPage({super.key});
@@ -12,40 +13,38 @@ class ChildAuthPage extends StatefulWidget {
 
 class _ChildAuthPageState extends State<ChildAuthPage> {
   final _codeController = TextEditingController();
-  final _nameController = TextEditingController(); // Optional: child name if needed
-  bool isLoading = false;
+  bool _loading = false;
 
-  void _handleChildLogin() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final code = _codeController.text.trim();
-    final childName = _nameController.text.trim();
+  void _loginChild() async {
+  final code = _codeController.text.trim();
+  if (code.isEmpty) return;
 
-    setState(() => isLoading = true);
+  setState(() => _loading = true);
 
-    try {
-      // Attempt to join child with code
-      await auth.childJoin(code, childName);
+  try {
+    final authProvider = context.read<AuthProvider>();
+    await authProvider.loginChild(code);
 
-      if (auth.currentUserModel != null) {
-        // Successful login
-        Navigator.pushReplacement(
+    final child = authProvider.currentUserModel as ChildUser;
+
+    Navigator.pushReplacement(
   context,
-  MaterialPageRoute(builder: (context) => const ChildLandingPage()),
+  MaterialPageRoute(
+    builder: (_) => ChildNavigationShell(
+      childId: child.cid,
+      childName: child.name,
+    ),
+  ),
 );
-      } else {
-        // Failed login
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid code')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    } finally {
-      setState(() => isLoading = false);
-    }
+
+  } catch (e) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(e.toString())));
+  } finally {
+    setState(() => _loading = false);
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -57,21 +56,14 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
           children: [
             TextField(
               controller: _codeController,
-              decoration: const InputDecoration(labelText: "Enter Access Code"),
-            ),
-            const SizedBox(height: 10),
-            // Optional: input for child's name if needed
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: "Child Name"),
+              decoration: const InputDecoration(
+                  labelText: "Enter Access Code", border: OutlineInputBorder()),
             ),
             const SizedBox(height: 20),
-            isLoading
+            _loading
                 ? const CircularProgressIndicator()
                 : ElevatedButton(
-                    onPressed: _handleChildLogin,
-                    child: const Text("Login"),
-                  ),
+                    onPressed: _loginChild, child: const Text("Login")),
           ],
         ),
       ),

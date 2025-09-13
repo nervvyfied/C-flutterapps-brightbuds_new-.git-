@@ -1,91 +1,123 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '/data/models/parent_model.dart';
+import '/data/models/child_model.dart';
 import '/data/services/auth_service.dart';
 import '/data/repositories/user_repository.dart';
-import '/data/models/user_model.dart';
-import '/data/services/sync_service.dart';
+import '/data/repositories/task_repository.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _auth = AuthService();
   final UserRepository _userRepo = UserRepository();
-  final SyncService _sync = SyncService();
+  late final TaskRepository _taskRepo;
 
-  UserModel? currentUserModel;
+  dynamic currentUserModel; // ParentUser or ChildUser
   User? firebaseUser;
 
-  late final Box<UserModel> _userBox;
+  late final Box<ParentUser> _parentBox;
+  late final Box<ChildUser> _childBox;
 
   AuthProvider() {
-    _userBox = Hive.box<UserModel>('usersBox'); // already opened in main.dart
+    _taskRepo = TaskRepository();
+    //_sync = SyncService(_userRepo, _taskRepo);
+
+    _parentBox = Hive.box<ParentUser>('parentBox');
+    _childBox = Hive.box<ChildUser>('childBox');
+
     _auth.authStateChanges.listen(_onAuthStateChanged);
   }
 
-  bool get isHiveReady => _userBox.isOpen;
-
   Future<void> _onAuthStateChanged(User? user) async {
     firebaseUser = user;
-
     if (user == null) {
       currentUserModel = null;
       notifyListeners();
       return;
     }
 
-    // Try loading from Hive first
-    currentUserModel = _userBox.get(user.uid);
-
-    if (currentUserModel == null) {
-      // Fetch from Firestore if not cached
-      currentUserModel = await _userRepo.fetchUserAndCache(user.uid);
-      if (currentUserModel != null) {
-        await _userBox.put(user.uid, currentUserModel!);
-      }
+    var parent = _userRepo.getCachedParent(user.uid);
+    if (parent != null) {
+      currentUserModel = parent;
+    } else {
+      currentUserModel = await _userRepo.fetchParentAndCache(user.uid);
     }
-
-    // Kick off sync service
-    final isParent = currentUserModel?.role == 'parent';
-    await _sync.syncOnLogin(user.uid, isParent: isParent);
 
     notifyListeners();
   }
 
   // ---------------- PARENT ----------------
-  Future<void> signUpParent(String displayName, String email, String password) async {
-    final userModel = await _auth.signUpParent(displayName, email, password);
-    if (userModel != null) {
-      currentUserModel = userModel;
+  Future<void> signUpParent(String name, String email, String password) async {
+    final parent = await _auth.signUpParent(name, email, password);
+    if (parent != null) {
+      currentUserModel = parent;
       firebaseUser = _auth.currentUser;
-      await _userBox.put(userModel.uid, userModel);
+      await _userRepo.cacheParent(parent);
+      _parentBox.put(parent.uid, parent); // Save in local box
       notifyListeners();
     }
   }
 
   Future<void> loginParent(String email, String password) async {
-    final userModel = await _auth.loginParent(email, password);
-    if (userModel != null) {
-      currentUserModel = userModel;
+    final parent = await _auth.loginParent(email, password);
+    if (parent != null) {
+      currentUserModel = parent;
       firebaseUser = _auth.currentUser;
-      await _userBox.put(userModel.uid, userModel);
+      await _userRepo.cacheParent(parent);
+      _parentBox.put(parent.uid, parent); // Save in local box
       notifyListeners();
     }
   }
+
+  Future<ChildUser?> addChild(String name) async {
+  if (currentUserModel == null || currentUserModel is! ParentUser) return null;
+
+  final parent = currentUserModel as ParentUser;
+
+  final code = _auth.generateChildAccessCode();
+
+  final child = ChildUser(
+    cid: DateTime.now().millisecondsSinceEpoch.toString(),
+    parentUid: parent.uid,
+    name: name,
+    balance: 0,
+    streak: 0,
+  );
+
+  final createdChild = await _userRepo.createChild(parent.uid, child, code);
+
+  if (createdChild != null) {
+    await _childBox.put(createdChild.cid, createdChild);
+
+    final updatedParent = await _userRepo.fetchParentAndCache(parent.uid);
+    if (updatedParent != null) {
+      currentUserModel = updatedParent;
+      await _parentBox.put(updatedParent.uid, updatedParent);
+
+      print(
+        "Child '${createdChild.name}' added, accessCode: ${updatedParent.accessCode}",
+      );
+    }
+  }
+
+  return createdChild;
+}
+
+
 
   // ---------------- CHILD ----------------
-  Future<String> generateChildCode() async {
-    final parentUid = firebaseUser!.uid;
-    return await _auth.generateChildAccessCode(parentUid);
-  }
+Future<void> loginChild(String accessCode) async {
+  final child = await _auth.childLogin(accessCode);
 
-  Future<void> childJoin(String accessCode, String childName) async {
-    final userModel = await _auth.joinChildWithCode(accessCode, childName);
-    if (userModel != null) {
-      currentUserModel = userModel;
-      firebaseUser = _auth.currentUser;
-      await _userBox.put(userModel.uid, userModel);
-      notifyListeners();
-    }
-  }
+  currentUserModel = child;
+  await _userRepo.cacheChild(child);
+  _childBox.put(child.cid, child);
+
+  notifyListeners();
+}
+
+
+
 
   // ---------------- SIGN OUT ----------------
   Future<void> signOut() async {

@@ -1,28 +1,168 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
-import '../models/user_model.dart';
+import '/data/models/parent_model.dart';
+import '/data/models/child_model.dart';
+import '/data/services/firestore_service.dart';
 
 class UserRepository {
-  final _db = FirebaseFirestore.instance;
-  final _box = Hive.box<UserModel>('usersBox');
+  final FirestoreService _firestore = FirestoreService();
 
-  Future<void> createOrUpdateUser(UserModel user) async {
-    await _db.collection('users').doc(user.uid).set(user.toFirestore(), SetOptions(merge: true));
-    await _box.put(user.uid, user);
+  final Box<ParentUser> _parentBox = Hive.box<ParentUser>('parentBox');
+  final Box<ChildUser> _childBox = Hive.box<ChildUser>('childBox');
+
+  // ---------------- PARENT ----------------
+  Future<void> cacheParent(ParentUser parent) async =>
+      await _parentBox.put(parent.uid, parent);
+
+  ParentUser? getCachedParent(String uid) => _parentBox.get(uid);
+
+  /// Get parent by access code (parent only, no child)
+  Future<ParentUser?> getParentByAccessCode(String code) async {
+    final parent = await _firestore.getParentByAccessCode(code);
+    if (parent != null) await cacheParent(parent);
+    return parent;
   }
 
-  Future<UserModel?> fetchUserAndCache(String uid) async {
-    // try cache first
-    if (_box.containsKey(uid)) return _box.get(uid);
+  /// Fetch parent from Firestore and cache locally
+  Future<ParentUser?> fetchParentAndCache(String parentUid) async {
+    try {
+      final parent = await _firestore.getParent(parentUid);
+      if (parent == null) return null;
 
-    final doc = await _db.collection('users').doc(uid).get();
-    if (!doc.exists) return null;
-    final user = UserModel.fromFirestore(doc.data()!, doc.id);
-    await _box.put(uid, user);
-    return user;
+      await cacheParent(parent);
+      return parent;
+    } catch (e) {
+      print('Error fetching parent: $e');
+      return null;
+    }
   }
 
-  UserModel? getCachedUser(String uid) {
-    return _box.get(uid);
+  /// Fetch all children for a parent
+  Future<List<ChildUser>> fetchChildrenAndCache(String parentUid) async {
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(parentUid)
+          .collection('children')
+          .get();
+
+      final children =
+          snapshot.docs.map((doc) => ChildUser.fromMap(doc.data(), doc.id)).toList();
+
+      // Cache in Hive
+      for (var child in children) {
+        await cacheChild(child);
+      }
+
+      return children;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching children: $e');
+      }
+      return [];
+    }
+  }
+
+  // ---------------- CHILD ----------------
+  Future<void> cacheChild(ChildUser child) async =>
+      await _childBox.put(child.cid, child);
+
+  ChildUser? getCachedChild(String id) => _childBox.get(id);
+
+  /// Create child + refresh parent (so access code is updated)
+  Future<ChildUser?> createChild(String parentUid, ChildUser child, String code) async {
+    await _firestore.createChild(parentUid, child, code);
+    await cacheChild(child);
+
+    // 🔑 Refresh parent cache to include new accessCode mapping
+    final updatedParent = await _firestore.getParent(parentUid);
+    if (updatedParent != null) {
+      await cacheParent(updatedParent);
+    }
+
+    return child;
+  }
+
+  Future<ChildUser?> fetchChildAndCache(String parentUid, String childId) async {
+    final child = await _firestore.getChildById(parentUid, childId);
+    if (child != null) await cacheChild(child);
+    return child;
+  }
+
+  Future<ChildUser?> getChildByAccessCode(String parentUid, String code) async {
+    final child = await _firestore.getChildByAccessCode(parentUid, code);
+    if (child != null) await cacheChild(child);
+    return child;
+  }
+
+  Future<List<ChildUser>> getChildrenByParent(String parentUid) async {
+  final snapshot = await _firestore
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .get();
+
+  return snapshot.docs.map((doc) => ChildUser.fromMap(doc.data(), doc.id)).toList();
+}
+
+  Future<Map<String, dynamic>?> fetchParentAndChildByAccessCode(
+      String accessCode) async {
+    try {
+      final result =
+          await _firestore.getParentByAccessCodeWithChild(accessCode);
+
+      if (result == null) return null;
+
+      final parent = result['parent'] as ParentUser;
+      final child = result['child'] as ChildUser?;
+
+      await cacheParent(parent);
+          if (child != null) {
+        await cacheChild(child);
+      }
+
+      return {
+        'parent': parent,
+        'child': child,
+      };
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching parent/child by accessCode: $e');
+      }
+      return null;
+    }
+  }
+
+  Future<void> updateChildBalance(String parentUid, String childId, int amount) async {
+  try {
+    // 1️⃣ Get cached child
+    final child = getCachedChild(childId);
+    if (child == null) {
+      if (kDebugMode) print('Child not found in cache: $childId');
+      return;
+    }
+
+    // 2️⃣ Calculate new balance
+    final newBalance = child.balance + amount;
+    final updatedChild = child.copyWith(balance: newBalance);
+
+    // 3️⃣ Update locally in Hive
+    await cacheChild(updatedChild);
+
+    // 4️⃣ Update remotely in Firestore
+    await _firestore.collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId)
+        .update({'balance': newBalance});
+
+    if (kDebugMode) {
+      print('Updated child balance: ${childId}, new balance: $newBalance');
+    }
+  } catch (e) {
+    if (kDebugMode) print('Error updating child balance: $e');
   }
 }
+
+}
+

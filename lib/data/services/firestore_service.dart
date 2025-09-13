@@ -1,84 +1,156 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:hive/hive.dart';
-import '../models/user_model.dart';
+import '/data/models/parent_model.dart';
+import '/data/models/child_model.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final String userBoxName = "users_box";
 
-  FirestoreService() {
-    // Open Hive box if not already open
-    if (!Hive.isBoxOpen(userBoxName)) {
-      Hive.openBox<UserModel>(userBoxName);
+  CollectionReference<Map<String, dynamic>> collection(String path) {
+    return _db.collection(path);
+  }
+
+  // ---------------- PARENT ----------------
+  Future<void> createParent(ParentUser parent) async {
+    await _db.collection('users').doc(parent.uid).set(parent.toMap());
+  }
+
+  Future<ParentUser?> getParent(String uid) async {
+    final doc = await _db.collection('users').doc(uid).get();
+    if (!doc.exists) return null;
+    return ParentUser.fromMap(doc.data()!, doc.id);
+  }
+
+  // In FirestoreService
+Future<Map<String, dynamic>?> getParentByAccessCodeWithChild(
+    String accessCode) async {
+  // 🔍 Find parent by activeAccessCode
+  final query = await _db
+      .collection('users')
+      .where('activeAccessCode', isEqualTo: accessCode)
+      .limit(1)
+      .get();
+
+  if (query.docs.isEmpty) return null;
+
+  final parentDoc = query.docs.first;
+  final parentData = parentDoc.data();
+  final parent = ParentUser.fromMap(parentData, parentDoc.id);
+
+  // 🔑 Get childId from parent
+  final childId = parentData['childId'] as String?;
+  if (childId == null || childId.isEmpty) return {"parent": parent, "child": null};
+
+  // 📂 Fetch child doc
+  final childDoc = await _db
+      .collection('users')
+      .doc(parent.uid)
+      .collection('children')
+      .doc(childId)
+      .get();
+
+  ChildUser? child;
+  if (childDoc.exists) {
+    child = ChildUser.fromMap(childDoc.data()!, childDoc.id);
+  }
+
+  return {
+    "parent": parent,
+    "child": child,
+  };
+}
+
+Future<ParentUser?> getParentByAccessCode(String code) async {
+  final querySnapshot = await _db.collection('users').get();
+
+  for (var doc in querySnapshot.docs) {
+    final data = doc.data();
+
+    // 1. Check activeAccessCode directly
+    if (data['activeAccessCode'] == code) {
+      return ParentUser.fromMap(data, doc.id);
+    }
+
+    // 2. Check childrenAccessCodes map
+    final childrenMap = Map<String, dynamic>.from(data['childrenAccessCodes'] ?? {});
+    if (childrenMap.values.contains(code)) {
+      return ParentUser.fromMap(data, doc.id);
     }
   }
 
-  // ---------------- CREATE ----------------
-  Future<void> createUser(UserModel user) async {
-    await _db.collection("users").doc(user.uid).set(user.toFirestore());
+  return null;
+}
 
-    // Save to Hive
-    final box = Hive.box<UserModel>(userBoxName);
-    await box.put(user.uid, user);
-  }
 
-  // ---------------- READ ----------------
-  Future<UserModel?> getUser(String uid) async {
-    final box = Hive.box<UserModel>(userBoxName);
-    if (box.containsKey(uid)) {
-      return box.get(uid);
-    }
+  // ---------------- CHILD ----------------
+  Future<void> createChild(String parentUid, ChildUser child, String accessCode) async {
+  await _db
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .doc(child.cid)
+      .set(child.toMap());
 
-    final doc = await _db.collection("users").doc(uid).get();
-    if (doc.exists) {
-      final user = UserModel.fromFirestore(doc.data()!, doc.id);
-      await box.put(uid, user); // cache it
-      return user;
-    }
-    return null;
-  }
+  final parentRef = _db.collection('users').doc(parentUid);
 
-  // ---------------- UPDATE ----------------
-  Future<void> updateUser(UserModel user) async {
-    await _db.collection("users").doc(user.uid).update(user.toFirestore());
+  await _db.runTransaction((transaction) async {
+    final snapshot = await transaction.get(parentRef);
+    final currentData = snapshot.data() ?? {};
 
-    // Update Hive cache
-    final box = Hive.box<UserModel>(userBoxName);
-    await box.put(user.uid, user);
-  }
+    final existingCodes = Map<String, String>.from(
+      currentData['childrenAccessCodes'] ?? {},
+    );
 
-  // ---------------- QUERY PARENT BY ACCESS CODE ----------------
-  Future<UserModel?> getParentByAccessCode(String accessCode) async {
-    final query = await _db
-        .collection("users")
-        .where("accessCode", isEqualTo: accessCode)
-        .where("role", isEqualTo: "parent")
-        .limit(1)
+    existingCodes[child.cid] = accessCode;
+
+    transaction.update(parentRef, {
+      "activeAccessCode": accessCode,
+      "childId": child.cid,
+      "childrenAccessCodes": existingCodes,
+    });
+  });
+}
+
+
+  Future<ChildUser?> getChildByAccessCode(String parentUid, String accessCode) async {
+  // 1. Get parent
+  final parentDoc = await _db.collection('users').doc(parentUid).get();
+  if (!parentDoc.exists) return null;
+
+  final parentData = parentDoc.data()!;
+  final codes = Map<String, dynamic>.from(parentData['childrenAccessCodes'] ?? {});
+
+  // 2. Find childId by matching code
+  final matchingEntry = codes.entries.firstWhere(
+    (entry) => entry.value == accessCode,
+    orElse: () => const MapEntry('', ''), // fallback if no match
+  );
+
+  if (matchingEntry.key.isEmpty) return null;
+
+  // 3. Fetch the actual child doc
+  final childDoc = await _db
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .doc(matchingEntry.key)
+      .get();
+
+  if (!childDoc.exists) return null;
+
+  return ChildUser.fromMap(childDoc.data()!, childDoc.id);
+}
+
+
+
+  Future<ChildUser?> getChildById(String parentUid, String childId) async {
+    final doc = await _db
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId)
         .get();
 
-    if (query.docs.isNotEmpty) {
-      final doc = query.docs.first;
-      final parent = UserModel.fromFirestore(doc.data(), doc.id);
-
-      // Cache parent in Hive
-      final box = Hive.box<UserModel>(userBoxName);
-      await box.put(parent.uid, parent);
-
-      return parent;
-    }
-    return null;
-  }
-
-  // ---------------- UPDATE ACCESS CODE ----------------
-  Future<void> updateAccessCode(String uid, String code) async {
-    await _db.collection("users").doc(uid).update({"accessCode": code});
-
-    // Update Hive cache if exists
-    final box = Hive.box<UserModel>(userBoxName);
-    if (box.containsKey(uid)) {
-      final user = box.get(uid)!;
-      user.accessCode = code;
-      await box.put(uid, user);
-    }
+    if (!doc.exists) return null;
+    return ChildUser.fromMap(doc.data()!, doc.id);
   }
 }

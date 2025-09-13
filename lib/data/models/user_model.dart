@@ -26,6 +26,12 @@ class UserModel {
   @HiveField(6)
   final DateTime? createdAt;
 
+  @HiveField(7)
+  bool accessCodeUsed;
+
+  @HiveField(8)
+  int balance; // 👈 new field (defaults to 0 for child, null ignored for parent)
+
   UserModel({
     required this.uid,
     required this.role,
@@ -34,14 +40,14 @@ class UserModel {
     this.accessCode,
     this.linkedParentId,
     this.createdAt,
+    this.accessCodeUsed = false,
+    this.balance = 0,
   });
 
   // Firestore -> Model
-  // `data` is the document data map, `uid` is the doc id
   factory UserModel.fromFirestore(Map<String, dynamic> data, String uid) {
     DateTime? created;
-    final dynamic rawCreated = data['createdAt'];
-
+    final rawCreated = data['createdAt'];
     if (rawCreated != null) {
       if (rawCreated is Timestamp) {
         created = rawCreated.toDate();
@@ -54,12 +60,14 @@ class UserModel {
 
     return UserModel(
       uid: uid,
-      role: (data['role'] ?? '') as String,
-      email: data['email'] as String?,
-      name: data['name'] as String?,
-      accessCode: data['accessCode'] as String?,
-      linkedParentId: data['linkedParentId'] as String?,
+      role: data['role'] ?? '',
+      email: data['email'],
+      name: data['name'],
+      accessCode: data['accessCode'],
+      linkedParentId: data['linkedParentId'],
       createdAt: created,
+      accessCodeUsed: data['accessCodeUsed'] ?? false,
+      balance: data['balance'] ?? 0,
     );
   }
 
@@ -71,6 +79,8 @@ class UserModel {
       "name": name,
       "accessCode": accessCode,
       "linkedParentId": linkedParentId,
+      "accessCodeUsed": accessCodeUsed,
+      "balance": balance,
     };
 
     if (createdAt != null) {
@@ -80,3 +90,4 @@ class UserModel {
     return map;
   }
 }
+
