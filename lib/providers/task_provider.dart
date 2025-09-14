@@ -1,6 +1,5 @@
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../data/models/task_model.dart';

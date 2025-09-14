@@ -135,6 +135,8 @@ class TaskModel {
     };
   }
 
+  Map<String, dynamic> toMap() => toFirestore();
+
   // ---------------- COPYWITH ----------------
   TaskModel copyWith({
     String? id,

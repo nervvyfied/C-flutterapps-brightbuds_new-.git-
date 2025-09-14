@@ -7,6 +7,7 @@ import '/data/repositories/streak_repository.dart';
 class SyncService {
   final UserRepository _userRepo;
   final TaskRepository _taskRepo;
+  // ignore: unused_field
   final StreakRepository _streakRepo;
 
   SyncService(

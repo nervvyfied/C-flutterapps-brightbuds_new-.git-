@@ -101,11 +101,51 @@ class TaskRepository {
   debugPrint("Task ${updatedTask.id} saved locally and remotely.");
 }
 
-  /// Delete task both locally and remotely
-  Future<void> deleteTask(String parentId, String childId, String id) async {
-    await deleteTaskLocal(id);
-    await deleteTaskRemote(parentId, childId, id);
+  Future<void> updateTask(TaskModel task, String parentUid, String childId) async {
+  try {
+    // 1. Update local Hive first
+    await _taskBox.put(task.id, task.copyWith(lastUpdated: DateTime.now()));
+
+    // 2. Push update to Firestore
+    final taskRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId)
+        .collection('tasks')
+        .doc(task.id);
+
+    await taskRef.update(task.toMap());
+
+  } catch (e) {
+    print("Error updating task: $e");
+    rethrow;
   }
+}
+
+
+  /// Delete task both locally and remotely
+  Future<void> deleteTask(String taskId, String parentUid, String childId) async {
+  try {
+    // 1. Delete from local Hive
+    await _taskBox.delete(taskId);
+
+    // 2. Delete from Firestore
+    final taskRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId)
+        .collection('tasks')
+        .doc(taskId);
+
+    await taskRef.delete();
+  } catch (e) {
+    print("Error deleting task: $e");
+    rethrow;
+  }
+}
+
 
   /// Pull tasks for parent (only one child, so this is enough)
   Future<void> pullParentTasks(String parentId) async {

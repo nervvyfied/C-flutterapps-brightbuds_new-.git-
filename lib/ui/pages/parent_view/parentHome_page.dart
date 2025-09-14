@@ -23,7 +23,8 @@ class ParentDashboardPage extends StatefulWidget {
 class _ParentDashboardPageState extends State<ParentDashboardPage> {
   final UserRepository _userRepo = UserRepository();
   List<ChildUser> _children = [];
-  String? _accessCode; // single code instead of list
+  // ignore: unused_field
+  String? _accessCode;
   bool _loading = false;
 
   Future<void> _loadData() async {

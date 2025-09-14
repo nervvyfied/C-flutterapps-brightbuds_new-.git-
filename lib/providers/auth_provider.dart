@@ -10,6 +10,7 @@ import '/data/repositories/task_repository.dart';
 class AuthProvider extends ChangeNotifier {
   final AuthService _auth = AuthService();
   final UserRepository _userRepo = UserRepository();
+  // ignore: unused_field
   late final TaskRepository _taskRepo;
 
   dynamic currentUserModel; // ParentUser or ChildUser
