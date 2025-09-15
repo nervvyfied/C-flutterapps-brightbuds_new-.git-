@@ -7,6 +7,7 @@ import '../data/repositories/task_repository.dart';
 import '../data/repositories/user_repository.dart';
 import '../data/repositories/streak_repository.dart';
 import '../data/services/sync_service.dart';
+import 'dart:async';
 
 class TaskProvider extends ChangeNotifier {
   final TaskRepository _taskRepo = TaskRepository();
@@ -24,6 +25,9 @@ class TaskProvider extends ChangeNotifier {
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
+
+  Timer? _midnightTimer;
+  DateTime? _lastResetDate;
 
   // ---------------- LOAD TASKS ----------------
   Future<void> loadTasks({String? parentId, String? childId, bool isParent = false}) async {
@@ -48,6 +52,7 @@ class TaskProvider extends ChangeNotifier {
       _tasks = [];
     }
   } finally {
+    await autoResetIfNeeded();
     _isLoading = false;
     notifyListeners();
   }
@@ -140,59 +145,53 @@ class TaskProvider extends ChangeNotifier {
 
 
   // ---------------- SYNC ----------------
-  /// Call when user logs in
-  Future<void> syncOnLogin({
-  String? uid,
-  String? accessCode,
-  required bool isParent,
-}) async {
-  _isLoading = true;
-  notifyListeners();
-
-  try {
-    // Perform sync via SyncService
-    await _syncService.syncOnLogin(
-      uid: uid,
-      accessCode: accessCode,
-      isParent: isParent,
-    );
-
-    // Reload tasks locally after sync
-    if (isParent && uid != null) {
-      // Parent login: load tasks by parentId
-      await loadTasks(
-  parentId: uid,
-  isParent: true,
-);
-
-    } else if (!isParent && accessCode != null) {
-      // Child login: get parent & child info first
-      final result = await _userRepo.fetchParentAndChildByAccessCode(accessCode);
-if (result != null) {
-  final parent = result['parent'] as ParentUser?;
-  final child = result['child'] as ChildUser?;
-  if (parent != null && child != null) {
-    // now load with both parentId and childId so pullChildTasks works
-    await loadTasks(
-  parentId: parent.uid,
-  childId: child.cid,
-  isParent: false,
-);
-
-  }
-}
-
-    }
-  } catch (e) {
-    if (kDebugMode) {
-      print('Error during syncOnLogin: $e');
-    }
-  } finally {
-    _isLoading = false;
+/// Call when user logs in
+Future<void> syncOnLogin({
+    String? uid,
+    String? accessCode,
+    required bool isParent,
+  }) async {
+    _isLoading = true;
     notifyListeners();
-  }
-}
 
+    try {
+      // Perform sync via SyncService
+      await _syncService.syncOnLogin(
+        uid: uid,
+        accessCode: accessCode,
+        isParent: isParent,
+      );
+
+      // Reload tasks locally after sync
+      if (isParent && uid != null) {
+        await loadTasks(parentId: uid, isParent: true);
+      } else if (!isParent && accessCode != null) {
+        final result =
+            await _userRepo.fetchParentAndChildByAccessCode(accessCode);
+        if (result != null) {
+          final parent = result['parent'] as ParentUser?;
+          final child = result['child'] as ChildUser?;
+          if (parent != null && child != null) {
+            await loadTasks(
+                parentId: parent.uid, childId: child.cid, isParent: false);
+          }
+        }
+      }
+
+      // 🔹 Always reset once on login
+      await resetDailyTasks();
+
+      // 🔹 Start the midnight reset timer
+      startDailyResetScheduler();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error during syncOnLogin: $e');
+      }
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
 
   /// Optional: manually push pending changes to Firestore
   Future<void> pushPendingChanges() async {
@@ -200,35 +199,80 @@ if (result != null) {
     notifyListeners();
   }
 
+  // ---------------- DAILY RESET ----------------
   Future<void> resetDailyTasks() async {
-  final today = DateTime.now();
-  final todayDateOnly = DateTime(today.year, today.month, today.day);
+    final today = DateTime.now();
+    final todayDateOnly = DateTime(today.year, today.month, today.day);
 
-  for (var task in _tasks) {
-    final lastDate = task.lastCompletedDate != null
-        ? DateTime(task.lastCompletedDate!.year, task.lastCompletedDate!.month, task.lastCompletedDate!.day)
-        : null;
+    for (var task in _tasks) {
+      final lastDate = task.lastCompletedDate != null
+          ? DateTime(task.lastCompletedDate!.year, task.lastCompletedDate!.month,
+              task.lastCompletedDate!.day)
+          : null;
 
-    int updatedActiveStreak = task.activeStreak;
+      int updatedActiveStreak = task.activeStreak;
 
-    // missed a day → reset streak
-    if (lastDate != null && lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
-      updatedActiveStreak = 0;
+      // missed a day → reset streak
+      if (lastDate != null &&
+          lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
+        updatedActiveStreak = 0;
+      }
+
+      if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
+        final updated = task.copyWith(
+          isDone: false,
+          verified: false,
+          activeStreak: updatedActiveStreak,
+          lastUpdated: DateTime.now(),
+        );
+
+        await _taskRepo.saveTask(updated);
+
+        final idx = _tasks.indexWhere((t) => t.id == task.id);
+        if (idx != -1) _tasks[idx] = updated;
+      }
     }
 
-    if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
-      final updated = task.copyWith(
-        isDone: false,
-        verified: false,
-        activeStreak: updatedActiveStreak,
-      );
-      await _taskRepo.saveTask(updated);
-      final idx = _tasks.indexWhere((t) => t.id == task.id);
-      if (idx != -1) _tasks[idx] = updated;
+    // push reset changes to Firestore
+    await pushPendingChanges();
+
+    notifyListeners();
+  }
+
+  // ---------------- MIDNIGHT SCHEDULER ----------------
+  void startDailyResetScheduler() {
+    _midnightTimer?.cancel();
+
+    final now = DateTime.now();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+    final duration = nextMidnight.difference(now);
+
+    _midnightTimer = Timer(duration, () async {
+      await resetDailyTasks();
+      startDailyResetScheduler();
+    });
+  }
+
+  void stopDailyResetScheduler() {
+    _midnightTimer?.cancel();
+    _midnightTimer = null;
+  }
+
+  @override
+  void dispose() {
+    stopDailyResetScheduler();
+    super.dispose();
+  }
+  /// Automatically reset daily tasks if needed (call this at app start)
+  Future<void> autoResetIfNeeded() async {
+    final today = DateTime.now();
+    final todayDateOnly = DateTime(today.year, today.month, today.day);
+
+    if (_lastResetDate == null || _lastResetDate!.isBefore(todayDateOnly)) {
+      await resetDailyTasks();
+      _lastResetDate = todayDateOnly;
     }
   }
-  notifyListeners();
 }
 
 
-}

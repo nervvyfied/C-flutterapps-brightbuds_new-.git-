@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/providers/task_provider.dart';
 import 'package:flutter/material.dart';
@@ -22,8 +24,14 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
   void initState() {
     super.initState();
     Future.microtask(() {
-      Provider.of<TaskProvider>(context, listen: false)
-          .loadTasks(parentId: widget.parentId, childId: widget.childId);
+      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+      taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
+
+      Timer.periodic(const Duration(minutes: 5), (_) {
+      taskProvider.autoResetIfNeeded();
+    });
+      
+      
     });
   }
 
