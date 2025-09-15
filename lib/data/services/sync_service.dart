@@ -3,18 +3,21 @@ import '/data/models/child_model.dart';
 import '/data/repositories/user_repository.dart';
 import '/data/repositories/task_repository.dart';
 import '/data/repositories/streak_repository.dart';
+import '/data/repositories/journal_repository.dart';
 
 class SyncService {
   final UserRepository _userRepo;
   final TaskRepository _taskRepo;
-  // ignore: unused_field
   final StreakRepository _streakRepo;
+  final JournalRepository _journalRepo; // internal instance
 
   SyncService(
-      this._userRepo, this._taskRepo, this._streakRepo);
+    this._userRepo,
+    this._taskRepo,
+    this._streakRepo,
+  ) : _journalRepo = JournalRepository();
 
   /// Called on user login
-  /// isParent: true for parent login, false for child login
   Future<void> syncOnLogin({
     String? uid,
     String? accessCode,
@@ -31,44 +34,48 @@ class SyncService {
 
   // ---------------- PARENT ----------------
   Future<void> _syncParent(String parentUid) async {
-    // 1️⃣ Fetch parent profile
     final ParentUser? parent = await _userRepo.fetchParentAndCache(parentUid);
     if (parent == null) return;
 
-    // 2️⃣ Fetch all children under this parent
-    final List<ChildUser> children = await _userRepo.fetchChildrenAndCache(parentUid);
+    final List<ChildUser> children =
+        await _userRepo.fetchChildrenAndCache(parentUid);
 
-    // 3️⃣ Sync tasks per child
     for (var child in children) {
-      await _taskRepo.pullChildTasks(parentUid, child.cid);       // Pull remote → merge into Hive
-      await _taskRepo.pushPendingLocalChanges();       // Push any local changes
+      // 🔹 Tasks only
+      await _taskRepo.pullChildTasks(parentUid, child.cid);
+      await _taskRepo.pushPendingLocalChanges();
     }
-
-    // 4️⃣ Optional: sync streaks/rewards if offline changes exist
-    //await _streakRepo.pushPendingLocalChanges();
   }
 
   // ---------------- CHILD ----------------
   Future<void> _syncChild(String accessCode) async {
-  final Map<String, dynamic>? result =
-      await _userRepo.fetchParentAndChildByAccessCode(accessCode);
-  if (result == null) return;
+    final Map<String, dynamic>? result =
+        await _userRepo.fetchParentAndChildByAccessCode(accessCode);
+    if (result == null) return;
 
-  final parent = result['parent'] as ParentUser?;
-  final child = result['child'] as ChildUser?;
+    final parent = result['parent'] as ParentUser?;
+    final child = result['child'] as ChildUser?;
+    if (parent == null || child == null) return;
 
-  if (parent == null || child == null) return;
+    // 🔹 Tasks
+    await _taskRepo.pullChildTasks(parent.uid, child.cid);
+    await _taskRepo.pushPendingLocalChanges();
 
-  // Pull tasks using parent.uid + child.cid
-  await _taskRepo.pullChildTasks(parent.uid, child.cid);
-  await _taskRepo.pushPendingLocalChanges();
-}
-
+    // 🔹 Journals
+    await _journalRepo.pullChildEntries(parent.uid, child.cid);
+    await _journalRepo.pushPendingLocalChanges(parent.uid, child.cid);
+  }
 
   // ---------------- GLOBAL SYNC ----------------
-  /// Call this periodically or on connectivity regained
-  Future<void> syncAllPendingChanges() async {
+  Future<void> syncAllPendingChanges({String? parentId, String? childId}) async {
     await _taskRepo.pushPendingLocalChanges();
-    //await _streakRepo.pushPendingLocalChanges();
+
+    // Only push journal changes if childId is provided
+    if (parentId != null && childId != null) {
+      await _journalRepo.pushPendingLocalChanges(parentId, childId);
+    }
+
+    // Streaks optional
+    // await _streakRepo.pushPendingLocalChanges();
   }
 }

@@ -1,4 +1,4 @@
-
+import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
 import 'package:flutter/material.dart';
 
@@ -29,9 +29,10 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     _pages = [
       ChildQuestsPage(
         childId: widget.childId,
-        childName: widget.childName, parentId: widget.parentId,
+        childName: widget.childName,
+        parentId: widget.parentId,
       ),
-      const PlaceholderPage(title: 'Journal'),
+      JournalListPage(childId: widget.childId, parentId: widget.parentId,), // ✅ Journal is live now
       const PlaceholderPage(title: 'Power Pack'),
       const PlaceholderPage(title: 'Aquarium'),
     ];
@@ -50,6 +51,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.task),
@@ -73,7 +75,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
   }
 }
 
-// Same placeholder widget can be reused
+// Still useful for unfinished sections
 class PlaceholderPage extends StatelessWidget {
   final String title;
   const PlaceholderPage({super.key, required this.title});

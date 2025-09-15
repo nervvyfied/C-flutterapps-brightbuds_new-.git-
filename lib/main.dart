@@ -1,6 +1,8 @@
 import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/models/journal_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
+import 'package:brightbuds_new/providers/journal_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -35,11 +37,16 @@ void main() async {
   if (!Hive.isAdapterRegistered(TaskModelAdapter().typeId)) {
     Hive.registerAdapter(TaskModelAdapter());
   }
+  if (!Hive.isAdapterRegistered(JournalEntryAdapter().typeId)) {
+    Hive.registerAdapter(JournalEntryAdapter());
+  }
 
   // ---------------- Open Boxes ----------------
   await Hive.openBox<ParentUser>('parentBox');
   await Hive.openBox<ChildUser>('childBox');
   await Hive.openBox<TaskModel>('tasksBox');
+  await Hive.openBox<JournalEntry>('journalBox');
+
 
   runApp(const MyApp());
 }
@@ -53,6 +60,9 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => TaskProvider()),
+        ChangeNotifierProvider(create: (_) => JournalProvider()),
+
+
         // Add other providers here (TaskRepository, UserRepository) if needed
       ],
       child: MaterialApp(
