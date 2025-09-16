@@ -1,57 +1,43 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
 import '/data/models/journal_model.dart';
 import '/providers/journal_provider.dart';
 
-class JournalAddPage extends StatefulWidget {
+class JournalEditPage extends StatefulWidget {
   final String parentId;
   final String childId;
+  final JournalEntry entry;
 
-  const JournalAddPage({
+  const JournalEditPage({
     super.key,
     required this.parentId,
     required this.childId,
+    required this.entry,
   });
 
   @override
-  State<JournalAddPage> createState() => _JournalAddPageState();
+  State<JournalEditPage> createState() => _JournalEditPageState();
 }
 
-class _JournalAddPageState extends State<JournalAddPage> {
+class _JournalEditPageState extends State<JournalEditPage> {
   int _stars = 0;
   String _mood = "";
-  int _step = 0; // 0 = affirmation page, 1 = journal form page
+  int _step = 0;
 
-  // Controllers for journal text
   final _thankfulForController = TextEditingController();
   final _todayILearnedController = TextEditingController();
   final _todayITriedController = TextEditingController();
   final _bestPartOfDayController = TextEditingController();
 
-  // ---------------- SAVE ENTRY ----------------
-  Future<void> _saveEntry() async {
-    final uuid = const Uuid().v4();
-
-    final newEntry = JournalEntry(
-      jid: uuid,
-      cid: widget.childId,
-      entryDate: DateTime.now(),
-      stars: _stars,
-      affirmation: "I am amazing",
-      mood: _mood,
-      thankfulFor: _thankfulForController.text,
-      todayILearned: _todayILearnedController.text,
-      todayITried: _todayITriedController.text,
-      bestPartOfDay: _bestPartOfDayController.text,
-      createdAt: DateTime.now(),
-    );
-
-    // Save via JournalProvider (which calls repository)
-    await Provider.of<JournalProvider>(context, listen: false)
-        .addEntry(widget.parentId, widget.childId, newEntry);
-
-    Navigator.pop(context); // close page
+  @override
+  void initState() {
+    super.initState();
+    _stars = widget.entry.stars;
+    _mood = widget.entry.mood;
+    _thankfulForController.text = widget.entry.thankfulFor;
+    _todayILearnedController.text = widget.entry.todayILearned;
+    _todayITriedController.text = widget.entry.todayITried;
+    _bestPartOfDayController.text = widget.entry.bestPartOfDay;
   }
 
   @override
@@ -63,7 +49,6 @@ class _JournalAddPageState extends State<JournalAddPage> {
     super.dispose();
   }
 
-  // ---------------- UI BUILDERS ----------------
   Widget _buildStars() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -110,6 +95,25 @@ class _JournalAddPageState extends State<JournalAddPage> {
     );
   }
 
+  Future<void> _saveEdit() async {
+    final updatedEntry = widget.entry.copyWith(
+      stars: _stars,
+      mood: _mood,
+      thankfulFor: _thankfulForController.text,
+      todayILearned: _todayILearnedController.text,
+      todayITried: _todayITriedController.text,
+      bestPartOfDay: _bestPartOfDayController.text,
+      entryDate: DateTime.now(),
+    );
+
+    final provider = Provider.of<JournalProvider>(context, listen: false);
+
+    await provider.deleteEntry(widget.parentId, widget.childId, widget.entry.jid);
+    await provider.addEntry(widget.parentId, widget.childId, updatedEntry);
+
+    Navigator.pop(context, true);
+  }
+
   Widget _affirmationPage() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -122,6 +126,7 @@ class _JournalAddPageState extends State<JournalAddPage> {
         const SizedBox(height: 20),
         _buildStars(),
         const SizedBox(height: 20),
+       
         const SizedBox(height: 20),
         _buildMoodButtons(),
         const SizedBox(height: 40),
@@ -181,9 +186,9 @@ class _JournalAddPageState extends State<JournalAddPage> {
           ),
           const SizedBox(height: 40),
           ElevatedButton.icon(
-            onPressed: _saveEntry,
+            onPressed: _saveEdit,
             icon: const Icon(Icons.save),
-            label: const Text("Save Entry"),
+            label: const Text("Save Changes"),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 50),
             ),
@@ -193,14 +198,11 @@ class _JournalAddPageState extends State<JournalAddPage> {
     );
   }
 
-  // ---------------- MAIN BUILD ----------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Journal Entry')),
-      body: Center(
-        child: _step == 0 ? _affirmationPage() : _journalFormPage(),
-      ),
+      appBar: AppBar(title: const Text('Edit Journal Entry')),
+      body: Center(child: _step == 0 ? _affirmationPage() : _journalFormPage()),
     );
   }
 }

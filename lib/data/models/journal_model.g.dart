@@ -22,20 +22,19 @@ class JournalEntryAdapter extends TypeAdapter<JournalEntry> {
       entryDate: fields[2] as DateTime,
       stars: fields[3] as int,
       affirmation: fields[4] as String,
-      becauseIm: fields[5] as String,
-      mood: fields[6] as String,
-      thankfulFor: fields[7] as String,
-      todayILearned: fields[8] as String,
-      todayITried: fields[9] as String,
-      bestPartOfDay: fields[10] as String,
-      createdAt: fields[11] as DateTime,
+      mood: fields[5] as String,
+      thankfulFor: fields[6] as String,
+      todayILearned: fields[7] as String,
+      todayITried: fields[8] as String,
+      bestPartOfDay: fields[9] as String,
+      createdAt: fields[10] as DateTime,
     );
   }
 
   @override
   void write(BinaryWriter writer, JournalEntry obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(11)
       ..writeByte(0)
       ..write(obj.jid)
       ..writeByte(1)
@@ -47,18 +46,16 @@ class JournalEntryAdapter extends TypeAdapter<JournalEntry> {
       ..writeByte(4)
       ..write(obj.affirmation)
       ..writeByte(5)
-      ..write(obj.becauseIm)
-      ..writeByte(6)
       ..write(obj.mood)
-      ..writeByte(7)
+      ..writeByte(6)
       ..write(obj.thankfulFor)
-      ..writeByte(8)
+      ..writeByte(7)
       ..write(obj.todayILearned)
-      ..writeByte(9)
+      ..writeByte(8)
       ..write(obj.todayITried)
-      ..writeByte(10)
+      ..writeByte(9)
       ..write(obj.bestPartOfDay)
-      ..writeByte(11)
+      ..writeByte(10)
       ..write(obj.createdAt);
   }
 

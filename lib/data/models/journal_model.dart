@@ -20,24 +20,21 @@ class JournalEntry {
   final String affirmation;
 
   @HiveField(5)
-  final String becauseIm;
-
-  @HiveField(6)
   final String mood;
 
-  @HiveField(7)
+  @HiveField(6)
   final String thankfulFor;
 
-  @HiveField(8)
+  @HiveField(7)
   final String todayILearned;
 
-  @HiveField(9)
+  @HiveField(8)
   final String todayITried;
 
-  @HiveField(10)
+  @HiveField(9)
   final String bestPartOfDay;
 
-  @HiveField(11)
+  @HiveField(10)
   final DateTime createdAt;
 
   JournalEntry({
@@ -46,7 +43,6 @@ class JournalEntry {
     required this.entryDate,
     required this.stars,
     required this.affirmation,
-    required this.becauseIm,
     required this.mood,
     required this.thankfulFor,
     required this.todayILearned,
@@ -62,7 +58,6 @@ class JournalEntry {
       'entryDate': entryDate.toIso8601String(),
       'stars': stars,
       'affirmation': affirmation,
-      'becauseIm': becauseIm,
       'mood': mood,
       'thankfulFor': thankfulFor,
       'todayILearned': todayILearned,
@@ -79,7 +74,6 @@ class JournalEntry {
       entryDate: DateTime.parse(map['entryDate'] as String),
       stars: map['stars'] ?? 0,
       affirmation: map['affirmation'] ?? "I am amazing",
-      becauseIm: map['becauseIm'] ?? "",
       mood: map['mood'] ?? "",
       thankfulFor: map['thankfulFor'] ?? "",
       todayILearned: map['todayILearned'] ?? "",
@@ -95,7 +89,6 @@ class JournalEntry {
     DateTime? entryDate,
     int? stars,
     String? affirmation,
-    String? becauseIm,
     String? mood,
     String? thankfulFor,
     String? todayILearned,
@@ -109,7 +102,6 @@ class JournalEntry {
       entryDate: entryDate ?? this.entryDate,
       stars: stars ?? this.stars,
       affirmation: affirmation ?? this.affirmation,
-      becauseIm: becauseIm ?? this.becauseIm,
       mood: mood ?? this.mood,
       thankfulFor: thankfulFor ?? this.thankfulFor,
       todayILearned: todayILearned ?? this.todayILearned,

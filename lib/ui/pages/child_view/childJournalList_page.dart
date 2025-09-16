@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '/data/models/journal_model.dart';
 import '/providers/journal_provider.dart';
 import 'childJournalAdd_page.dart';
+import 'childJournalEdit_page.dart'; // new edit page
 
 class JournalListPage extends StatefulWidget {
   final String parentId;
@@ -20,51 +21,151 @@ class JournalListPage extends StatefulWidget {
 }
 
 class _JournalListPageState extends State<JournalListPage> {
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEntries();
+  }
+
+  Future<void> _loadEntries() async {
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
+    await journalProvider.fetchEntries(widget.parentId, widget.childId);
+    setState(() {
+      _isLoading = false;
+    });
+  }
+
+  // ---------------- PREVIEW DIALOG ----------------
+  Future<bool?> _showPreviewDialog(JournalEntry entry) {
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
+
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("Preview - ${DateFormat('yMMMd').format(entry.entryDate)}"),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Stars: ${entry.stars}"),
+              Text("Mood: ${entry.mood}"),
+              Text("Affirmation: ${entry.affirmation}"),
+              Text("Thankful For: ${entry.thankfulFor}"),
+              Text("Today I Learned: ${entry.todayILearned}"),
+              Text("Today I Tried: ${entry.todayITried}"),
+              Text("Best Part Of Day: ${entry.bestPartOfDay}"),
+            ],
+          ),
+        ),
+        actions: [
+          
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true), // triggers Edit
+            child: const Text("Edit"),
+          ),
+          TextButton(
+            onPressed: () async {
+              await journalProvider.deleteEntry(
+                widget.parentId,
+                widget.childId,
+                entry.jid,
+              );
+              Navigator.of(context).pop(false);
+              _loadEntries();
+            },
+            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final journalProvider = Provider.of<JournalProvider>(context);
-    final entries = journalProvider.getEntries(widget.parentId, widget.childId);
+    final entries = journalProvider.getEntries(widget.childId);
 
     return Scaffold(
       appBar: AppBar(title: const Text("My Journal")),
-      body: entries.isEmpty
-          ? const Center(child: Text("No journal entries yet"))
-          : ListView.builder(
-              itemCount: entries.length,
-              itemBuilder: (context, index) {
-                final entry = entries[index];
-                final formattedDate = DateFormat('yMMMd').format(entry.entryDate);
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: ListTile(
-                    title: Text(
-                      formattedDate,
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.add),
+                      label: const Text("Add Journal"),
+                      onPressed: () async {
+                        final refreshed = await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => JournalAddPage(
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                            ),
+                          ),
+                        );
+                        if (refreshed == true) _loadEntries();
+                      },
                     ),
-                    subtitle: Text("Stars: ${entry.stars} | Mood: ${entry.mood}"),
                   ),
-                );
-              },
+                ),
+                Expanded(
+                  child: entries.isEmpty
+                      ? const Center(child: Text("No journal entries yet"))
+                      : ListView.builder(
+                          itemCount: entries.length,
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              child: ListTile(
+                                title: Text(
+                                  DateFormat('yMMMd').format(entry.entryDate),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  "Stars: ${entry.stars} | Mood: ${entry.mood}",
+                                ),
+                                onTap: () async {
+                                  final edit = await _showPreviewDialog(entry);
+                                  if (edit == true) {
+                                    final edited = await Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => JournalEditPage(
+                                          parentId: widget.parentId,
+                                          childId: widget.childId,
+                                          entry: entry,
+                                        ),
+                                      ),
+                                    );
+                                    if (edited == true) _loadEntries();
+                                  }
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.add),
-        onPressed: () async {
-          // Navigate to Add Journal Page with parentId and childId
-          final refreshed = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => JournalAddPage(
-                parentId: widget.parentId,
-                childId: widget.childId,
-              ),
-            ),
-          );
-
-          if (refreshed == true) {
-            setState(() {}); // refresh list after save
-          }
-        },
-      ),
     );
   }
 }
