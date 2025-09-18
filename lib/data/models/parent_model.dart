@@ -24,7 +24,9 @@ class ParentUser {
   final String? childId;
 
   @HiveField(6)
-  final Map<String, String>? childrenAccessCodes; 
+  final Map<String, String>? childrenAccessCodes;
+
+
 
   ParentUser({
     required this.uid,

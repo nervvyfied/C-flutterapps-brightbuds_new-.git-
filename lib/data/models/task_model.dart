@@ -82,7 +82,7 @@ class TaskModel {
 
   // ---------------- FIRESTORE -> MODEL ----------------
   factory TaskModel.fromFirestore(Map<String, dynamic> data, String id) {
-    DateTime? _toDate(dynamic raw) {
+    DateTime? toDate(dynamic raw) {
       if (raw == null) return null;
       if (raw is Timestamp) return raw.toDate();
       if (raw is DateTime) return raw;
@@ -96,19 +96,19 @@ class TaskModel {
       difficulty: data['difficulty'] as String? ?? 'Easy',
       reward: (data['reward'] as num?)?.toInt() ?? 0,
       routine: data['routine'] as String? ?? 'Anytime',
-      alarm: _toDate(data['alarm']),
+      alarm: toDate(data['alarm']),
       note: data['note'] as String?,
       isDone: data['isDone'] as bool? ?? false,
-      doneAt: _toDate(data['doneAt']),
+      doneAt: toDate(data['doneAt']),
       activeStreak: (data['activeStreak'] as num?)?.toInt() ?? 0,
       longestStreak: (data['longestStreak'] as num?)?.toInt() ?? 0,
       totalDaysCompleted: (data['totalDaysCompleted'] as num?)?.toInt() ?? 0,
-      lastCompletedDate: _toDate(data['lastCompletedDate']),
+      lastCompletedDate: toDate(data['lastCompletedDate']),
       parentId: data['parentId'] as String? ?? '',
       childId: data['childId'] as String? ?? '',
-      lastUpdated: _toDate(data['lastUpdated']),
+      lastUpdated: toDate(data['lastUpdated']),
       verified: data['verified'] as bool? ?? false,
-      createdAt: _toDate(data['createdAt']) ?? DateTime.now(),
+      createdAt: toDate(data['createdAt']) ?? DateTime.now(),
     );
   }
 

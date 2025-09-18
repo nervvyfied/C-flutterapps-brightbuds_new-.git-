@@ -1,14 +1,19 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
+import '/data/models/task_model.dart';
+import '/data/models/journal_model.dart'; // ✅ This is JournalEntry
 import '/data/repositories/user_repository.dart';
 import '/providers/auth_provider.dart';
 
 class ParentDashboardPage extends StatefulWidget {
   final String parentId;
-  final String childId; // 🔹 pass child's id here
+  final String childId;
 
   const ParentDashboardPage({
     required this.parentId,
@@ -23,9 +28,13 @@ class ParentDashboardPage extends StatefulWidget {
 class _ParentDashboardPageState extends State<ParentDashboardPage> {
   final UserRepository _userRepo = UserRepository();
   List<ChildUser> _children = [];
-  // ignore: unused_field
   String? _accessCode;
   bool _loading = false;
+
+  // Stats
+  Map<String, int> taskStats = {"done": 0, "not_done": 0};
+
+  Map<String, int> moodStats = {};
 
   Future<void> _loadData() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -34,79 +43,64 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     setState(() => _loading = true);
 
-    // Refresh parent (and get latest access code)
     final parent = await _userRepo.fetchParentAndCache(model.uid);
     _accessCode = parent?.accessCode;
 
-    // Fetch child (even though it's single, keep list for consistency in UI)
     final children = await _userRepo.fetchChildrenAndCache(model.uid);
-    setState(() {
-      _children = children;
-      _loading = false;
-    });
+    _children = children;
+
+    if (_children.isNotEmpty) {
+      await _fetchTaskStats();
+      await _fetchJournalStats();
+    } else {
+      setState(() {
+        taskStats = {"done": 0, "not_done": 0};
+        moodStats = {};
+      });
+    }
+
+    setState(() => _loading = false);
   }
 
-  Future<void> _showAddChildDialog() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final parent = auth.currentUserModel as ParentUser?;
-    if (parent == null) return;
+  Future<void> _fetchTaskStats() async {
+    final snapshot = await FirebaseFirestore.instance.collection('tasks').get();
 
-    final controller = TextEditingController();
+    final data = {"done": 0, "not_done": 0};
+    for (var doc in snapshot.docs) {
+      try {
+        final task = TaskModel.fromFirestore(doc.data(), doc.id);
+        if (_children.any((c) => c.cid == task.childId)) {
+          if (task.isDone) {
+            data["done"] = data["done"]! + 1;
+          } else {
+            data["not_done"] = data["not_done"]! + 1;
+          }
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Task parse error ${doc.id}: $e');
+      }
+    }
+    setState(() => taskStats = data);
+  }
 
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Child'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Child name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final name = controller.text.trim();
-              if (name.isEmpty) return;
+  Future<void> _fetchJournalStats() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('journals')
+        .get();
 
-              Navigator.pop(ctx); // close dialog quickly
-
-              setState(() => _loading = true);
-
-              // Create child (auth generates access code)
-              final created = await auth.addChild(name);
-
-              // Refresh parent and child
-              final refreshedParent =
-                  await _userRepo.fetchParentAndCache(parent.uid);
-              final children =
-                  await _userRepo.fetchChildrenAndCache(parent.uid);
-
-              setState(() {
-                _children = children;
-                _accessCode = refreshedParent?.accessCode;
-                _loading = false;
-              });
-
-              ScaffoldMessenger.of(context).showSnackBar(
-  SnackBar(
-    content: Text(
-      created != null
-          ? "Child '${created.name}' added! "
-            "Access code: ${refreshedParent?.childrenAccessCodes?[created.cid] ?? '—'}"
-          : "Child created, refresh to see it.",
-    ),
-  ),
-);
-
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
+    final data = <String, int>{};
+    for (var doc in snapshot.docs) {
+      try {
+        final journal = JournalEntry.fromMap(doc.data()); // ✅ Use JournalEntry
+        if (_children.any((c) => c.cid == journal.cid)) {
+          final mood = (journal.mood).toLowerCase();
+          data[mood] = (data[mood] ?? 0) + 1;
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('Journal parse error ${doc.id}: $e');
+      }
+    }
+    setState(() => moodStats = data);
   }
 
   @override
@@ -145,62 +139,201 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
+          : SingleChildScrollView(
               padding: const EdgeInsets.all(12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(parent.name,
-                        style: const TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold)),
-                    subtitle: Text(parent.email),
+                  // 👋 Welcome Banner
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      "Welcome Back, ${parent.name}!",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
-                  // Access Code Section
-                  const Text('Children & Access Codes',
-    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-const SizedBox(height: 8),
-Expanded(
-  flex: 2,
-  child: _children.isEmpty
-      ? const Center(child: Text('No children yet. Tap + to add one.'))
-      : ListView.builder(
-          itemCount: _children.length,
-          itemBuilder: (ctx, i) {
-            final child = _children[i];
-            final parent = auth.currentUserModel as ParentUser;
-            final code = parent.childrenAccessCodes?[child.cid] ?? "—";
+                  // 👦 Children List
+                  const Text(
+                    'Children & Access Codes',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  _children.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Text('No children yet. Tap + to add one.'),
+                          ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _children.length,
+                          itemBuilder: (ctx, i) {
+                            final child = _children[i];
+                            final code =
+                                parent.childrenAccessCodes?[child.cid] ?? "—";
 
-            return Card(
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              child: ListTile(
-                title: Text(child.name),
-                subtitle: Text(
-                    'Balance: ${child.balance} • Streak: ${child.streak}\nAccess Code: $code'),
-                trailing: IconButton(
-                  icon: const Icon(Icons.copy),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Copied $code to clipboard')),
-                    );
-                  },
-                ),
-              ),
-            );
-          },
-        ),
-),
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 6),
+                              child: ListTile(
+                                title: Text(child.name),
+                                subtitle: Text(
+                                  'Balance: ${child.balance} • Streak: ${child.streak}\nAccess Code: $code',
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.copy),
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Copied $code to clipboard',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                        ),
 
+                  const SizedBox(height: 16),
+
+                  // 📊 Graphs Row (Tasks + Journals)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Card(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: SizedBox(
+                              height: 160,
+                              child: PieChart(
+                                PieChartData(
+                                  sections: taskStats.entries
+                                      .map(
+                                        (e) => PieChartSectionData(
+                                          value: e.value.toDouble(),
+                                          title: "${e.key}\n${e.value}",
+                                          color: _taskColor(e.key),
+                                        ),
+                                      )
+                                      .toList(),
+                                  centerSpaceRadius: 30,
+                                  sectionsSpace: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Card(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: SizedBox(
+                              height: 160,
+                              child: BarChart(
+                                BarChartData(
+                                  titlesData: FlTitlesData(show: false),
+                                  borderData: FlBorderData(show: false),
+                                  barGroups: moodStats.entries
+                                      .toList()
+                                      .asMap()
+                                      .entries
+                                      .map((entry) {
+                                        final idx = entry.key;
+                                        final kv = entry.value;
+                                        return BarChartGroupData(
+                                          x: idx,
+                                          barRods: [
+                                            BarChartRodData(
+                                              toY: kv.value.toDouble(),
+                                              color: Colors.deepPurple,
+                                            ),
+                                          ],
+                                        );
+                                      })
+                                      .toList(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 😀 Mood Suggestion
+                  if (moodStats.isNotEmpty)
+                    Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Text(
+                              "Most common mood: ${_topMood()}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton(
+                              onPressed: () {},
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.deepPurple,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text("Assign Power Boost"),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddChildDialog,
-        child: const Icon(Icons.add),
-      ),
     );
+  }
+
+  Color _taskColor(String status) {
+    switch (status) {
+      case "done":
+        return Colors.green;
+      case "not_done":
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _topMood() {
+    if (moodStats.isEmpty) return "None";
+    return moodStats.entries.reduce((a, b) => a.value > b.value ? a : b).key;
   }
 }

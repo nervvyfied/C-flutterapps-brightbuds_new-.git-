@@ -37,4 +37,20 @@ class JournalProvider with ChangeNotifier {
     _entries[childId]?.removeWhere((e) => e.jid == jid);
     notifyListeners();
   }
+
+  // ---------- 📊 Dashboard Helpers ----------
+  Map<String, int> getMoodStats(String childId) {
+    final moods = getEntries(childId).map((e) => e.mood).toList();
+    final Map<String, int> counts = {};
+    for (var mood in moods) {
+      counts[mood] = (counts[mood] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  String getTopMood(String childId) {
+    final stats = getMoodStats(childId);
+    if (stats.isEmpty) return "—";
+    return stats.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+  }
 }

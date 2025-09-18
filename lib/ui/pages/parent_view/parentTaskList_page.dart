@@ -169,7 +169,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
             ),
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: "Difficulty"),
-              value: difficulty,
+              initialValue: difficulty,
               items: ['Easy', 'Medium', 'Hard']
                   .map((d) => DropdownMenuItem(value: d, child: Text(d)))
                   .toList(),
@@ -183,7 +183,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
             ),
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: "Routine"),
-              value: routine,
+              initialValue: routine,
               items: ['Morning', 'Afternoon', 'Evening', 'Anytime']
                   .map((r) => DropdownMenuItem(value: r, child: Text(r)))
                   .toList(),

@@ -274,5 +274,9 @@ Future<void> syncOnLogin({
     }
   }
 }
+extension TaskStats on TaskProvider {
+  int get doneCount => _tasks.where((t) => t.isDone).length;
+  int get notDoneCount => _tasks.where((t) => !t.isDone).length;
+}
 
 
