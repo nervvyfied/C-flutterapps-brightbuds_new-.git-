@@ -39,6 +39,8 @@ class JournalProvider with ChangeNotifier {
   }
 
   // ---------- 📊 Dashboard Helpers ----------
+
+  // Mood stats (total counts)
   Map<String, int> getMoodStats(String childId) {
     final moods = getEntries(childId).map((e) => e.mood).toList();
     final Map<String, int> counts = {};
@@ -48,9 +50,39 @@ class JournalProvider with ChangeNotifier {
     return counts;
   }
 
+  // Top mood overall
   String getTopMood(String childId) {
     final stats = getMoodStats(childId);
     if (stats.isEmpty) return "—";
     return stats.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+  }
+
+  // ---------- 📅 Weekly Mood Trends ----------
+
+  /// Returns weekly mood stats for a child
+  /// Example: { "2025-09-15": {"Happy": 2, "Sad": 1}, "2025-09-08": {"Angry": 3} }
+  Map<String, Map<String, int>> getWeeklyMoodTrends(String childId) {
+    final entries = getEntries(childId);
+
+    final Map<String, Map<String, int>> weeklyTrends = {};
+
+    for (var entry in entries) {
+      final entryDate = entry.entryDate; // Make sure `date` in JournalEntry is DateTime
+      final weekStart = _getWeekStart(entryDate);
+
+      final weekKey =
+          "${weekStart.year}-${weekStart.month.toString().padLeft(2, '0')}-${weekStart.day.toString().padLeft(2, '0')}";
+
+      weeklyTrends.putIfAbsent(weekKey, () => {});
+      weeklyTrends[weekKey]![entry.mood] =
+          (weeklyTrends[weekKey]![entry.mood] ?? 0) + 1;
+    }
+
+    return weeklyTrends;
+  }
+
+  /// Helper: get the Monday of the week for a given date
+  DateTime _getWeekStart(DateTime entryDate) {
+    return entryDate.subtract(Duration(days: entryDate.weekday - 1));
   }
 }
