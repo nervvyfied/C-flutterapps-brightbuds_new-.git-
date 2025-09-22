@@ -27,43 +27,42 @@ class FirestoreService {
   }
 
   // In FirestoreService
-Future<Map<String, dynamic>?> getParentByAccessCodeWithChild(
-    String accessCode) async {
-  // 🔍 Find parent by activeAccessCode
-  final query = await _db
-      .collection('users')
-      .where('activeAccessCode', isEqualTo: accessCode)
-      .limit(1)
-      .get();
+Future<Map<String, dynamic>?> getParentByAccessCodeWithChild(String accessCode) async {
+  // 1️⃣ Get all parents
+  final parentsSnapshot = await _db.collection('users').get();
 
-  if (query.docs.isEmpty) return null;
+  for (var doc in parentsSnapshot.docs) {
+    final data = doc.data();
+    final childrenMap = Map<String, dynamic>.from(data['childrenAccessCodes'] ?? {});
 
-  final parentDoc = query.docs.first;
-  final parentData = parentDoc.data();
-  final parent = ParentUser.fromMap(parentData, parentDoc.id);
+    // 2️⃣ Check if any child has this access code
+    final matchingEntry = childrenMap.entries.firstWhere(
+      (entry) => entry.value == accessCode,
+      orElse: () => const MapEntry('', ''),
+    );
 
-  // 🔑 Get childId from parent
-  final childId = parentData['childId'] as String?;
-  if (childId == null || childId.isEmpty) return {"parent": parent, "child": null};
+    if (matchingEntry.key.isNotEmpty) {
+      final parent = ParentUser.fromMap(data, doc.id);
 
-  // 📂 Fetch child doc
-  final childDoc = await _db
-      .collection('users')
-      .doc(parent.uid)
-      .collection('children')
-      .doc(childId)
-      .get();
+      // 3️⃣ Fetch the child
+      final childDoc = await _db
+          .collection('users')
+          .doc(doc.id)
+          .collection('children')
+          .doc(matchingEntry.key)
+          .get();
 
-  ChildUser? child;
-  if (childDoc.exists) {
-    child = ChildUser.fromMap(childDoc.data()!, childDoc.id);
+      if (!childDoc.exists) return {"parent": parent, "child": null};
+
+      final child = ChildUser.fromMap(childDoc.data()!, childDoc.id);
+
+      return {"parent": parent, "child": child};
+    }
   }
 
-  return {
-    "parent": parent,
-    "child": child,
-  };
+  return null; // no match found
 }
+
 
 Future<ParentUser?> getParentByAccessCode(String code) async {
   final querySnapshot = await _db.collection('users').get();

@@ -1,5 +1,6 @@
 import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
+import 'package:brightbuds_new/aquarium/pages/aquarium_page.dart';
 import 'package:flutter/material.dart';
 
 class ChildNavigationShell extends StatefulWidget {
@@ -32,9 +33,9 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
         childName: widget.childName,
         parentId: widget.parentId,
       ),
-      JournalListPage(childId: widget.childId, parentId: widget.parentId,), // ✅ Journal is live now
+      JournalListPage(childId: widget.childId, parentId: widget.parentId,),
       const PlaceholderPage(title: 'Power Pack'),
-      const PlaceholderPage(title: 'Aquarium'),
+      AquariumPage(),
     ];
   }
 
