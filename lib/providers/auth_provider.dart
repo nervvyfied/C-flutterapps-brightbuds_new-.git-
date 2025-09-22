@@ -112,10 +112,10 @@ Future<void> loginChild(String accessCode) async {
 
   currentUserModel = child;
   await _userRepo.cacheChild(child);
-  _childBox.put(child.cid, child);
 
   notifyListeners();
 }
+
 
   // ---------------- SIGN OUT ----------------
   Future<void> signOut() async {

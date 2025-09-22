@@ -55,30 +55,28 @@ class AuthService {
   }
 
   Future<ChildUser> childLogin(String accessCode) async {
-  final normalizedCode = accessCode.trim().toUpperCase();
-  final result = await _firestore.getParentByAccessCodeWithChild(normalizedCode);
-  
-  if (result == null) throw Exception("Invalid access code");
+    final normalizedCode = accessCode.trim().toUpperCase();
 
-  final parent = result['parent'] as ParentUser;
-  final child = result['child'] as ChildUser?;
+    final result = await _firestore.getParentByAccessCodeWithChild(normalizedCode);
+    if (result == null) throw Exception("Invalid access code");
 
-  if (child == null) throw Exception("Child not found for this access code");
+    final parent = result['parent'] as ParentUser;
+    final child = result['child'] as ChildUser?;
+    if (child == null) throw Exception("Child not found");
 
-  // ✅ Make sure child has parentUid set
-  final updatedChild = ChildUser(
-    cid: child.cid,
-    parentUid: parent.uid, // 👈 force assign here
-    name: child.name,
-    balance: child.balance,
-    streak: child.streak,
-  );
+    final updatedChild = ChildUser(
+      cid: child.cid,
+      parentUid: parent.uid,
+      name: child.name,
+      balance: child.balance,
+      streak: child.streak,
+    );
 
-  await _userRepo.cacheParent(parent);
-  await _userRepo.cacheChild(updatedChild);
+    await _userRepo.cacheParent(parent);
+    await _userRepo.cacheChild(updatedChild);
 
-  return updatedChild;
-}
+    return updatedChild;
+  }
 
 
   // ---------------- SIGN OUT ----------------

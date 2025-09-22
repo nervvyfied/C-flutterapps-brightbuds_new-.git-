@@ -8,6 +8,7 @@ import '/data/repositories/journal_repository.dart';
 class SyncService {
   final UserRepository _userRepo;
   final TaskRepository _taskRepo;
+  // ignore: unused_field
   final StreakRepository _streakRepo;
   final JournalRepository _journalRepo; // internal instance
 
