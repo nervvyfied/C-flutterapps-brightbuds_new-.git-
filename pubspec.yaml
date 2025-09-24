@@ -76,6 +76,25 @@ flutter:
     - assets/tank/sand_bg.png
     - assets/tank/sand1.png
     - assets/tank/sand2.png
+    - assets/particles/bubble_l.png
+    - assets/particles/bubble_m.png
+    - assets/particles/bubble_s.png
+    - assets/particles/bubble_pop.png
+    - assets/particles/dirt1.png
+    - assets/particles/dirt2.png
+    - assets/particles/dirt3.png
+    - assets/particles/dirt4.png
+    - assets/particles/dirt5.png
+    - assets/tools/fishfood_drop.gif
+    - assets/tools/fishfood_icon.png
+    - assets/tools/foodpellet.png
+    - assets/tools/sponge_icon.png
+    - assets/fish/normal/fish1_normal.gif
+    - assets/fish/normal/fish2_normal.gif
+    - assets/fish/normal/fish3_normal.gif
+    - assets/fish/neglected/fish1_neglected.png
+    - assets/fish/neglected/fish2_neglected.png
+    - assets/fish/neglected/fish3_neglected.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

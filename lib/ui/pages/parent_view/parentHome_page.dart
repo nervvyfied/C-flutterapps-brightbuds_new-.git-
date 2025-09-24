@@ -26,6 +26,7 @@ class ParentDashboardPage extends StatefulWidget {
 class _ParentDashboardPageState extends State<ParentDashboardPage> {
   final UserRepository _userRepo = UserRepository();
   List<ChildUser> _children = [];
+  // ignore: unused_field
   String? _accessCode;
   bool _loading = false;
 
