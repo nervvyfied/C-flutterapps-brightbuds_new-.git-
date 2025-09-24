@@ -28,12 +28,13 @@ class _ParentNavigationShellState extends State<ParentNavigationShell> {
     _pages = [
       ParentDashboardPage(
         parentId: widget.parentId, 
-        childId: widget.childId),
+        ),
       ParentTaskListScreen(
-        parentId: widget.parentId,
-        childId: widget.childId),
+        parentId: widget.parentId
+        ),
       ParentAccountPage(
-        parentId: widget.parentId,),
+        parentId: widget.parentId,
+        ),
       
     ];
   }

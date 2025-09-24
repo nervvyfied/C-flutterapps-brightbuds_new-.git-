@@ -3,6 +3,7 @@ import 'package:brightbuds_new/data/models/journal_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/providers/journal_provider.dart';
+import 'package:brightbuds_new/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -58,6 +59,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => SelectedChildProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => TaskProvider()),
         ChangeNotifierProvider(create: (_) => JournalProvider()),

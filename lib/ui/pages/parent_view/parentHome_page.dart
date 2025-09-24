@@ -1,23 +1,25 @@
+import 'dart:io';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
-
-import '/data/models/child_model.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import '/data/models/parent_model.dart';
 import '/data/repositories/user_repository.dart';
 import '/providers/auth_provider.dart';
 import '/providers/journal_provider.dart';
 import '/providers/task_provider.dart';
+import '/providers/selected_child_provider.dart';
 
 class ParentDashboardPage extends StatefulWidget {
   final String parentId;
-  final String childId;
 
-  const ParentDashboardPage({
-    super.key,
-    required this.parentId,
-    required this.childId,
-  });
+  const ParentDashboardPage({super.key, required this.parentId});
 
   @override
   State<ParentDashboardPage> createState() => _ParentDashboardPageState();
@@ -25,13 +27,86 @@ class ParentDashboardPage extends StatefulWidget {
 
 class _ParentDashboardPageState extends State<ParentDashboardPage> {
   final UserRepository _userRepo = UserRepository();
-  List<ChildUser> _children = [];
-  String? _accessCode;
-  String? _selectedChildId;
-  bool _loading = false;
+  ParentUser? _parent;
+  bool _loading = true;
+final GlobalKey _childChartKey = GlobalKey();
+final GlobalKey _taskChartKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadParentData());
+  }
+
+  Future<void> _loadParentData() async {
+    setState(() => _loading = true);
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final parentModel = auth.currentUserModel;
+    if (parentModel == null || parentModel is! ParentUser) {
+      setState(() => _loading = false);
+      return;
+    }
+
+    final parent = await _userRepo.fetchParentAndCache(parentModel.uid);
+
+    setState(() {
+      _parent = parent;
+      _loading = false;
+    });
+  }
+
+Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
+  final pdf = pw.Document();
+
+  // Safe getters with defaults
+  final cid = childData['cid'] ?? 'Unknown';
+  final name = childData['name'] ?? 'Unknown';
+  final balance = childData['balance']?.toString() ?? '0';
+  final streak = childData['streak']?.toString() ?? '0';
+  final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
+  final done = childData['done']?.toString() ?? '0';
+  final notDone = childData['notDone']?.toString() ?? '0';
+
+  pdf.addPage(
+    pw.Page(
+      build: (context) {
+        return pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text("Child ID: $cid", style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 10),
+            pw.Text("Child Name: $name"),
+            pw.Text("Balance: $balance"),
+            pw.Text("Streak: $streak"),
+            pw.SizedBox(height: 20),
+            pw.Text("Mood Counts This Week:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            ...moodCounts.entries.map((e) => pw.Text("${e.key}: ${e.value}")),
+            pw.SizedBox(height: 20),
+            pw.Text("Task Status:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+            pw.Text("Done: $done"),
+            pw.Text("Not Done: $notDone"),
+          ],
+        );
+      },
+    ),
+  );
+
+  // Trigger browser download (works for Flutter Web)
+  await Printing.layoutPdf(
+    onLayout: (PdfPageFormat format) async => pdf.save(),
+    name: "child_$name.pdf",
+  );
+}
+
 
   static const List<String> _moodOrder = [
-    'calm', 'sad', 'happy', 'angry', 'confused', 'scared'
+    'calm',
+    'sad',
+    'happy',
+    'angry',
+    'confused',
+    'scared'
   ];
   static const Map<String, Color> _moodColors = {
     'calm': Color(0xFF6FA8DC),
@@ -50,100 +125,12 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     'scared': '😨',
   };
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
-  }
-
-  Future<void> _loadData() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final model = auth.currentUserModel;
-    if (model == null || model is! ParentUser) return;
-
-    setState(() => _loading = true);
-
-    final parent = await _userRepo.fetchParentAndCache(model.uid);
-    _accessCode = parent?.accessCode;
-
-    final children = await _userRepo.fetchChildrenAndCache(model.uid);
-    setState(() {
-      _children = children;
-      if (_children.isNotEmpty) _selectedChildId = _children.first.cid;
-      _loading = false;
-    });
-
-    // Fetch data for the selected child only
-    if (_selectedChildId != null) {
-      final journalProv = Provider.of<JournalProvider>(context, listen: false);
-      final taskProv = Provider.of<TaskProvider>(context, listen: false);
-      await journalProv.fetchEntries(model.uid, _selectedChildId!);
-      await taskProv.loadTasks(parentId: model.uid, childId: _selectedChildId!);
-    }
-  }
-
-  Future<void> _showAddChildDialog() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final parent = auth.currentUserModel as ParentUser?;
-    if (parent == null) return;
-
-    final controller = TextEditingController();
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Child'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(labelText: 'Child name'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final name = controller.text.trim();
-              if (name.isEmpty) return;
-
-              Navigator.pop(ctx);
-              setState(() => _loading = true);
-
-              final created = await auth.addChild(name);
-
-              final refreshedParent = await _userRepo.fetchParentAndCache(parent.uid);
-              final children = await _userRepo.fetchChildrenAndCache(parent.uid);
-
-              setState(() {
-                _children = children;
-                _accessCode = refreshedParent?.accessCode;
-                if (_children.isNotEmpty) _selectedChildId = _children.first.cid;
-                _loading = false;
-              });
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    created != null
-                        ? "Child '${created.name}' added! Access code: ${refreshedParent?.childrenAccessCodes?[created.cid] ?? '—'}"
-                        : "Child created, refresh to see it.",
-                  ),
-                ),
-              );
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Map<String, int> _moodCountsThisWeek(JournalProvider journalProv, String childId) {
+  Map<String, int> _moodCountsThisWeek(
+      JournalProvider journalProv, String childId) {
     final entries = journalProv.getEntries(childId);
     final now = DateTime.now();
-    final startOfWeek = DateTime(now.year, now.month, now.day)
-        .subtract(Duration(days: now.weekday - 1));
+    final startOfWeek =
+        DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
     final counts = {for (var m in _moodOrder) m: 0};
 
     for (final e in entries) {
@@ -165,7 +152,8 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     return sorted.first.key;
   }
 
-  List<PieChartSectionData> _buildGaugeSections(JournalProvider journalProv, String childId) {
+  List<PieChartSectionData> _buildGaugeSections(
+      JournalProvider journalProv, String childId) {
     final counts = _moodCountsThisWeek(journalProv, childId);
     final total = counts.values.fold<int>(0, (a, b) => a + b);
     if (total == 0) return [];
@@ -179,67 +167,95 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       );
     }).toList();
 
-    // Filler ensures only the top half is visible
-    sections.add(
-      PieChartSectionData(
-        value: total.toDouble(),
-        color: Colors.transparent,
-        radius: 50,
-        showTitle: false,
-      ),
-    );
+    sections.add(PieChartSectionData(
+      value: total.toDouble(),
+      color: Colors.transparent,
+      radius: 50,
+      showTitle: false,
+    ));
 
     return sections;
   }
 
-  Widget _buildChildSelector() {
-    if (_children.isEmpty) {
-      return const Center(child: Text('No children yet. Tap + to add one.'));
-    }
-
-    return DropdownButton<String>(
-      value: _selectedChildId,
-      items: _children.map((c) {
-        return DropdownMenuItem(
-          value: c.cid,
-          child: Text(c.name),
-        );
-      }).toList(),
-      onChanged: (value) async {
-        if (value == null) return;
-        setState(() {
-          _selectedChildId = value;
-          _loading = true;
-        });
-
-        final auth = Provider.of<AuthProvider>(context, listen: false);
-        final journalProv = Provider.of<JournalProvider>(context, listen: false);
-        final taskProv = Provider.of<TaskProvider>(context, listen: false);
-
-        await journalProv.fetchEntries(auth.currentUserModel!.uid, value);
-        await taskProv.loadTasks(parentId: auth.currentUserModel!.uid, childId: value);
-
-        setState(() => _loading = false);
-      },
-    );
-  }
-
-  List<Widget> _buildChildCharts(String childId, JournalProvider journalProv, TaskProvider taskProv) {
-    final selectedChild = _children.firstWhere((c) => c.cid == childId);
-    final childTasks = taskProv.tasks.where((t) => t.childId == childId).toList();
+  List<Widget> _buildChildCharts(JournalProvider journalProv,
+      TaskProvider taskProv, Map<String, dynamic> activeChild, SelectedChildProvider selectedChildProv) {
+    final childTasks =
+        taskProv.tasks.where((t) => t.childId == activeChild['cid']).toList();
     final done = childTasks.where((t) => t.isDone).length;
     final notDone = childTasks.where((t) => !t.isDone).length;
-    final weeklyTopMood = _getWeeklyTopMood(journalProv, childId);
+    final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
     return [
       const SizedBox(height: 12),
+
+      // Child ID Card
+      Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        elevation: 3,
+        child: ListTile(
+          title: const Text('Child ID'),
+          subtitle: Text(activeChild['cid'],
+              style:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          trailing: IconButton(
+            icon: const Icon(Icons.download),
+            tooltip: "Export to PDF",
+           onPressed: () {
+  final journalProv = Provider.of<JournalProvider>(context, listen: false);
+  final taskProv = Provider.of<TaskProvider>(context, listen: false);
+
+  // Compute mood counts for this week
+  final moodCounts = <String, int>{};
+  final childId = activeChild['cid'] ?? '';
+  if (childId.isNotEmpty) {
+    final entries = journalProv.getEntries(childId);
+    final now = DateTime.now();
+    final startOfWeek = DateTime(now.year, now.month, now.day)
+        .subtract(Duration(days: now.weekday - 1));
+
+    for (var mood in _moodOrder) {
+      moodCounts[mood] = 0;
+    }
+
+    for (final e in entries) {
+      final d = e.createdAt;
+      if (!d.isBefore(startOfWeek) && !d.isAfter(startOfWeek.add(Duration(days: 6)))) {
+        final key = e.mood.toLowerCase();
+        if (moodCounts.containsKey(key)) moodCounts[key] = moodCounts[key]! + 1;
+      }
+    }
+  }
+
+  // Compute tasks done/not done
+  final childTasks = taskProv.tasks.where((t) => t.childId == childId).toList();
+  final done = childTasks.where((t) => t.isDone).length;
+  final notDone = childTasks.where((t) => !t.isDone).length;
+
+  // Build full data map
+  final fullChildData = {
+    ...activeChild,
+    'moodCounts': moodCounts,
+    'done': done,
+    'notDone': notDone,
+  };
+
+  // Export
+  exportChildDataToPdfWeb(fullChildData);
+}
+
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+
+      // Mood & Task Charts
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // MOOD CHART
           Expanded(
             child: Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               elevation: 3,
               margin: const EdgeInsets.only(right: 6),
               child: Padding(
@@ -247,17 +263,19 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
-                      height: 100,
-                      child: OverflowBox(
-                        maxHeight: 200,
-                        alignment: Alignment.topCenter,
+                  SizedBox(
+                    height: 100,
+                    child: OverflowBox(
+                      maxHeight: 200,
+                      alignment: Alignment.topCenter,
+                      child: RepaintBoundary(
+                        key: _childChartKey,
                         child: SizedBox(
                           height: 200,
                           width: 200,
                           child: PieChart(
                             PieChartData(
-                              sections: _buildGaugeSections(journalProv, childId),
+                              sections: _buildGaugeSections(journalProv, activeChild['cid']),
                               centerSpaceRadius: 60,
                               startDegreeOffset: 180,
                               sectionsSpace: 2,
@@ -267,15 +285,19 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                         ),
                       ),
                     ),
+                  ),
+
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: _moodOrder.map((mood) {
-                        final count = _moodCountsThisWeek(journalProv, childId)[mood] ?? 0;
+                        final count =
+                            _moodCountsThisWeek(journalProv, activeChild['cid'])[mood] ??
+                                0;
                         return Column(
                           children: [
-                            Text(_moodEmojis[mood] ?? '•', style: const TextStyle(fontSize: 14)),
-                            const SizedBox(),
+                            Text(_moodEmojis[mood] ?? '•',
+                                style: const TextStyle(fontSize: 14)),
                             Container(
                               width: 12,
                               height: 5,
@@ -285,23 +307,25 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text('$count', style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                            Text('$count',
+                                style: const TextStyle(
+                                    fontSize: 10, color: Colors.black54)),
                           ],
                         );
                       }).toList(),
                     ),
                     const SizedBox(height: 6),
-                    Text("This week's top mood is: $weeklyTopMood", style: const TextStyle(fontSize: 12)),
+                    Text("This week's top mood is: $weeklyTopMood",
+                        style: const TextStyle(fontSize: 12)),
                   ],
                 ),
               ),
             ),
           ),
-
-          // TASKS CHART
           Expanded(
             child: Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               elevation: 3,
               margin: const EdgeInsets.only(left: 6),
               child: Padding(
@@ -336,7 +360,8 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text('$notDone Not Done', style: const TextStyle(fontSize: 12)),
+                    Text('$notDone Not Done',
+                        style: const TextStyle(fontSize: 12)),
                     Text('$done Done', style: const TextStyle(fontSize: 12)),
                   ],
                 ),
@@ -348,50 +373,75 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     ];
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final auth = Provider.of<AuthProvider>(context);
-    final current = auth.currentUserModel;
-    if (current == null || current is! ParentUser) {
-      return const Scaffold(body: Center(child: Text('Not authorized')));
-    }
+ @override
+Widget build(BuildContext context) {
+  final journalProv = Provider.of<JournalProvider>(context);
+  final taskProv = Provider.of<TaskProvider>(context);
+  final selectedChildProv = Provider.of<SelectedChildProvider>(context);
 
-    final parent = current;
-    final journalProv = Provider.of<JournalProvider>(context);
-    final taskProv = Provider.of<TaskProvider>(context);
+  if (_loading) return const Center(child: CircularProgressIndicator());
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Parent Dashboard')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+  final activeChild = selectedChildProv.selectedChild ?? {
+    "cid": "",
+    "name": "No Child",
+    "balance": 0,
+    "streak": 0,
+    "parentUid": widget.parentId,
+  };
+
+  final parentName = _parent?.name ?? "Parent";
+  final parentEmail = _parent?.email ?? "";
+
+  return Scaffold(
+    appBar: AppBar(title: const Text('Parent Dashboard')),
+    body: RefreshIndicator(
+      onRefresh: _loadParentData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Parent Info Card
+            Card(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
                   children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(parent.name,
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                      subtitle: Text(parent.email),
+                    const Icon(Icons.account_circle, size: 40, color: Colors.blue),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Hello Parent, $parentName!",
+                              style: const TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 4),
+                          Text(parentEmail,
+                              style: const TextStyle(
+                                  fontSize: 14, color: Colors.black54)),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Text('Select Child', style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 8),
-                    _buildChildSelector(),
-                    if (_selectedChildId != null)
-                      ..._buildChildCharts(_selectedChildId!, journalProv, taskProv),
                   ],
                 ),
               ),
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddChildDialog,
-        child: const Icon(Icons.add),
+            const SizedBox(height: 16),
+
+            // Child Charts
+            Text('Dashboard for ${activeChild['name']}',
+                style: const TextStyle(
+                    fontSize: 20, fontWeight: FontWeight.bold)),
+            ..._buildChildCharts(journalProv, taskProv, activeChild, selectedChildProv),
+          ],
+        ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
