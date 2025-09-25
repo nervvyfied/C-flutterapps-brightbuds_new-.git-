@@ -27,12 +27,6 @@ class ParentDashboardPage extends StatefulWidget {
 
 class _ParentDashboardPageState extends State<ParentDashboardPage> {
   final UserRepository _userRepo = UserRepository();
-<<<<<<< HEAD
-  List<ChildUser> _children = [];
-  // ignore: unused_field
-  String? _accessCode;
-  bool _loading = false;
-=======
   ParentUser? _parent;
   bool _loading = true;
 final GlobalKey _childChartKey = GlobalKey();
@@ -105,7 +99,6 @@ Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
   );
 }
 
->>>>>>> fcf63efc4a0b606b9841fbff6a0c5eff7c10e217
 
   static const List<String> _moodOrder = [
     'calm',
