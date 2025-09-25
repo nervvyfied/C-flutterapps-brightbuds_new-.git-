@@ -91,11 +91,11 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
         .toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text("Tasks for $childName")),
+      appBar: AppBar(title: Text("Quests for $childName")),
       body: taskProvider.isLoading
           ? const Center(child: CircularProgressIndicator())
           : childTasks.isEmpty
-              ? Center(child: Text("No tasks assigned to $childName. Add some!"))
+              ? Center(child: Text("No quests assigned to $childName. Add some!"))
               : ListView.builder(
                   itemCount: childTasks.length,
                   itemBuilder: (context, index) {

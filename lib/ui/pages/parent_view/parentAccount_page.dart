@@ -62,7 +62,9 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
           .collection('children')
           .get();
 
-      List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((doc) {
+      List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((
+        doc,
+      ) {
         var c = doc.data() as Map<String, dynamic>;
         String code = accessCodes[doc.id]?.toString() ?? "—";
 
@@ -73,15 +75,21 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
         };
       }).toList();
 
-      final selectedChildProv = Provider.of<SelectedChildProvider>(context, listen: false);
+      final selectedChildProv = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
 
       setState(() {
         parentData = data;
         childrenList = tempChildren;
-        if (tempChildren.isNotEmpty && selectedChildProv.selectedChild == null) {
+        if (tempChildren.isNotEmpty &&
+            selectedChildProv.selectedChild == null) {
           selectedChildProv.setSelectedChild(tempChildren[0]);
-          Provider.of<JournalProvider>(context, listen: false)
-              .fetchEntries(widget.parentId, tempChildren[0]['cid']);
+          Provider.of<JournalProvider>(
+            context,
+            listen: false,
+          ).fetchEntries(widget.parentId, tempChildren[0]['cid']);
         }
         isLoading = false;
       });
@@ -114,10 +122,16 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
                 title: Text(childMap['name']),
                 subtitle: Text("Access Code: ${childMap['accessCode']}"),
                 onTap: () async {
-                  final child = await _userRepo.fetchChildAndCache(widget.parentId, childMap['cid']);
+                  final child = await _userRepo.fetchChildAndCache(
+                    widget.parentId,
+                    childMap['cid'],
+                  );
                   if (child != null) {
                     final selectedChildProv =
-                        Provider.of<SelectedChildProvider>(context, listen: false);
+                        Provider.of<SelectedChildProvider>(
+                          context,
+                          listen: false,
+                        );
                     selectedChildProv.setSelectedChild({
                       "cid": child.cid,
                       "name": child.name,
@@ -126,8 +140,10 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
                       "parentUid": child.parentUid,
                     });
 
-                    await Provider.of<JournalProvider>(context, listen: false)
-                        .fetchEntries(widget.parentId, child.cid);
+                    await Provider.of<JournalProvider>(
+                      context,
+                      listen: false,
+                    ).fetchEntries(widget.parentId, child.cid);
                   }
                   Navigator.pop(ctx);
                 },
@@ -157,16 +173,21 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
                   initialValue: _newName,
                   decoration: const InputDecoration(labelText: "Name"),
                   onSaved: (val) => _newName = val,
-                  validator: (val) => val == null || val.isEmpty ? "Enter a name" : null,
+                  validator: (val) =>
+                      val == null || val.isEmpty ? "Enter a name" : null,
                 ),
                 TextFormField(
                   initialValue: _newEmail,
                   decoration: const InputDecoration(labelText: "Email"),
                   onSaved: (val) => _newEmail = val,
-                  validator: (val) => val == null || !val.contains('@') ? "Enter a valid email" : null,
+                  validator: (val) => val == null || !val.contains('@')
+                      ? "Enter a valid email"
+                      : null,
                 ),
                 TextFormField(
-                  decoration: const InputDecoration(labelText: "Password (leave blank to keep)"),
+                  decoration: const InputDecoration(
+                    labelText: "Password (leave blank to keep)",
+                  ),
                   onSaved: (val) => _newPassword = val,
                   obscureText: true,
                 ),
@@ -174,7 +195,10 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel"),
+            ),
             ElevatedButton(
               onPressed: _updateParentInfo,
               child: const Text("Save"),
@@ -192,7 +216,9 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
 
-      if (_newEmail != null && _newEmail!.isNotEmpty && _newEmail != parentData!['email']) {
+      if (_newEmail != null &&
+          _newEmail!.isNotEmpty &&
+          _newEmail != parentData!['email']) {
         await user?.updateEmail(_newEmail!);
       }
 
@@ -200,10 +226,10 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
         await user?.updatePassword(_newPassword!);
       }
 
-      await FirebaseFirestore.instance.collection('users').doc(widget.parentId).update({
-        'name': _newName,
-        'email': _newEmail,
-      });
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.parentId)
+          .update({'name': _newName, 'email': _newEmail});
 
       setState(() {
         parentData!['name'] = _newName;
@@ -216,20 +242,24 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
       );
     } catch (e) {
       print("Error updating parent info: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to update: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (isLoading) return const Center(child: CircularProgressIndicator());
-    if (parentData == null) return const Center(child: Text("Parent data not found."));
+@override
+Widget build(BuildContext context) {
+  if (isLoading) return const Center(child: CircularProgressIndicator());
+  if (parentData == null) return const Center(child: Text("Parent data not found."));
 
-    final activeChild = Provider.of<SelectedChildProvider>(context).selectedChild;
+  final activeChild = Provider.of<SelectedChildProvider>(context).selectedChild;
 
-    return RefreshIndicator(
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('Account Page'),
+    ),
+    body: RefreshIndicator(
       onRefresh: fetchParentData,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -249,47 +279,136 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
                     children: [
                       Row(
                         children: [
-                          Text(parentData!['name'] ?? "Parent",
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          Text(
+                            parentData!['name'] ?? "Parent",
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                           IconButton(
                             icon: const Icon(Icons.edit),
                             onPressed: _showEditParentDialog,
                           ),
                         ],
                       ),
-                      Text("${childrenList.length} children", style: TextStyle(color: Colors.grey[600])),
+                      Text(
+                        "${childrenList.length} children",
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
                     ],
                   ),
                 ),
-              
               ],
             ),
-           const SizedBox(height: 24),
-if (activeChild != null)
-  Card(
-    child: ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Colors.blue[100],
-        child: Text(activeChild['name'][0]),
-      ),
-      title: Text(activeChild['name']),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text("Balance: ${activeChild['balance']}"),
-          Text("Streak: ${activeChild['streak']}"),
-        ],
-      ),
-      trailing: IconButton(
-        onPressed: _switchChildDialog,
-        icon: const Icon(Icons.swap_horiz),
-        tooltip: "Switch Child",
-      ),
-    ),
-  ),
-          const SizedBox(height: 24),
+            const SizedBox(height: 24),
+            if (activeChild != null)
+              Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.blue[100],
+                    child: Text(activeChild['name'][0]),
+                  ),
+                  title: Text(activeChild['name']),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Balance: ${activeChild['balance']}"),
+                      Text("Streak: ${activeChild['streak']}"),
+                    ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        onPressed: _showAddChildDialog,
+                        icon: const Icon(Icons.add),
+                        tooltip: "Add Child",
+                      ),
+                      IconButton(
+                        onPressed: _switchChildDialog,
+                        icon: const Icon(Icons.swap_horiz),
+                        tooltip: "Switch Child",
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 24),
           ],
         ),
+      ),
+    ),
+  );
+}
+
+  // inside your _ParentAccountPageState
+
+  Future<void> _showAddChildDialog() async {
+    final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final parent = auth.currentUserModel;
+    if (parent == null) return;
+
+    final controller = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Child'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Child name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+
+              Navigator.pop(ctx); // close dialog quickly
+
+              // Create child (auth generates access code)
+              final created = await auth.addChild(name);
+
+              // Refresh parent and child
+              final refreshedParent = await _userRepo.fetchParentAndCache(
+                parent.uid,
+              );
+              final children = await _userRepo.fetchChildrenAndCache(
+                parent.uid,
+              );
+
+              setState(() {
+                childrenList = children
+                    .map(
+                      (c) => {
+                        "cid": c.cid,
+                        "name": c.name,
+                        "accessCode":
+                            refreshedParent?.childrenAccessCodes?[c.cid] ?? '—',
+                      },
+                    )
+                    .toList();
+              });
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    created != null
+                        ? "Child '${created.name}' added! "
+                              "Access code: ${refreshedParent?.childrenAccessCodes?[created.cid] ?? '—'}"
+                        : "Child created, refresh to see it.",
+                  ),
+                ),
+              );
+            },
+            child: const Text('Add'),
+          ),
+        ],
       ),
     );
   }
