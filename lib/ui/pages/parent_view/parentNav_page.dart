@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentTaskList_page.dart';
 import 'package:flutter/material.dart';
@@ -25,12 +26,16 @@ class _ParentNavigationShellState extends State<ParentNavigationShell> {
   void initState() {
     super.initState();
     _pages = [
-      ParentDashboardPage(parentId: widget.parentId, childId: widget.childId),
+      ParentDashboardPage(
+        parentId: widget.parentId, 
+        ),
       ParentTaskListScreen(
+        parentId: widget.parentId
+        ),
+      ParentAccountPage(
         parentId: widget.parentId,
-        childId: widget.childId,
-      ),
-      const PlaceholderPage(title: 'Account'),
+        ),
+      
     ];
   }
 
