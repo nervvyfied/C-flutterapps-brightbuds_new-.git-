@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '/data/services/firestore_service.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -45,6 +46,50 @@ class AuthService {
 
     return await _firestore.getParent(credential.user!.uid);
   }
+// ---------------- PARENT GOOGLE LOGIN ----------------
+Future<ParentUser?> signInWithGoogle() async {
+  try {
+    final GoogleSignIn googleSignIn = GoogleSignIn();
+    final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+    if (googleUser == null) return null; // User canceled login
+
+    final GoogleSignInAuthentication googleAuth =
+        await googleUser.authentication;
+
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    final userCredential = await _auth.signInWithCredential(credential);
+    final user = userCredential.user;
+    if (user == null) throw Exception("No Firebase user found");
+
+    // Check if parent already exists in Firestore
+    ParentUser? parent = await _firestore.getParent(user.uid);
+
+    if (parent == null) {
+      // If not, create a new ParentUser
+      parent = ParentUser(
+        uid: user.uid,
+        name: user.displayName ?? '',
+        email: user.email ?? '',
+        accessCode: "",
+        createdAt: DateTime.now(),
+      );
+
+      await _firestore.createParent(parent);
+    }
+
+    // Cache the user
+    await _userRepo.cacheParent(parent);
+
+    return parent;
+  } catch (e) {
+    throw Exception("Google sign-in failed: $e");
+  }
+}
 
   // ---------------- CHILD ----------------
   /// Generates a **unique access code** for a new child

@@ -3,5 +3,13 @@
          the Flutter tool needs it to communicate with the running application
          to allow setting breakpoints, to provide hot reload, etc.
     -->
+<meta-data
+    android:name="com.google.android.gms.version"
+    android:value="@integer/google_play_services_version" />
+
+<meta-data
+    android:name="com.google.android.gms.client_id"
+    android:value="@string/default_web_client_id" />
+
     <uses-permission android:name="android.permission.INTERNET"/>
 </manifest>

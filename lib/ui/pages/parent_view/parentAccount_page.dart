@@ -266,6 +266,7 @@ Widget build(BuildContext context) {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // --- Parent Profile Info ---
             Row(
               children: [
                 CircleAvatar(
@@ -301,8 +302,33 @@ Widget build(BuildContext context) {
                 ),
               ],
             ),
+
             const SizedBox(height: 24),
-            if (activeChild != null)
+
+            // --- Show "Add Child" if no children ---
+            if (childrenList.isEmpty)
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.child_care, size: 40, color: Colors.blue),
+                  title: const Text(
+                    "No children added yet",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text("Add your first child to get started."),
+                  trailing: ElevatedButton.icon(
+                    icon: const Icon(Icons.add),
+                    label: const Text("Add Child"),
+                    onPressed: _showAddChildDialog,
+                  ),
+                ),
+              ),
+
+            // --- If children exist, show active child card ---
+            if (childrenList.isNotEmpty && activeChild != null)
               Card(
                 child: ListTile(
                   leading: CircleAvatar(
@@ -334,6 +360,7 @@ Widget build(BuildContext context) {
                   ),
                 ),
               ),
+
             const SizedBox(height: 24),
           ],
         ),
@@ -341,7 +368,6 @@ Widget build(BuildContext context) {
     ),
   );
 }
-
   // inside your _ParentAccountPageState
 
   Future<void> _showAddChildDialog() async {
