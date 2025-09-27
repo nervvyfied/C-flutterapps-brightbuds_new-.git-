@@ -124,4 +124,22 @@ Future<void> loginChild(String accessCode) async {
     firebaseUser = null;
     notifyListeners();
   }
+
+  // ---------------- UPDATE USER ----------------
+  Future<void> updateCurrentUserModel(dynamic updatedUser) async {
+    if (updatedUser is ParentUser) {
+      currentUserModel = updatedUser;
+      await _userRepo.cacheParent(updatedUser);
+      await _parentBox.put(updatedUser.uid, updatedUser);
+    } else if (updatedUser is ChildUser) {
+      currentUserModel = updatedUser;
+      await _userRepo.cacheChild(updatedUser);
+      await _childBox.put(updatedUser.cid, updatedUser);
+    }
+
+    notifyListeners();
+  }
+
 }
+
+

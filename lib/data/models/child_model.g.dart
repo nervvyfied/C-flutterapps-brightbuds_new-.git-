@@ -22,13 +22,19 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       balance: fields[2] as int,
       streak: fields[3] as int,
       parentUid: fields[4] as String,
+      placedDecors: (fields[5] as List?)
+          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
+          ?.toList(),
+      ownedFish: (fields[6] as List?)
+          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
+          ?.toList(),
     );
   }
 
   @override
   void write(BinaryWriter writer, ChildUser obj) {
     writer
-      ..writeByte(5)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.cid)
       ..writeByte(1)
@@ -38,7 +44,11 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       ..writeByte(3)
       ..write(obj.streak)
       ..writeByte(4)
-      ..write(obj.parentUid);
+      ..write(obj.parentUid)
+      ..writeByte(5)
+      ..write(obj.placedDecors)
+      ..writeByte(6)
+      ..write(obj.ownedFish);
   }
 
   @override

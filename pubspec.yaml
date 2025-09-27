@@ -97,9 +97,39 @@ flutter:
     - assets/fish/normal/fish1_normal.gif
     - assets/fish/normal/fish2_normal.gif
     - assets/fish/normal/fish3_normal.gif
+    - assets/fish/normal/fish4_normal.gif
+    - assets/fish/normal/fish5_normal.gif
+    - assets/fish/normal/fish6_normal.gif
+    - assets/fish/normal/fish7_normal.gif
+    - assets/fish/normal/fish8_normal.gif
+    - assets/fish/normal/fish9_normal.gif
+    - assets/fish/normal/fish10_normal.gif
+    - assets/fish/normal/fish11_normal.gif
+    - assets/fish/normal/fish12_normal.gif
     - assets/fish/neglected/fish1_neglected.png
     - assets/fish/neglected/fish2_neglected.png
     - assets/fish/neglected/fish3_neglected.png
+    - assets/fish/neglected/fish4_neglected.png
+    - assets/fish/neglected/fish5_neglected.png
+    - assets/fish/neglected/fish6_neglected.png
+    - assets/fish/neglected/fish7_neglected.png
+    - assets/fish/neglected/fish8_neglected.png
+    - assets/fish/neglected/fish9_neglected.png
+    - assets/fish/neglected/fish10_neglected.png
+    - assets/fish/neglected/fish11_neglected.png
+    - assets/fish/neglected/fish12_neglected.png
+    - assets/decorations/decor1.png
+    - assets/decorations/decor2.png
+    - assets/decorations/decor3.png
+    - assets/decorations/decor4.png
+    - assets/decorations/decor5.png
+    - assets/decorations/decor6.png
+    - assets/decorations/decor7.png
+    - assets/decorations/decor8.png
+    - assets/decorations/decor9.png
+    - assets/decorations/decor10.png
+    - assets/decorations/decor11.png
+    - assets/decorations/decor12.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

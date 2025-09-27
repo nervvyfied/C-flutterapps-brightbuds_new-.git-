@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/journal_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
@@ -64,7 +65,9 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => TaskProvider()),
         ChangeNotifierProvider(create: (_) => JournalProvider()),
 
-
+        ChangeNotifierProvider(
+          create: (context) => DecorProvider(authProvider: context.read<AuthProvider>()),
+        ),
         // Add other providers here (TaskRepository, UserRepository) if needed
       ],
       child: MaterialApp(
