@@ -122,7 +122,10 @@ Future<void> signInWithGoogle() async {
   }
 }
 
-
+Future<void> setPasswordForCurrentUser(String password) async {
+  if (firebaseUser == null) throw Exception("No logged-in user");
+  await firebaseUser!.updatePassword(password);
+}
 
   // ---------------- CHILD ----------------
 Future<void> loginChild(String accessCode) async {
