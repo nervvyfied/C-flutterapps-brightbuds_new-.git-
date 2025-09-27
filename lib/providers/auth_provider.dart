@@ -104,7 +104,28 @@ class AuthProvider extends ChangeNotifier {
   return createdChild;
 }
 
+Future<void> signInWithGoogle() async {
+  try {
+    final parent = await _auth.signInWithGoogle();
+    if (parent == null) return; // User canceled
 
+    currentUserModel = parent;
+    firebaseUser = _auth.currentUser;
+
+    // Save in Hive box
+    await _userRepo.cacheParent(parent);
+    await _parentBox.put(parent.uid, parent);
+
+    notifyListeners();
+  } catch (e) {
+    throw Exception("Google sign-in failed: $e");
+  }
+}
+
+Future<void> setPasswordForCurrentUser(String password) async {
+  if (firebaseUser == null) throw Exception("No logged-in user");
+  await firebaseUser!.updatePassword(password);
+}
 
   // ---------------- CHILD ----------------
 Future<void> loginChild(String accessCode) async {

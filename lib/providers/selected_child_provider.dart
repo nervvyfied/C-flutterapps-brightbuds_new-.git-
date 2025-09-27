@@ -12,7 +12,7 @@ class SelectedChildProvider extends ChangeNotifier {
 
   void updateSelectedChild(Map<String, dynamic> updatedFields) {
     if (_selectedChild != null) {
-      _selectedChild = {..._selectedChild!, ...updatedFields};
+      _selectedChild!.addAll(updatedFields);
       notifyListeners();
     }
   }
@@ -22,7 +22,5 @@ class SelectedChildProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool hasSelectedChild() {
-    return _selectedChild != null;
-  }
+  bool get hasSelectedChild => _selectedChild != null;
 }

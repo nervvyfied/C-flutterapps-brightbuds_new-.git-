@@ -50,6 +50,7 @@ dependencies:
   image_cropper: ^10.0.0+1
   printing: ^5.14.2
   pdf: ^3.11.3
+  flutter_signin_button: ^2.1.1
 
 dev_dependencies:
   flutter_test:
@@ -130,6 +131,9 @@ flutter:
     - assets/decorations/decor10.png
     - assets/decorations/decor11.png
     - assets/decorations/decor12.png
+    - assets/images/g-logo.png
+
+    
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

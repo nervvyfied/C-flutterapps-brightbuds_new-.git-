@@ -276,7 +276,7 @@ Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
                           child: PieChart(
                             PieChartData(
                               sections: _buildGaugeSections(journalProv, activeChild['cid']),
-                              centerSpaceRadius: 60,
+                              centerSpaceRadius: 20,
                               startDegreeOffset: 180,
                               sectionsSpace: 2,
                               borderData: FlBorderData(show: false),
@@ -315,13 +315,35 @@ Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
                       }).toList(),
                     ),
                     const SizedBox(height: 6),
-                    Text("This week's top mood is: $weeklyTopMood",
-                        style: const TextStyle(fontSize: 12)),
-                  ],
+                    Text(
+                          "This week's top mood is: $weeklyTopMood, assign a Power Pack?",
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        const SizedBox(height: 6),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            debugPrint(
+                                "Assign Power Pack pressed for ${activeChild['name']}");
+                          },
+                          icon: const Icon(Icons.bolt, size: 16),
+                          label: const Text(
+                            "Assign Power Pack",
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            textStyle: const TextStyle(fontSize: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
           Expanded(
             child: Card(
               shape:
@@ -340,18 +362,18 @@ Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
                           PieChartData(
                             startDegreeOffset: -90,
                             sectionsSpace: 2,
-                            centerSpaceRadius: 30,
+                            centerSpaceRadius: 20,
                             sections: [
                               PieChartSectionData(
                                 value: notDone.toDouble(),
                                 color: Colors.yellow,
-                                radius: 40,
+                                radius: 30,
                                 showTitle: false,
                               ),
                               PieChartSectionData(
                                 value: done.toDouble(),
                                 color: Colors.deepPurpleAccent,
-                                radius: 40,
+                                radius: 30,
                                 showTitle: false,
                               ),
                             ],

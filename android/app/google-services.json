@@ -9,10 +9,23 @@
       "client_info": {
         "mobilesdk_app_id": "1:953113321611:android:f97358790e8d8f86ce748e",
         "android_client_info": {
-          "package_name": "com.example.brightbuds"
+          "package_name": "com.example.brightbuds_new"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "953113321611-khffu0tpu4ro6jfsmrhge3injcof4nel.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.brightbuds_new",
+            "certificate_hash": "23a484b91a98241335b53a26951f8f76b268169b"
+          }
+        },
+        {
+          "client_id": "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCUwqer2Qqdr-KrNUD6L4V39rPhzG-7GsI"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "953113321611-qe60p2ntha1e0rroo0otqq984ksnnm31.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.brightbuds_new"
+              }
+            }
+          ]
         }
       }
     },
@@ -31,7 +56,20 @@
           "package_name": "com.example.brightbuds_new"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "953113321611-j920souufiujr99m78jjqsgkehqgvha8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.brightbuds_new",
+            "certificate_hash": "23a484b91a98241335b53a26951f8f76b268169b"
+          }
+        },
+        {
+          "client_id": "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCUwqer2Qqdr-KrNUD6L4V39rPhzG-7GsI"
@@ -39,7 +77,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "953113321611-qe60p2ntha1e0rroo0otqq984ksnnm31.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.brightbuds_new"
+              }
+            }
+          ]
         }
       }
     }
