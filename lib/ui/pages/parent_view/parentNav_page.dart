@@ -1,17 +1,13 @@
+import 'package:brightbuds_new/data/models/parent_model.dart';
+import 'package:brightbuds_new/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentTaskList_page.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class ParentNavigationShell extends StatefulWidget {
-  final String parentId;
-  final String childId;
-
-  const ParentNavigationShell({
-    super.key,
-    required this.parentId,
-    required this.childId,
-  });
+  const ParentNavigationShell({super.key});
 
   @override
   State<ParentNavigationShell> createState() => _ParentNavigationShellState();
@@ -20,22 +16,11 @@ class ParentNavigationShell extends StatefulWidget {
 class _ParentNavigationShellState extends State<ParentNavigationShell> {
   int _selectedIndex = 0;
 
-  late final List<Widget> _pages;
-
-  @override
-  void initState() {
-    super.initState();
-    _pages = [
-      ParentDashboardPage(
-        parentId: widget.parentId, 
-        ),
-      ParentTaskListScreen(
-        parentId: widget.parentId
-        ),
-      ParentAccountPage(
-        parentId: widget.parentId,
-        ),
-      
+  List<Widget> _buildPages(String parentId) {
+    return [
+      ParentDashboardPage(parentId: parentId),
+      ParentTaskListScreen(parentId: parentId),
+      ParentAccountPage(parentId: parentId),
     ];
   }
 
@@ -47,24 +32,18 @@ class _ParentNavigationShellState extends State<ParentNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = Provider.of<AuthProvider>(context);
+    final parentId = auth.isParent ? (auth.currentUserModel as ParentUser).uid : '';
+
     return Scaffold(
-      body: _pages[_selectedIndex],
+      body: _buildPages(parentId)[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.checklist),
-            label: 'Manage Quests',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Account',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Manage Quests'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Account'),
         ],
       ),
     );

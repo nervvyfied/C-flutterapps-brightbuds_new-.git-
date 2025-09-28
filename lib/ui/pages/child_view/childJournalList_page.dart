@@ -94,7 +94,9 @@ class _JournalListPageState extends State<JournalListPage> {
     final entries = journalProvider.getEntries(widget.childId);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("My Journal")),
+      appBar: AppBar(title: const Text("My Journal"),
+      automaticallyImplyLeading: false,
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(

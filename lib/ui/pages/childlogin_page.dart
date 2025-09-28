@@ -15,38 +15,32 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
   final _codeController = TextEditingController();
   bool _loading = false;
 
-  void _loginChild() async {
+  // ---------------- CHILD LOGIN ----------------
+  Future<void> _loginChild() async {
     final code = _codeController.text.trim();
-    if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter Access Code")),
-      );
-      return;
-    }
+    if (code.isEmpty) return;
 
     setState(() => _loading = true);
 
     try {
       final authProvider = context.read<AuthProvider>();
-
-      // The loginChild function now fetches parentUid automatically
-      await authProvider.loginChild(code);
+      await authProvider.loginChild(code); // ✅ Persist child session via Hive
 
       final child = authProvider.currentUserModel as ChildUser;
 
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Child login successful')),
+      );
+
+      // Navigate to child home
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => ChildNavigationShell(
-            childId: child.cid,
-            parentId: child.parentUid,
-            childName: child.name,
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => const ChildNavigationShell()),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     } finally {
       setState(() => _loading = false);
     }
@@ -63,13 +57,31 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
             TextField(
               controller: _codeController,
               decoration: const InputDecoration(
-                  labelText: "Enter Access Code", border: OutlineInputBorder()),
+                labelText: "Enter Access Code",
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 20),
             _loading
                 ? const CircularProgressIndicator()
-                : ElevatedButton(
-                    onPressed: _loginChild, child: const Text("Login")),
+                : SizedBox(
+                    width: double.infinity,
+                    height: 45,
+                    child: ElevatedButton(
+                      onPressed: _loginChild,
+                      child: const Text(
+                        "Login",
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
           ],
         ),
       ),

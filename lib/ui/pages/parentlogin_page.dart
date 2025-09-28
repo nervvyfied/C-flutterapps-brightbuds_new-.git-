@@ -19,53 +19,52 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
 
   bool isLogin = true;
   bool isLoading = false;
-  bool _obscurePassword = true; // <-- NEW: controls password visibility
+  bool _obscurePassword = true;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email'],
-    clientId: "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
+    clientId:
+        "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
   );
 
   // ---------------- EMAIL AUTH ----------------
   void _handleAuth() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final auth = context.read<AuthProvider>();
     setState(() => isLoading = true);
 
     try {
       if (isLogin) {
+        // Login parent
         await auth.loginParent(
           _emailController.text.trim(),
           _passwordController.text.trim(),
         );
 
-        final parent = auth.currentUserModel as ParentUser;
-        final childId = parent.childId ?? "";
-
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Login successful')));
+        // Session is saved automatically in AuthProvider
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Login successful')),
+        );
 
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => ParentNavigationShell(
-              parentId: parent.uid,
-              childId: childId,
-            ),
-          ),
+          MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
         );
       } else {
+        // Signup parent
         await auth.signUpParent(
           _nameController.text.trim(),
           _emailController.text.trim(),
           _passwordController.text.trim(),
         );
 
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Signup successful')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signup successful')),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     } finally {
       setState(() => isLoading = false);
     }
@@ -73,33 +72,28 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
 
   // ---------------- GOOGLE SIGN-IN ----------------
   void _handleGoogleSignIn() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final auth = context.read<AuthProvider>();
     setState(() => isLoading = true);
 
     try {
       await auth.signInWithGoogle();
 
-      final parent = auth.currentUserModel as ParentUser;
-      final childId = parent.childId ?? "";
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google login successful')),
+      );
 
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Google login successful')));
-
-      // --- Prompt for optional password ---
+      // Optional: prompt to set email login password
       await _promptSetPassword(auth);
 
+      // Navigate to parent home
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (_) => ParentNavigationShell(
-            parentId: parent.uid,
-            childId: childId,
-          ),
-        ),
+        MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     } finally {
       setState(() => isLoading = false);
     }
@@ -204,21 +198,16 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
             if (isLoading)
               const CircularProgressIndicator()
             else ...[
-              const SizedBox(height: 10),
-
-              // ---------------- AUTH BUTTONS ----------------
               SizedBox(
                 width: double.infinity,
                 height: 45,
                 child: ElevatedButton.icon(
                   onPressed: _handleAuth,
                   icon: const Icon(Icons.login, size: 20, color: Colors.white),
-                  label: Text(
-                    isLogin ? "Login" : "Signup",
-                    style: const TextStyle(fontSize: 16),
-                  ),
+                  label: Text(isLogin ? "Login" : "Signup",
+                      style: const TextStyle(fontSize: 16)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple, 
+                    backgroundColor: Colors.deepPurple,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -226,10 +215,7 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 10),
-
-              // -------- GOOGLE SIGN IN BUTTON --------
               SizedBox(
                 width: double.infinity,
                 height: 45,
@@ -246,21 +232,15 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Image.asset(
-                        'assets/images/g-logo.png',
-                        height: 24,
-                      ),
+                      Image.asset('assets/images/g-logo.png', height: 24),
                       const SizedBox(width: 8),
-                      const Text(
-                        "Continue with Google",
-                        style: TextStyle(fontSize: 16),
-                      ),
+                      const Text("Continue with Google",
+                          style: TextStyle(fontSize: 16)),
                     ],
                   ),
                 ),
               ),
             ],
-
             const SizedBox(height: 10),
             TextButton(
               onPressed: () => setState(() => isLogin = !isLogin),
