@@ -1,19 +1,13 @@
+import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
 import 'package:brightbuds_new/aquarium/pages/aquarium_page.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class ChildNavigationShell extends StatefulWidget {
-  final String childId;
-  final String childName;
-  final String parentId;
-
-  const ChildNavigationShell({
-    super.key,
-    required this.childId,
-    required this.childName,
-    required this.parentId,
-  });
+  const ChildNavigationShell({super.key});
 
   @override
   State<ChildNavigationShell> createState() => _ChildNavigationShellState();
@@ -22,18 +16,10 @@ class ChildNavigationShell extends StatefulWidget {
 class _ChildNavigationShellState extends State<ChildNavigationShell> {
   int _selectedIndex = 0;
 
-  late final List<Widget> _pages;
-
-  @override
-  void initState() {
-    super.initState();
-    _pages = [
-      ChildQuestsPage(
-        childId: widget.childId,
-        childName: widget.childName,
-        parentId: widget.parentId,
-      ),
-      JournalListPage(childId: widget.childId, parentId: widget.parentId,),
+  List<Widget> _buildPages(String parentId, String childId, String childName) {
+    return [
+      ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
+      JournalListPage(parentId: parentId, childId: childId),
       const PlaceholderPage(title: 'Power Pack'),
       AquariumPage(),
     ];
@@ -47,29 +33,24 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = Provider.of<AuthProvider>(context);
+    final child = auth.isChild ? auth.currentUserModel as ChildUser : null;
+
+    final parentId = child?.parentUid ?? '';
+    final childId = child?.cid ?? '';
+    final childName = child?.name ?? 'Child';
+
     return Scaffold(
-      body: _pages[_selectedIndex],
+      body: _buildPages(parentId, childId, childName)[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.task),
-            label: 'Quests',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.book),
-            label: 'Journal',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.bolt),
-            label: 'Power Pack',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.water),
-            label: 'Aquarium',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.task), label: 'Quests'),
+          BottomNavigationBarItem(icon: Icon(Icons.book), label: 'Journal'),
+          BottomNavigationBarItem(icon: Icon(Icons.bolt), label: 'Power Pack'),
+          BottomNavigationBarItem(icon: Icon(Icons.water), label: 'Aquarium'),
         ],
       ),
     );

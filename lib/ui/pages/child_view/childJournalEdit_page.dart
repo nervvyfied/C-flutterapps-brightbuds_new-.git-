@@ -201,7 +201,9 @@ class _JournalEditPageState extends State<JournalEditPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Edit Journal Entry')),
+      appBar: AppBar(title: const Text('Edit Journal Entry'),
+      automaticallyImplyLeading: false,
+      ),
       body: Center(child: _step == 0 ? _affirmationPage() : _journalFormPage()),
     );
   }

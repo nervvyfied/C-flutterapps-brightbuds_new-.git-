@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:brightbuds_new/data/repositories/user_repository.dart';
+import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -184,22 +185,30 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
             ),
           ),
           actions: [
-            ElevatedButton.icon(
-              icon: const Icon(Icons.logout),
-              label: const Text("Log Out"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.deepPurple,
-              ),
-              onPressed: () async {
-                // clear child state on logout
-                Provider.of<SelectedChildProvider>(context, listen: false)
-                    .clearSelectedChild();
-                await auth.signOut();
-                Navigator.of(context).pop();
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              },
+           ElevatedButton.icon(
+            icon: const Icon(Icons.logout),
+            label: const Text("Log Out"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.deepPurple,
             ),
+            onPressed: () async {
+              final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
+
+              // Clear selected child
+              Provider.of<SelectedChildProvider>(context, listen: false)
+                  .clearSelectedChild();
+
+              // Sign out parent and clear cached children
+              await auth.signOut();
+
+              // Navigate back to role selection page
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+                (route) => false,
+              );
+            },
+          ),
             ElevatedButton(
               onPressed: _updateParentInfo,
               child: const Text("Save"),
@@ -261,6 +270,7 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Account Page'),
+        automaticallyImplyLeading: false,
       ),
       body: RefreshIndicator(
         onRefresh: fetchParentData,

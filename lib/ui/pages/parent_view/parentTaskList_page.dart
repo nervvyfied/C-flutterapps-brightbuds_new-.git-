@@ -91,7 +91,8 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
         .toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text("Quests for $childName")),
+      appBar: AppBar(title: Text("Quests for $childName"),
+      automaticallyImplyLeading: false,),
       body: taskProvider.isLoading
           ? const Center(child: CircularProgressIndicator())
           : childTasks.isEmpty

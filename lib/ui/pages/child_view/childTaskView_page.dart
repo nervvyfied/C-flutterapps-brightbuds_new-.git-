@@ -1,4 +1,6 @@
+import 'package:brightbuds_new/providers/auth_provider.dart';
 import 'package:brightbuds_new/providers/task_provider.dart';
+import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -25,24 +27,38 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     // Load tasks filtered by childId
     Future.microtask(() {
       Provider.of<TaskProvider>(context, listen: false)
-  .loadTasks(parentId: widget.parentId, childId: widget.childId);
-
-
+          .loadTasks(parentId: widget.parentId, childId: widget.childId);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final taskProvider = Provider.of<TaskProvider>(context);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
     // Filter tasks to ensure they belong to this child and have valid fields
     final childTasks = taskProvider.tasks.where((task) {
-      return task.childId == widget.childId &&
-          task.name.isNotEmpty;
+      return task.childId == widget.childId && task.name.isNotEmpty;
     }).toList();
 
     return Scaffold(
-      appBar: AppBar(title: Text("Hello, ${widget.childName}")),
+      appBar: AppBar(
+        title: Text("Hello, ${widget.childName}"),
+        automaticallyImplyLeading: false,
+        actions: [
+         ElevatedButton(
+          onPressed: () async {
+            await context.read<AuthProvider>().logoutChild(); // sign out child
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+            );
+          },
+          child: const Text("Logout"),
+        )
+
+        ],
+      ),
       body: taskProvider.isLoading
           ? const Center(child: CircularProgressIndicator())
           : childTasks.isEmpty
@@ -60,7 +76,8 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                             "Routine: ${task.routine} • Reward: ${task.reward} tokens"),
                         trailing: task.isDone
                             ? (task.verified
-                                ? const Icon(Icons.verified, color: Colors.blue)
+                                ? const Icon(Icons.verified,
+                                    color: Colors.blue)
                                 : const Icon(Icons.check, color: Colors.green))
                             : ElevatedButton(
                                 onPressed: () {
