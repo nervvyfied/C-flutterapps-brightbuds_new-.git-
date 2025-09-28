@@ -31,33 +31,39 @@ class InventoryModal extends StatelessWidget {
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               ),
               Expanded(
-                child: GridView.builder(
-                  controller: scrollController,
-                  padding: const EdgeInsets.all(12),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                  ),
-                  itemCount: inventory.length,
-                  itemBuilder: (context, index) {
-                    final decor = inventory[index];
-                    final def = DecorCatalog.byId(decor.decorId);
+              child: Consumer<DecorProvider>(
+                builder: (context, decorProvider, _) {
+                  final inventory = decorProvider.inventory;
 
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context, decor); // return selected
-                      },
-                      child: Column(
-                        children: [
-                          Expanded(child: Image.asset(def.assetPath)),
-                          Text(def.name, style: const TextStyle(fontSize: 12)),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+                  return GridView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(12),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                    ),
+                    itemCount: inventory.length,
+                    itemBuilder: (context, index) {
+                      final decor = inventory[index];
+                      final def = DecorCatalog.byId(decor.decorId);
+
+                      return GestureDetector(
+                        onTap: () {
+                          Navigator.pop(context, decor); // return selected
+                        },
+                        child: Column(
+                          children: [
+                            Expanded(child: Image.asset(def.assetPath)),
+                            Text(def.name, style: const TextStyle(fontSize: 12)),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
+            ),
             ],
           ),
         );

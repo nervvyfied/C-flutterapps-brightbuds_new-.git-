@@ -103,6 +103,7 @@ class _AquariumPageState extends State<AquariumPage>
   late double maxOffsetSandBg;
   late double maxOffsetSand1;
   late double maxOffsetSand2;
+  late DecorProvider decorProvider;
 
   final Random random = Random();
 
@@ -436,23 +437,30 @@ class _AquariumPageState extends State<AquariumPage>
     });
   }
 
+
+void dispose() {
+  decorProvider.saveEditMode(); // final sync in case some moves are unsaved
+  super.dispose();
+}
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     final decorProvider = Provider.of<DecorProvider>(context);
     final itemsToRender = decorProvider.isInEditMode
-    ? decorProvider.editingDecors.toList()
-    : decorProvider.placedDecors.where((d) => d.isPlaced).toList();
-
+    ? decorProvider.editingDecors
+    : decorProvider.placedDecors;
 
     final double sandBgWidth = screenWidth * 1.2;
     final double sand1Width = screenWidth * 1.4;
-    final double sand2Width = screenWidth * 1.6;
-
+    final sand2Width = screenWidth * 1.6;
+    
     maxOffsetSandBg = (sandBgWidth - screenWidth) / 2;
     maxOffsetSand1 = (sand1Width - screenWidth) / 2;
     maxOffsetSand2 = (sand2Width - screenWidth) / 2;
+    
+
 
     return Scaffold(
       body: GestureDetector(
@@ -475,78 +483,118 @@ class _AquariumPageState extends State<AquariumPage>
 // Determine which list to render: edit buffer if editing, otherwise persisted placed items
 
 
-...itemsToRender.map((decor) {
-  final decorDef = decorProvider.getDecorDefinition(decor.decorId);
-  if (decorDef == null) return const SizedBox();
+// ----- Placed Decors / Edit Mode -----
+Stack(
+  children: [
+    // ----- Placed Decors -----
+    ...itemsToRender.map((decor) {
+      final decorDef = decorProvider.getDecorDefinition(decor.decorId);
+       if (decorDef == null) return const SizedBox();
 
-  final double displayW = decor.isPlaced ? 120 : 80;
-  final double displayH = decor.isPlaced ? 120 : 80;
+      final double displayW = decor.isPlaced ? 120 : 80;
+      final double displayH = decor.isPlaced ? 120 : 80;
 
-  return Positioned(
-    left: decor.x,
-    top: decor.y,
-    child: GestureDetector(
-      onLongPress: () {
-        decorProvider.toggleDecorSelection(decor.id);
-      },
-      onDoubleTap: () {
-        decorProvider.toggleDecorSelection(decor.id);
-      },
-      child: Stack(
-        alignment: Alignment.topCenter,
-        children: [
-          // Move/Delete buttons
-          if (decor.isSelected && decorProvider.isInEditMode)
-            Positioned(
-              top: -40,
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      decorProvider.startMovingDecor(decor.id);
-                    },
-                    child: const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Colors.blue,
-                      child: Icon(Icons.open_with, size: 16, color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () async {
-                      await decorProvider.deleteDecorInBuffer(decor.id, refund: true);
-                    },
-                    child: const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Colors.red,
-                      child: Icon(Icons.delete, size: 16, color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          // Draggable only for moving decor
-          if (decorProvider.isInEditMode && decorProvider.movingDecorId == decor.id)
-            Draggable<String>(
+      final isSelected = decorProvider.isDecorSelected(decor.id);
+      final isMoving = decorProvider.movingDecorId == decor.id;
+
+      return Positioned(
+        left: decor.x + offsetX * parallax['sand2']!,
+        top: decor.y,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            // ----- Decor (Selectable + Draggable) -----
+            LongPressDraggable<String>(
               data: decor.id,
-              feedback: Image.asset(decorDef.assetPath, width: displayW, height: displayH),
-              childWhenDragging: const SizedBox(width: 120, height: 120),
-              child: Image.asset(decorDef.assetPath, width: displayW, height: displayH),
-              onDragEnd: (details) {
+              feedback: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.green, width: 3),
+                ),
+                child: Image.asset(
+                  decorDef.assetPath,
+                  width: displayW,
+                  height: displayH,
+                ),
+              ),
+              childWhenDragging: const SizedBox(),
+              onDragEnd: (details) async {
                 final RenderBox box = context.findRenderObject() as RenderBox;
                 final local = box.globalToLocal(details.offset);
 
-                decorProvider.updateDecorPositionInBuffer(decor.id, local.dx, local.dy);
-                decorProvider.stopMovingDecor();
+                await decorProvider.updateDecorPosition(
+                  decor.id,
+                   local.dx - offsetX * parallax['sand2']!,
+                  local.dy,
+                  persist: true, // <-- auto-save here
+                );
               },
-            )
-          else
-            Image.asset(decorDef.assetPath, width: displayW, height: displayH),
-        ],
-      ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () {
+                  if (!decorProvider.isInEditMode) return;
+                  if (isSelected) {
+                    // If already selected → deselect
+                    decorProvider.deselectDecor(decor.id);
+                  } else {
+                    // Otherwise select
+                    decorProvider.toggleDecorSelection(decor.id);
+                  }
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: isSelected
+                          ? (isMoving ? Colors.green : Colors.yellow)
+                          : Colors.transparent,
+                      width: 3,
+                    ),
+                  ),
+                  child: Image.asset(
+                    decorDef.assetPath,
+                    width: displayW,
+                    height: displayH,
+                  ),
+                ),
+              ),
+            ),
+
+            // ----- Action Buttons (on top, clickable) -----
+            if (isSelected && decorProvider.isInEditMode)
+  Positioned(
+    top: -50,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildDecorActionButton(
+          color: Colors.orange,
+          icon: Icons.inventory,
+          tooltip: 'Store',
+          onTap: () async {
+            print("🟠 Store tapped");
+            await decorProvider.handleDecorAction(decor.id, storeBack: true);
+          },
+        ),
+        const SizedBox(width: 8),
+        _buildDecorActionButton(
+          color: Colors.green,
+          icon: Icons.attach_money,
+          tooltip: 'Sell',
+          onTap: () async {
+            print("🟢 Sell tapped");
+            await decorProvider.handleDecorAction(decor.id, sell: true);
+          },
+        ),
+      ],
     ),
-  );
-}).toList(),
+  ),
+          ],
+        ),
+      );
+    }).toList(),
+  ],
+),
+
 
             ...bubbles.map(
               (bubble) => Positioned(
@@ -779,7 +827,10 @@ ElevatedButton(
         ),
       ),
     );
+    
   }
+
+
 
   Widget _buildLayer(String asset, double layerWidth, double offset) {
     return Align(
@@ -798,4 +849,38 @@ ElevatedButton(
       ),
     );
   }
+
+ Widget _buildDecorActionButton({
+  required Color color,
+  required IconData icon,
+  required String tooltip,
+  required VoidCallback onTap,
+  double size = 40, // default size
+}) {
+  return Material(
+    color: Colors.transparent, // allow gestures through
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(size / 2),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.9),
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 4,
+              offset: const Offset(2, 2),
+            ),
+          ],
+        ),
+        child: Icon(icon, color: Colors.white, size: size * 0.5),
+      ),
+    ),
+  );
+}
+
+
 }

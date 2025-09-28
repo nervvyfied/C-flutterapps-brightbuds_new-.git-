@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import '../models/placedDecor_model.dart';
 
 class DecorService {
@@ -19,6 +20,32 @@ class DecorService {
       "placedDecors": decors.map((d) => d.toMap()).toList(),
     }, SetOptions(merge: true));
   }
+
+  Future<void> updatePlacedDecors(
+  String parentId,
+  String childId,
+  List<PlacedDecor> placedDecors,
+) async {
+  final box = await Hive.openBox<PlacedDecor>('placedDecors_$childId');
+
+  // update local hive
+  await box.clear();
+  await box.addAll(placedDecors);
+
+  // sync firestore
+  final firestore = FirebaseFirestore.instance;
+  final decorMaps = placedDecors.map((d) => d.toMap()).toList();
+
+  await firestore
+      .collection('parents')
+      .doc(parentId)
+      .collection('children')
+      .doc(childId)
+      .collection('aquarium')
+      .doc('placedDecors')
+      .set({'items': decorMaps});
+}
+
 
   // ---------- Fetch placed decors ----------
   Future<List<PlacedDecor>> fetchPlacedDecors(

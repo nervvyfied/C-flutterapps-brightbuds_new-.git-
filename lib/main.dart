@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/aquarium/models/placedDecor_model.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/journal_model.dart';
@@ -42,12 +43,15 @@ void main() async {
   if (!Hive.isAdapterRegistered(JournalEntryAdapter().typeId)) {
     Hive.registerAdapter(JournalEntryAdapter());
   }
-
+  if (!Hive.isAdapterRegistered(PlacedDecorAdapter().typeId)) {
+    Hive.registerAdapter(PlacedDecorAdapter());
+  }
   // ---------------- Open Boxes ----------------
   await Hive.openBox<ParentUser>('parentBox');
   await Hive.openBox<ChildUser>('childBox');
   await Hive.openBox<TaskModel>('tasksBox');
   await Hive.openBox<JournalEntry>('journalBox');
+  await Hive.openBox<PlacedDecor>('placedDecors');
 
 
   runApp(const MyApp());
