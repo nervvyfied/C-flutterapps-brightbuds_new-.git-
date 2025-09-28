@@ -16,36 +16,41 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
   bool _loading = false;
 
   void _loginChild() async {
-  final code = _codeController.text.trim();
-  if (code.isEmpty) return;
+    final code = _codeController.text.trim();
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter Access Code")),
+      );
+      return;
+    }
 
-  setState(() => _loading = true);
+    setState(() => _loading = true);
 
-  try {
-    final authProvider = context.read<AuthProvider>();
-    await authProvider.loginChild(code);
+    try {
+      final authProvider = context.read<AuthProvider>();
 
-    final child = authProvider.currentUserModel as ChildUser;
+      // The loginChild function now fetches parentUid automatically
+      await authProvider.loginChild(code);
 
-    Navigator.pushReplacement(
-  context,
-  MaterialPageRoute(
-    builder: (_) => ChildNavigationShell(
-      childId: child.cid,
-      parentId: child.parentUid,
-      childName: child.name,
-    ),
-  ),
-);
+      final child = authProvider.currentUserModel as ChildUser;
 
-  } catch (e) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(e.toString())));
-  } finally {
-    setState(() => _loading = false);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChildNavigationShell(
+            childId: child.cid,
+            parentId: child.parentUid,
+            childName: child.name,
+          ),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      setState(() => _loading = false);
+    }
   }
-}
-
 
   @override
   Widget build(BuildContext context) {
