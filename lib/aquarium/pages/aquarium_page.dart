@@ -5,6 +5,7 @@ import 'package:brightbuds_new/aquarium/pages/store_page.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/providers/auth_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -487,111 +488,132 @@ void dispose() {
 Stack(
   children: [
     // ----- Placed Decors -----
-    ...itemsToRender.map((decor) {
-      final decorDef = decorProvider.getDecorDefinition(decor.decorId);
-       if (decorDef == null) return const SizedBox();
+    // ----- Placed Decors (decor layer) -----
+// Render draggables first
+...itemsToRender.map((decor) {
+  final decorDef = decorProvider.getDecorDefinition(decor.decorId);
+  if (decorDef == null) return const SizedBox();
 
-      final double displayW = decor.isPlaced ? 120 : 80;
-      final double displayH = decor.isPlaced ? 120 : 80;
+  final double displayW = decor.isPlaced ? 120 : 80;
+  final double displayH = decor.isPlaced ? 120 : 80;
 
-      final isSelected = decorProvider.isDecorSelected(decor.id);
-      final isMoving = decorProvider.movingDecorId == decor.id;
+  final isSelected = decorProvider.isDecorSelected(decor.id);
+  final isMoving = decorProvider.movingDecorId == decor.id;
 
-      return Positioned(
-        left: decor.x + offsetX * parallax['sand2']!,
-        top: decor.y,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            // ----- Decor (Selectable + Draggable) -----
-            LongPressDraggable<String>(
-              data: decor.id,
-              feedback: Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.green, width: 3),
-                ),
-                child: Image.asset(
-                  decorDef.assetPath,
-                  width: displayW,
-                  height: displayH,
-                ),
-              ),
-              childWhenDragging: const SizedBox(),
-              onDragEnd: (details) async {
-                final RenderBox box = context.findRenderObject() as RenderBox;
-                final local = box.globalToLocal(details.offset);
+  // compute parallax-ed screen position
+  final left = decor.x + offsetX * parallax['sand2']!;
+  final top = decor.y;
 
-                await decorProvider.updateDecorPosition(
-                  decor.id,
-                   local.dx - offsetX * parallax['sand2']!,
-                  local.dy,
-                  persist: true, // <-- auto-save here
-                );
-              },
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: () {
-                  if (!decorProvider.isInEditMode) return;
-                  if (isSelected) {
-                    // If already selected → deselect
-                    decorProvider.deselectDecor(decor.id);
-                  } else {
-                    // Otherwise select
-                    decorProvider.toggleDecorSelection(decor.id);
-                  }
-                },
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: isSelected
-                          ? (isMoving ? Colors.green : Colors.yellow)
-                          : Colors.transparent,
-                      width: 3,
-                    ),
-                  ),
-                  child: Image.asset(
-                    decorDef.assetPath,
-                    width: displayW,
-                    height: displayH,
-                  ),
-                ),
-              ),
+  return Positioned(
+    left: left,
+    top: top,
+    child: LongPressDraggable<String>(
+      data: decor.id,
+      // fire provider so UI knows we are dragging this decor
+      onDragStarted: () {
+        decorProvider.startMovingDecor(decor.id);
+      },
+      onDragEnd: (details) async {
+        // stop moving visual state
+        decorProvider.stopMovingDecor();
+
+        // convert global to local and remove parallax offset
+        final RenderBox box = context.findRenderObject() as RenderBox;
+        final local = box.globalToLocal(details.offset);
+
+        final newX = local.dx - offsetX * parallax['sand2']!;
+        final newY = local.dy;
+
+        // persist and update
+        await decorProvider.updateDecorPosition(
+          decor.id,
+          newX,
+          newY,
+          persist: true,
+        );
+      },
+      feedback: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: displayW,
+          height: displayH,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.green, width: 3),
+          ),
+          child: Image.asset(decorDef.assetPath, width: displayW, height: displayH),
+        ),
+      ),
+      childWhenDragging: SizedBox(width: displayW, height: displayH),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () {
+          if (!decorProvider.isInEditMode) return;
+          if (isSelected) {
+            decorProvider.deselectDecor(decor.id);
+          } else {
+            decorProvider.toggleDecorSelection(decor.id);
+          }
+        },
+        child: Container(
+          width: displayW,
+          height: displayH,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: isSelected ? (isMoving ? Colors.green : Colors.yellow) : Colors.transparent,
+              width: 3,
             ),
-
-            // ----- Action Buttons (on top, clickable) -----
-            if (isSelected && decorProvider.isInEditMode)
-  Positioned(
-    top: -50,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildDecorActionButton(
-          color: Colors.orange,
-          icon: Icons.inventory,
-          tooltip: 'Store',
-          onTap: () async {
-            print("🟠 Store tapped");
-            await decorProvider.handleDecorAction(decor.id, storeBack: true);
-          },
+          ),
+          child: Image.asset(decorDef.assetPath, width: displayW, height: displayH),
         ),
-        const SizedBox(width: 8),
-        _buildDecorActionButton(
-          color: Colors.green,
-          icon: Icons.attach_money,
-          tooltip: 'Sell',
-          onTap: () async {
-            print("🟢 Sell tapped");
-            await decorProvider.handleDecorAction(decor.id, sell: true);
-          },
-        ),
-      ],
+      ),
     ),
-  ),
+  );
+}).toList(),
+
+// ----- Action Buttons Overlay (rendered after the decors so they are on top) -----
+// For every selected decor render the store/sell buttons positioned above it.
+// Buttons are wrapped in IgnorePointer while any decor is being dragged so they don't block drags.
+...itemsToRender.where((d) => decorProvider.isDecorSelected(d.id)).map((decor) {
+  final left = decor.x + offsetX * parallax['sand2']!;
+  final top = decor.y;
+
+  return Positioned(
+    left: left,
+    top: top - 50, // float above the decor; tweak as desired
+    child: IgnorePointer(
+      // when moving any decor, ignore taps on buttons so they don't block a drag
+      ignoring: decorProvider.movingDecorId != null,
+      child: Material(
+        color: Colors.transparent,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildDecorActionButton(
+              color: Colors.orange,
+              icon: Icons.inventory,
+              tooltip: 'Store',
+              onTap: () async {
+                debugPrint('🟠 Store tapped for ${decor.id}');
+                await decorProvider.handleDecorAction(decor.id, storeBack: true);
+              },
+            ),
+            const SizedBox(width: 8),
+            _buildDecorActionButton(
+              color: Colors.green,
+              icon: Icons.attach_money,
+              tooltip: 'Sell',
+              onTap: () async {
+                debugPrint('🟢 Sell tapped for ${decor.id}');
+                await decorProvider.handleDecorAction(decor.id, sell: true);
+              },
+            ),
           ],
         ),
-      );
-    }).toList(),
+      ),
+    ),
+  );
+}).toList(),
+
   ],
 ),
 
@@ -855,24 +877,25 @@ ElevatedButton(
   required IconData icon,
   required String tooltip,
   required VoidCallback onTap,
-  double size = 40, // default size
+  double size = 40,
 }) {
   return Material(
-    color: Colors.transparent, // allow gestures through
+    color: Colors.transparent,
     child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(size / 2),
       child: Container(
         width: size,
         height: size,
+        padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.9),
+          color: color,
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withOpacity(0.15),
               blurRadius: 4,
-              offset: const Offset(2, 2),
+              offset: const Offset(1, 2),
             ),
           ],
         ),
