@@ -120,50 +120,7 @@ class DecorProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Store a decor back to inventory (isPlaced = false)
-/*Future<void> storeDecorBackToInventory(String decorId) async {
-  final index = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (index == -1) return;
-
-  _editingBuffer[index].isPlaced = false;
-  _editingBuffer[index].isSelected = false; // deselect it
-
-  // Also update main list
-  final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
-  if (mainIdx != -1) placedDecors[mainIdx].isPlaced = false;
-
-  if (kDebugMode) print("🟡 Decor $decorId stored back to inventory");
-
-  // Remove from edit buffer so UI doesn’t render it
-  _editingBuffer.removeAt(index);
-
-  // If nothing left selected, exit edit mode
-  if (_editingBuffer.isEmpty) cancelEditMode();
-
-  notifyListeners();
-}*/
-
-
-/// Sell a decor (remove permanently and refund tokens)
-/*Future<void> sellDecor(String decorId) async {
-  final index = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (index == -1) return;
-
-  final toDelete = _editingBuffer.removeAt(index); // remove first
-  await _repo.removePlacedDecor(currentChild.parentUid, currentChild.cid, decorId);
-
-  final def = getDecorDefinition(toDelete.decorId);
-  await _repo.refundBalance(currentChild.parentUid, currentChild.cid, def.price);
-  _updateLocalBalance(currentChild.balance + def.price);
-
-  // Remove from main placedDecors too
-  placedDecors.removeWhere((d) => d.id == decorId);
-
-  if (kDebugMode) print("🟢 Decor $decorId sold for ${def.price} tokens");
-
-  if (_editingBuffer.isEmpty) cancelEditMode();
-  notifyListeners();
-}*/
+ 
 
   void toggleDecorSelection(String decorId) {
   if (!isInEditMode) enterEditMode(focusDecorId: decorId);
@@ -224,55 +181,6 @@ void startMovingDecor(String decorId) {
   }
 }
 
-
-  /// Delete or move decor in buffer.
-/// - storeBack = true → return to inventory (isPlaced = false)
-/// - sell = true → remove permanently and refund
-/*Future<void> deleteDecorInBuffer(String decorId, {bool storeBack = false, bool sell = false}) async {
-  if (!isInEditMode) return;
-
-  final index = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (index == -1) return;
-
-  final toDelete = _editingBuffer[index];
-
-  if (storeBack) {
-    // Mark as unplaced (inventory)
-    _editingBuffer[index].isPlaced = false;
-
-    // Also update main placedDecors
-    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
-    if (mainIdx != -1) {
-      placedDecors[mainIdx].isPlaced = false;
-    }
-
-    if (kDebugMode) print("🟡 Decor $decorId stored back to inventory");
-  } else if (sell) {
-    // Remove permanently
-    _editingBuffer.removeAt(index);
-    await _repo.removePlacedDecor(currentChild.parentUid, currentChild.cid, decorId);
-
-    // Refund child tokens
-    final def = getDecorDefinition(toDelete.decorId);
-    await _repo.refundBalance(currentChild.parentUid, currentChild.cid, def.price);
-    _updateLocalBalance(currentChild.balance + def.price);
-
-    // Remove from main placedDecors as well
-    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
-    if (mainIdx != -1) placedDecors.removeAt(mainIdx);
-
-    if (kDebugMode) print("🟢 Decor $decorId sold for ${def.price} tokens");
-  }
-
-  // Exit edit mode if nothing selected
-  final anySelected = _editingBuffer.any((d) => d.isSelected);
-  if (!anySelected) {
-    cancelEditMode();
-  }
-
-  notifyListeners();
-}*/
-
   /// Handles storing back to inventory or selling a decor
 Future<void> handleDecorAction(
   String decorId, {
@@ -297,7 +205,10 @@ Future<void> handleDecorAction(
     if (mainIdx != -1) placedDecors[mainIdx].isPlaced = false;
 
     // Remove from edit buffer so it disappears from aquarium view
-    _editingBuffer.removeAt(idx);
+    _editingBuffer[idx].isPlaced = false;   
+    placedDecors.firstWhere((d) => d.id == decorId).isPlaced = false;
+
+    await _repo.updatePlacedDecor(currentChild.parentUid, currentChild.cid, _editingBuffer[idx]);
 
     if (kDebugMode) print("🟡 Stored $decorId back to inventory");
   } else if (sell) {
@@ -314,11 +225,6 @@ Future<void> handleDecorAction(
     placedDecors.removeWhere((d) => d.id == decorId);
 
     if (kDebugMode) print("🟢 Sold $decorId for ${def.price} tokens");
-  }
-
-  // Exit edit mode if nothing selected
-  if (!_editingBuffer.any((d) => d.isSelected)) {
-    cancelEditMode();
   }
 
   notifyListeners();
@@ -343,10 +249,10 @@ Future<void> saveEditMode() async {
     _editingBuffer,
   );
 
-  // Update main list to match buffer (only keep placed decors)
+  // Update main list to match buffer (keep ALL decors, both placed & stored)
   placedDecors
     ..clear()
-    ..addAll(_editingBuffer.where((d) => d.isPlaced));
+    ..addAll(_editingBuffer);
 
   // Clear buffer and exit edit mode
   _editingBuffer.clear();
@@ -356,9 +262,10 @@ Future<void> saveEditMode() async {
   notifyListeners();
 
   if (kDebugMode) {
-    print("✅ Edit mode saved. ${placedDecors.length} decors now placed.");
+    print("✅ Edit mode saved. ${placedDecors.length} decors now synced.");
   }
 }
+
 
 
 

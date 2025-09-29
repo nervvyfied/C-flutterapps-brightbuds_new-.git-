@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
+import 'package:brightbuds_new/aquarium/models/fish_definition.dart';
+import 'package:brightbuds_new/aquarium/models/ownedFish_model.dart';
 import 'package:brightbuds_new/aquarium/pages/inventory_modal.dart';
 import 'package:brightbuds_new/aquarium/pages/store_page.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
+import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/providers/auth_provider.dart';
 import 'package:flutter/foundation.dart';
@@ -26,27 +30,28 @@ class Bubble {
   });
 }
 
-// ----- Test Fish Class -----
-class TestFish {
+class AquariumFish {
+  final FishDefinition definition;
   double x;
   double y;
   double speed;
   bool movingRight;
-  String asset;
   double verticalOffset;
   double sineFrequency;
   bool neglected;
 
-  TestFish({
+  AquariumFish({
+    required this.definition,
     required this.x,
     required this.y,
     required this.speed,
     required this.movingRight,
-    required this.asset,
     required this.verticalOffset,
     required this.sineFrequency,
     this.neglected = false,
   });
+
+  String get currentAsset => neglected ? definition.neglectedAsset : definition.normalAsset;
 }
 
 // ----- Dirt Class -----
@@ -92,15 +97,6 @@ class _AquariumPageState extends State<AquariumPage>
     'sand2': 0.8,
   };
 
-  final Map<String, String> neglectedMap = {
-    'assets/fish/normal/fish1_normal.gif':
-        'assets/fish/neglected/fish1_neglected.png',
-    'assets/fish/normal/fish2_normal.gif':
-        'assets/fish/neglected/fish2_neglected.png',
-    'assets/fish/normal/fish3_normal.gif':
-        'assets/fish/neglected/fish3_neglected.png',
-  };
-
   late double maxOffsetSandBg;
   late double maxOffsetSand1;
   late double maxOffsetSand2;
@@ -109,12 +105,13 @@ class _AquariumPageState extends State<AquariumPage>
   final Random random = Random();
 
   List<Bubble> bubbles = [];
-  List<TestFish> fishes = [];
+  List<AquariumFish> fishes = [];
   List<Dirt> dirts = [];
   List<FoodPellet> foodPellets = [];
 
   Timer? _foodDragTimer;
   Offset? _lastDragPosition;
+  // ignore: unused_field
   Timer? _tankDirtTimer;
 
   // Dummy child data for top-right display
@@ -124,6 +121,8 @@ class _AquariumPageState extends State<AquariumPage>
   @override
   void initState() {
     super.initState();
+
+  
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -131,7 +130,7 @@ class _AquariumPageState extends State<AquariumPage>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initBubbles();
-      _initTestFishes();
+      //_initFishes();
       _initDirts();
       _animateBubbles();
       _animateFishes();
@@ -147,22 +146,35 @@ class _AquariumPageState extends State<AquariumPage>
     });
   }
 
+  
+
   void _startNeglectTimer() {
-    Future.delayed(const Duration(minutes: 1), () {
-      if (!mounted) return;
+  Future.delayed(const Duration(minutes: 1), () async {
+    if (!mounted) return;
 
-      setState(() {
-        for (var fish in fishes) {
-          if (!fish.neglected) {
-            fish.neglected = true;
-            fish.asset = neglectedMap[fish.asset]!;
-          }
+    final fishProvider = Provider.of<FishProvider>(context, listen: false);
+
+    // collect affected fish definitions to persist after setState
+    final List<String> toPersist = [];
+
+    setState(() {
+      for (var fish in fishes) {
+        if (!fish.neglected) {
+          fish.neglected = true;
+          toPersist.add(fish.definition.id);
         }
-      });
-
-      _startNeglectTimer();
+      }
     });
-  }
+
+    // persist neglected state (no need to await sequentially; fire-and-forget is OK)
+    for (var defId in toPersist) {
+      fishProvider.setNeglected(defId, true);
+    }
+
+    _startNeglectTimer();
+  });
+}
+
 
   void _startTankDirtTimer() {
     _tankDirtTimer = Timer.periodic(const Duration(hours: 1), (_) {
@@ -213,30 +225,64 @@ class _AquariumPageState extends State<AquariumPage>
     }
   }
 
-  // ----- Initialize Test Fishes -----
-  void _initTestFishes() {
+  @override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  final fishProvider = Provider.of<FishProvider>(context);
+  
+  // Update fishes whenever activeFishes changes
+  setState(() {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    final fishAssets = [
-      'assets/fish/normal/fish1_normal.gif',
-      'assets/fish/normal/fish2_normal.gif',
-      'assets/fish/normal/fish3_normal.gif',
-    ];
-
-    for (var asset in fishAssets) {
-      fishes.add(
-        TestFish(
-          x: random.nextDouble() * screenWidth,
-          y: screenHeight * 0.3 + random.nextDouble() * screenHeight * 0.4,
-          speed: 1 + random.nextDouble() * 2,
-          movingRight: random.nextBool(),
-          asset: asset,
-          verticalOffset: random.nextDouble() * 20,
-          sineFrequency: 0.01 + random.nextDouble() * 0.02,
-        ),
+    fishes = fishProvider.activeFishes.map((owned) {
+      final def = FishCatalog.byId(owned.fishId);
+      return AquariumFish(
+        definition: def,
+        x: random.nextDouble() * screenWidth,
+        y: screenHeight * 0.3 + random.nextDouble() * screenHeight * 0.4,
+        speed: 1 + random.nextDouble() * 2,
+        movingRight: random.nextBool(),
+        verticalOffset: random.nextDouble() * 20,
+        sineFrequency: 0.01 + random.nextDouble() * 0.02,
+        neglected: owned.isNeglected,
       );
-    }
+    }).toList();
+  });
+}
+
+
+  // ----- Initialize Test Fishes -----
+  /*void _initFishes(UnmodifiableListView<OwnedFish> activeFishes) {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final screenHeight = MediaQuery.of(context).size.height;
+
+  // Get active fishes (owned & marked active) from provider
+  final fishProvider = Provider.of<FishProvider>(context, listen: false);
+  final activeOwned = fishProvider.activeFishes; // List<OwnedFish>
+
+  // If nothing active, optionally we can spawn a small default set or leave empty
+  if (activeOwned.isEmpty) {
+    return;
   }
+
+  for (var owned in activeOwned) {
+    final def = FishCatalog.byId(owned.fishId);
+    fishes.add(
+      AquariumFish(
+        definition: def,
+        x: random.nextDouble() * screenWidth,
+        y: screenHeight * 0.3 + random.nextDouble() * screenHeight * 0.4,
+        speed: 1 + random.nextDouble() * 2,
+        movingRight: random.nextBool(),
+        verticalOffset: random.nextDouble() * 20,
+        sineFrequency: 0.01 + random.nextDouble() * 0.02,
+        neglected: owned.isNeglected,
+      ),
+    );
+  }
+}*/
+
+
 
   // ----- Initialize Dirts -----
   void _initDirts() {
@@ -406,15 +452,19 @@ class _AquariumPageState extends State<AquariumPage>
   }
 
   void _resetFishesHealth() {
-    for (var fish in fishes) {
-      if (fish.neglected) {
-        fish.neglected = false;
-        fish.asset = neglectedMap.entries
-            .firstWhere((entry) => entry.value == fish.asset)
-            .key;
-      }
-    }
+  final fishProvider = Provider.of<FishProvider>(context, listen: false);
+  final previouslyNeglected = fishes.where((f) => f.neglected).toList();
+  if (previouslyNeglected.isEmpty) return;
+
+  setState(() {
+    for (var fish in previouslyNeglected) fish.neglected = false;
+  });
+
+  for (var fish in previouslyNeglected) {
+    fishProvider.setNeglected(fish.definition.id, false);
   }
+}
+
 
   void _stopFoodDragTimer() {
     _foodDragTimer?.cancel();
@@ -444,14 +494,18 @@ void dispose() {
   super.dispose();
 }
 
+
+
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
+    // ignore: unused_local_variable
     final screenHeight = MediaQuery.of(context).size.height;
     final decorProvider = Provider.of<DecorProvider>(context);
     final itemsToRender = decorProvider.isInEditMode
     ? decorProvider.editingDecors
-    : decorProvider.placedDecors;
+    : decorProvider.placedDecors.where((d) => d.isPlaced).toList();
 
     final double sandBgWidth = screenWidth * 1.2;
     final double sand1Width = screenWidth * 1.4;
@@ -492,6 +546,7 @@ Stack(
 // Render draggables first
 ...itemsToRender.map((decor) {
   final decorDef = decorProvider.getDecorDefinition(decor.decorId);
+  // ignore: dead_code, unnecessary_null_comparison
   if (decorDef == null) return const SizedBox();
 
   final double displayW = decor.isPlaced ? 120 : 80;
@@ -504,27 +559,42 @@ Stack(
   final left = decor.x + offsetX * parallax['sand2']!;
   final top = decor.y;
 
+  // -------------------- NON-EDIT MODE --------------------
+  if (!decorProvider.isInEditMode) {
+    return Positioned(
+      left: left,
+      top: top,
+      child: AnimatedOpacity(
+        opacity: decor.isPlaced ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 300),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          width: displayW,
+          height: displayH,
+          child: Image.asset(decorDef.assetPath),
+        ),
+      ),
+    );
+  }
+
+  // -------------------- EDIT MODE --------------------
   return Positioned(
     left: left,
     top: top,
     child: LongPressDraggable<String>(
       data: decor.id,
-      // fire provider so UI knows we are dragging this decor
       onDragStarted: () {
         decorProvider.startMovingDecor(decor.id);
       },
       onDragEnd: (details) async {
-        // stop moving visual state
         decorProvider.stopMovingDecor();
 
-        // convert global to local and remove parallax offset
         final RenderBox box = context.findRenderObject() as RenderBox;
         final local = box.globalToLocal(details.offset);
 
         final newX = local.dx - offsetX * parallax['sand2']!;
         final newY = local.dy;
 
-        // persist and update
         await decorProvider.updateDecorPosition(
           decor.id,
           newX,
@@ -554,16 +624,21 @@ Stack(
             decorProvider.toggleDecorSelection(decor.id);
           }
         },
-        child: Container(
-          width: displayW,
-          height: displayH,
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: isSelected ? (isMoving ? Colors.green : Colors.yellow) : Colors.transparent,
-              width: 3,
+        child: AnimatedOpacity(
+          opacity: decor.isPlaced ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 300),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: displayW,
+            height: displayH,
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: isSelected ? (isMoving ? Colors.green : Colors.yellow) : Colors.transparent,
+                width: 3,
+              ),
             ),
+            child: Image.asset(decorDef.assetPath, width: displayW, height: displayH),
           ),
-          child: Image.asset(decorDef.assetPath, width: displayW, height: displayH),
         ),
       ),
     ),
@@ -652,21 +727,20 @@ Stack(
                 ),
               ),
             ),
-            ...fishes.map(
-              (fish) => Positioned(
-                left: fish.x,
-                top: fish.y,
-                child: Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.rotationY(fish.movingRight ? 0 : pi),
-                  child: Image.asset(
-                    fish.asset,
-                    width: 80,
-                    height: 80,
-                  ),
-                ),
-              ),
-            ),
+            ...fishes.map((fish) {
+
+  return Positioned(
+    left: fish.x,
+    top: fish.y,
+    child: Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.rotationY(fish.movingRight ? 0 : pi),
+      child: Image.asset(fish.currentAsset, width: 80, height: 80),
+        ),
+    );
+}),
+
+
             ...dirts.map(
               (dirt) => Positioned(
                 left: dirt.x,
@@ -740,109 +814,145 @@ Stack(
               ),
             ),
             // ----- Child Info Top Right -----
-            Positioned(
+Positioned(
   top: 20,
   right: 20,
   child: Column(
     crossAxisAlignment: CrossAxisAlignment.end,
     children: [
-      // Balance (now live)
+      // Balance
       Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: Colors.blueAccent.withOpacity(0.7),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          'Balance: \$${decorProvider.currentChild.balance}',
-          style: const TextStyle(color: Colors.white, fontSize: 16),
-        ),
-      ),
-      const SizedBox(height: 10),
-      // Edit Tank / Save / Cancel buttons
-      if (!decorProvider.isInEditMode)
-        GestureDetector(
-          onTap: () {
-            decorProvider.enterEditMode();
-          },
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.greenAccent.withOpacity(0.7),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text('Edit Tank', style: TextStyle(color: Colors.white)),
-          ),
-        )
-      else
-        Row(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Save
-            GestureDetector(
-              onTap: () async {
-                // Save edits (persist)
-                await decorProvider.saveEditMode();
-              },
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text('Save', style: TextStyle(color: Colors.white)),
-              ),
-            ),
-            const SizedBox(width: 8),
-            // Cancel
-            GestureDetector(
-              onTap: () {
-                decorProvider.cancelEditMode();
-              },
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text('Cancel', style: TextStyle(color: Colors.white)),
-              ),
+            const Icon(Icons.account_balance_wallet, color: Colors.white, size: 18),
+            const SizedBox(width: 4),
+            Text(
+              '\$${decorProvider.currentChild.balance}',
+              style: const TextStyle(color: Colors.white, fontSize: 16),
             ),
           ],
         ),
+      ),
       const SizedBox(height: 10),
-      // Shop button remains
+      // Achievement Page Button
+      GestureDetector(
+        onTap: () => Navigator.pushNamed(context, '/achievements'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.purpleAccent.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.emoji_events, color: Colors.white),
+              SizedBox(width: 6),
+              Text('Achievements', style: TextStyle(color: Colors.white)),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      // Store Button
       GestureDetector(
         onTap: () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => const DecorStorePage()));
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const StorePage()),
+          );
         },
         child: Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.greenAccent.withOpacity(0.7),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: const Text('Shop', style: TextStyle(color: Colors.white)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.store, color: Colors.white),
+              SizedBox(width: 6),
+              Text('Store', style: TextStyle(color: Colors.white)),
+            ],
+          ),
         ),
       ),
     ],
   ),
 ),
-ElevatedButton(
-  onPressed: () async {
-    final selected = await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const InventoryModal(),
-    );
 
-    if (selected != null) {
-      // Place decor at default location
-      final decorProvider = Provider.of<DecorProvider>(context, listen: false);
-      await decorProvider.placeFromInventory(selected.decorId, 100, 200); 
-    }
-  },
-  child: const Text("Open Inventory"),
-)
+
+// Bottom-right stacked buttons
+Positioned(
+  bottom: 20,
+  right: 20,
+  child: Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      // Inventory button
+      GestureDetector(
+        onTap: () async {
+          final selected = await showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            builder: (_) => const InventoryModal(),
+          );
+
+          if (selected != null) {
+            final decorProvider = Provider.of<DecorProvider>(context, listen: false);
+            await decorProvider.placeFromInventory(selected.decorId, 100, 200);
+          }
+        },
+        child: Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: Colors.orangeAccent,
+            shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+          ),
+          child: const Icon(Icons.inventory_2, color: Colors.white, size: 30),
+        ),
+      ),
+      const SizedBox(height: 12),
+      // Edit Tank button
+      GestureDetector(
+        onTap: () async {
+          final decorProvider = Provider.of<DecorProvider>(context, listen: false);
+          if (decorProvider.isInEditMode) {
+            await decorProvider.saveEditMode();
+          } else {
+            decorProvider.enterEditMode();
+          }
+        },
+        child: Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: Colors.greenAccent,
+            shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+          ),
+          child: Icon(
+            Provider.of<DecorProvider>(context).isInEditMode
+                ? Icons.save
+                : Icons.edit,
+            color: Colors.white,
+            size: 30,
+          ),
+        ),
+      ),
+    ],
+  ),
+),
+
 
 
           ],

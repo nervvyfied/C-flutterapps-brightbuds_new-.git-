@@ -1,5 +1,9 @@
 import 'package:brightbuds_new/aquarium/models/placedDecor_model.dart';
+import 'package:brightbuds_new/aquarium/notifiers/unlock_listener.dart';
+import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
+import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
+import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/journal_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
@@ -70,34 +74,43 @@ class MyApp extends StatelessWidget {
           create: (context) =>
               DecorProvider(authProvider: context.read<AuthProvider>()),
         ),
+        ChangeNotifierProvider(
+          create: (context) =>
+              FishProvider(authProvider: context.read<AuthProvider>()),
+        ),
+        ChangeNotifierProvider(create: (_) => UnlockNotifier()), 
       ],
       child: Consumer<AuthProvider>(
-        builder: (context, auth, _) {
-          return MaterialApp(
-            title: 'BrightBuds',
-            theme: ThemeData(primarySwatch: Colors.blue),
-            home: Builder(
-              builder: (context) {
-                if (auth.isLoading) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
+  builder: (context, auth, _) {
+    return UnlockListener(
+      child: MaterialApp(
+        title: 'BrightBuds',
+        theme: ThemeData(primarySwatch: Colors.blue),
+        home: Builder(
+          builder: (context) {
+            if (auth.isLoading) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
 
-                // Automatically redirect based on saved login
-                if (auth.isParent) return const ParentNavigationShell();
-                if (auth.isChild) return const ChildNavigationShell();
+            // Automatically redirect based on saved login
+            if (auth.isParent) return const ParentNavigationShell();
+            if (auth.isChild) return const ChildNavigationShell();
 
-                return const ChooseRolePage();
-              },
-            ),
-            routes: {
-              '/parentAuth': (context) => const ParentAuthPage(),
-              '/childAuth': (context) => const ChildAuthPage(),
-            },
-          );
+            return const ChooseRolePage();
+          },
+        ),
+        routes: {
+          '/parentAuth': (context) => const ParentAuthPage(),
+          '/childAuth': (context) => const ChildAuthPage(),
+          '/achievements': (context) => const AchievementPage(),
         },
       ),
+    );
+  },
+),
+
     );
   }
 }

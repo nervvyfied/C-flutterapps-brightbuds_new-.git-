@@ -119,6 +119,18 @@ flutter:
     - assets/fish/neglected/fish10_neglected.png
     - assets/fish/neglected/fish11_neglected.png
     - assets/fish/neglected/fish12_neglected.png
+    - assets/fish/icon/fish1_icon.png
+    - assets/fish/icon/fish2_icon.png
+    - assets/fish/icon/fish3_icon.png
+    - assets/fish/icon/fish4_icon.png
+    - assets/fish/icon/fish5_icon.png
+    - assets/fish/icon/fish6_icon.png
+    - assets/fish/icon/fish7_icon.png
+    - assets/fish/icon/fish8_icon.png
+    - assets/fish/icon/fish9_icon.png
+    - assets/fish/icon/fish10_icon.png
+    - assets/fish/icon/fish11_icon.png
+    - assets/fish/icon/fish12_icon.png
     - assets/decorations/decor1.png
     - assets/decorations/decor2.png
     - assets/decorations/decor3.png
