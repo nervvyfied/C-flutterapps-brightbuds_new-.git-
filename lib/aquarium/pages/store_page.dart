@@ -50,8 +50,7 @@ class StorePage extends StatelessWidget {
                 final alreadyPlaced = decorProvider.isAlreadyPlaced(decor.id);
                 final ownedButNotPlaced =
                     decorProvider.isOwnedButNotPlaced(decor.id);
-                final canAfford =
-                    decorProvider.currentChild.balance >= decor.price;
+                final canAfford = decorProvider.currentChild.balance >= decor.price;
 
                 return Card(
                   elevation: 4,
@@ -147,8 +146,7 @@ class StorePage extends StatelessWidget {
                 final fish = FishCatalog.purchasables[index];
                 final owned = fishProvider.isOwned(fish.id);
                 final unlocked = fishProvider.isUnlocked(fish.id);
-                final canAfford =
-                    decorProvider.currentChild.balance >= fish.price;
+                final canAfford = decorProvider.currentChild.balance >= fish.price;
 
                 return Card(
                   elevation: 4,

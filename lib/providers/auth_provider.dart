@@ -140,6 +140,7 @@ class AuthProvider extends ChangeNotifier {
       name: name,
       balance: 0,
       streak: 0,
+      firstVisitUnlocked: false,
     );
 
     final createdChild = await _userRepo.createChild(parent.uid, child, code);

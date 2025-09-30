@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
+import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/aquarium/models/fish_definition.dart';
 import 'package:brightbuds_new/aquarium/models/ownedFish_model.dart';
+import 'package:brightbuds_new/aquarium/notifiers/unlockDialog.dart';
+import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:brightbuds_new/aquarium/pages/inventory_modal.dart';
 import 'package:brightbuds_new/aquarium/pages/store_page.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/providers/auth_provider.dart';
+import 'package:brightbuds_new/providers/selected_child_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -100,7 +105,8 @@ class _AquariumPageState extends State<AquariumPage>
   late double maxOffsetSandBg;
   late double maxOffsetSand1;
   late double maxOffsetSand2;
-  late DecorProvider decorProvider;
+  DecorProvider get decorProvider => context.watch<DecorProvider>();
+
 
   final Random random = Random();
 
@@ -118,35 +124,89 @@ class _AquariumPageState extends State<AquariumPage>
   double childBalance = 0;
   List<bool> fishAchievements = [true, false, false]; // true = unlocked
 
-  @override
-  void initState() {
-    super.initState();
+@override
+void initState() {
+  super.initState();
 
-  
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
+  _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 500),
+  );
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final selectedChildProvider =
+        Provider.of<SelectedChildProvider>(context, listen: false);
+    final fishProvider = Provider.of<FishProvider>(context, listen: false);
+    final unlockNotifier = Provider.of<UnlockNotifier>(context, listen: false);
+
+    final unlockManager = UnlockManager(
+      fishProvider: fishProvider,
+      unlockNotifier: unlockNotifier,
+      selectedChildProvider: selectedChildProvider,
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initBubbles();
-      //_initFishes();
-      _initDirts();
-      _animateBubbles();
-      _animateFishes();
-      _animateFoodPellets();
-      _startNeglectTimer();
-      _startTankDirtTimer();
-      final auth = Provider.of<AuthProvider>(context, listen: false);
-      if (auth.currentUserModel is ChildUser) {
-        setState(() {
-          childBalance = (auth.currentUserModel as ChildUser).balance.toDouble();
-        });
-      }
-    });
-  }
+    final justUnlocked = unlockNotifier.justUnlocked;
+    if (justUnlocked != null) {
+      unlockNotifier.clear(); // clear first to prevent repeated triggers
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => UnlockDialog(fish: justUnlocked),
+      );
+    }
 
-  
+    if (auth.currentUserModel is ChildUser) {
+      final child = auth.currentUserModel as ChildUser;
+
+      // Update local balance
+      setState(() {
+        childBalance = child.balance.toDouble();
+      });
+
+      // --- FIRST VISIT LOGIC ---
+      final childDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(child.parentUid)
+          .collection('children')
+          .doc(child.cid)
+          .get();
+
+      bool firstVisitUnlocked = childDoc.data()?['firstVisitUnlocked'] ?? false;
+
+      if (!firstVisitUnlocked) {
+        // Unlock fish in provider first
+        final firstFish = FishCatalog.all.firstWhere(
+            (f) => f.unlockConditionId == "first_aquarium_visit");
+        await fishProvider.unlockFish(firstFish.id);
+
+        // Update Firestore
+        await childDoc.reference.update({'firstVisitUnlocked': true});
+
+        // Update local selectedChildProvider state
+        selectedChildProvider.updateSelectedChild({'firstVisitUnlocked': true});
+        child.firstVisitUnlocked = true;
+
+        await Future.delayed(Duration(milliseconds: 100));
+
+        // Trigger UnlockNotifier (will show popup + glow)
+        unlockNotifier.setUnlocked(firstFish);
+      }
+
+      // --- OTHER UNLOCKABLES ---
+      await unlockManager.checkUnlocks();
+    }
+
+    // Initialize aquarium visuals, bubbles, etc.
+    _initBubbles();
+    _initDirts();
+    _animateBubbles();
+    _animateFishes();
+    _animateFoodPellets();
+    _startNeglectTimer();
+    _startTankDirtTimer();
+  });
+}
 
   void _startNeglectTimer() {
   Future.delayed(const Duration(minutes: 1), () async {
@@ -928,6 +988,8 @@ Positioned(
           final decorProvider = Provider.of<DecorProvider>(context, listen: false);
           if (decorProvider.isInEditMode) {
             await decorProvider.saveEditMode();
+            final unlockManager = context.read<UnlockManager>();
+            await unlockManager.checkUnlocks();
           } else {
             decorProvider.enterEditMode();
           }

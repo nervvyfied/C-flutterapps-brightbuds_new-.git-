@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/aquarium/models/fish_definition.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/decor_provider.dart';
@@ -12,8 +13,7 @@ class InventoryModal extends StatelessWidget {
   Widget build(BuildContext context) {
     final decorProvider = context.watch<DecorProvider>();
     final fishProvider = context.watch<FishProvider>();
-    final inactiveFishes =
-    fishProvider.ownedFishes.where((fish) => !fish.isActive).toList();
+    final inactiveFishes = fishProvider.ownedFishes.where((fish) => !fish.isActive).toList();
     final allFishes = fishProvider.ownedFishes;
 
 
@@ -99,7 +99,7 @@ class InventoryModal extends StatelessWidget {
       children: [
         Expanded(child: Image.asset(def.storeIconAsset)),
         Text(def.name, style: const TextStyle(fontSize: 12)),
-        if (fish.isActive)
+        if (fish.isActive) 
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -107,8 +107,9 @@ class InventoryModal extends StatelessWidget {
                 icon: Icon(Icons.inventory),
                 onPressed: () => fishProvider.storeFish(fish.fishId),
               ),
+              if (def.type == FishType.purchasable) // ✅ only show sell for purchasable
               IconButton(
-                icon: Icon(Icons.attach_money),
+                icon: const Icon(Icons.attach_money),
                 onPressed: () => fishProvider.sellFish(fish.fishId),
               ),
             ],

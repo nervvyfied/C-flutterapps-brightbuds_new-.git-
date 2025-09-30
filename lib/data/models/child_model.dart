@@ -25,6 +25,9 @@ class ChildUser {
   @HiveField(6)
   List<Map<String, dynamic>> ownedFish;
 
+  @HiveField(7)
+  bool firstVisitUnlocked;
+
   ChildUser({
     required this.cid,
     required this.name,
@@ -33,8 +36,10 @@ class ChildUser {
     required this.parentUid,
     List<Map<String, dynamic>>? placedDecors,
     List<Map<String, dynamic>>? ownedFish,
+    this.firstVisitUnlocked = false,
   })  : placedDecors = placedDecors ?? <Map<String, dynamic>>[],
         ownedFish = ownedFish ?? <Map<String, dynamic>>[];
+    
 
   factory ChildUser.fromMap(Map<String, dynamic> data, String id) {
     return ChildUser(
@@ -49,6 +54,7 @@ class ChildUser {
       ownedFish: data['ownedFish'] != null
           ? List<Map<String, dynamic>>.from(data['ownedFish'])
           : <Map<String, dynamic>>[],
+      firstVisitUnlocked: data['firstVisitUnlocked'] ?? false,
     );
   }
 
@@ -61,6 +67,7 @@ class ChildUser {
       "parentUid": parentUid,
       "placedDecors": placedDecors,
       "ownedFish": ownedFish,
+      "firstVisitUnlocked": firstVisitUnlocked,
     };
   }
 
@@ -72,6 +79,7 @@ class ChildUser {
     String? parentUid,
     List<Map<String, dynamic>>? placedDecors,
     List<Map<String, dynamic>>? ownedFish,
+    bool? firstVisitUnlocked,
   }) {
     return ChildUser(
       cid: cid ?? this.cid,
@@ -81,6 +89,7 @@ class ChildUser {
       parentUid: parentUid ?? this.parentUid,
       placedDecors: placedDecors ?? this.placedDecors,
       ownedFish: ownedFish ?? this.ownedFish,
+      firstVisitUnlocked: firstVisitUnlocked ?? this.firstVisitUnlocked,
     );
   }
 }

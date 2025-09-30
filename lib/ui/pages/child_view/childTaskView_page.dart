@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/providers/auth_provider.dart';
 import 'package:brightbuds_new/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
@@ -35,6 +36,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   Widget build(BuildContext context) {
     final taskProvider = Provider.of<TaskProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final unlockManager = context.read<UnlockManager>();
 
     // Filter tasks to ensure they belong to this child and have valid fields
     final childTasks = taskProvider.tasks.where((task) {
@@ -83,6 +85,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                 onPressed: () {
                                   taskProvider.markTaskAsDone(
                                       task.id, widget.childId);
+                                  unlockManager.checkUnlocks();
                                 },
                                 child: const Text("Done"),
                               ),

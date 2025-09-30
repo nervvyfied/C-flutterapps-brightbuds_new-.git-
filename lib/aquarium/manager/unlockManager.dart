@@ -1,25 +1,30 @@
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import '../providers/fish_provider.dart';
 import '../catalogs/fish_catalog.dart';
 import '../models/fish_definition.dart';
 import '/data/models/task_model.dart';
 import '/data/models/child_model.dart';
 import '../models/placedDecor_model.dart';
+import '/providers/selected_child_provider.dart';
 
 class UnlockManager {
   final FishProvider fishProvider;
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
   final UnlockNotifier unlockNotifier;
+  final SelectedChildProvider selectedChildProvider;
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
-  UnlockManager(this.unlockNotifier, {required this.fishProvider});
+  UnlockManager({
+    required this.unlockNotifier,
+    required this.fishProvider,
+    required this.selectedChildProvider,
+  });
 
   /// Call after relevant actions (task completed, decor placed, aquarium visited)
   Future<void> checkUnlocks() async {
     final child = fishProvider.currentChild;
 
-    // Fetch latest tasks & decors from Firestore
+    // Fetch tasks
     final tasksSnap = await firestore
         .collection('users')
         .doc(child.parentUid)
@@ -28,42 +33,61 @@ class UnlockManager {
         .collection('tasks')
         .get();
 
-    final decorsSnap = await firestore
-        .collection('users')
-        .doc(child.parentUid)
-        .collection('children')
-        .doc(child.cid)
-        .collection('aquarium')
-        .doc('decor')
-        .collection('placedDecors')
-        .get();
-
     List<TaskModel> tasks = tasksSnap.docs
         .map((d) => TaskModel.fromFirestore(d.data(), d.id))
         .toList();
 
-    List<PlacedDecor> decors = decorsSnap.docs
-        .map((d) => PlacedDecor.fromMap(d.data()))
+    // Fetch decors from correct Firestore path
+    final decorDoc = await firestore
+      .collection('users')
+      .doc(child.parentUid)
+      .collection('children')
+      .doc(child.cid)
+      .collection('aquarium')
+      .doc('decor')
+      .get();
+
+  List<PlacedDecor> decors = [];
+  if (decorDoc.exists && decorDoc.data()?['placedDecors'] != null) {
+    decors = (decorDoc.data()!['placedDecors'] as List)
+        .map((d) => PlacedDecor.fromMap(d))
         .toList();
+  }
+
 
     for (var fishDef in FishCatalog.all) {
-      if (fishDef.type == FishType.unlockable && !fishProvider.isOwned(fishDef.id)) {
-        if (_isConditionMet(fishDef.unlockConditionId, child, tasks, decors)) {
-          await fishProvider.unlockFish(fishDef.id);
-          debugPrint('${fishDef.name} unlocked!');
+      // Skip non-unlockable or already owned
+      if (fishDef.type != FishType.unlockable || fishProvider.isOwned(fishDef.id)) {
+        continue;
+      }
 
-          unlockNotifier.notifyUnlock(fishDef);
+      bool shouldUnlock = false;
+
+      if (fishDef.unlockConditionId == 'first_aquarium_visit') {
+        final childDoc =
+            await firestore.collection("children").doc(child.cid).get();
+        bool firstVisit = childDoc.data()?['firstVisitUnlocked'] ?? false;
+
+        if (!firstVisit) {
+          // Mark first visit as unlocked
+          await childDoc.reference.update({'firstVisitUnlocked': true});
+          child.firstVisitUnlocked = true; // update local object
+          selectedChildProvider.updateSelectedChild({'firstVisitUnlocked': true});
+          shouldUnlock = true;
         }
+      } else {
+        shouldUnlock = _isConditionMet(fishDef.unlockConditionId, child, tasks, decors);
+      }
+
+      if (shouldUnlock) {
+        await fishProvider.unlockFish(fishDef.id);
+        unlockNotifier.setUnlocked(fishDef);
       }
     }
   }
 
   bool _isConditionMet(String conditionId, ChildUser child, List<TaskModel> tasks, List<PlacedDecor> decors) {
     switch (conditionId) {
-      case 'first_aquarium_visit':
-        // Track first visit via a local flag or a field in Firestore
-        return child.ownedFish.isNotEmpty || child.placedDecors.isNotEmpty;
-
       case 'task_milestone_50':
         int totalCompleted = tasks.fold(0, (sum, t) => sum + t.totalDaysCompleted);
         bool streak50 = tasks.any((t) => t.activeStreak >= 50);
@@ -74,7 +98,9 @@ class UnlockManager {
         return placedCount >= 5;
 
       case 'complete_10_hard_tasks':
-        int hardDone = tasks.where((t) => t.difficulty.toLowerCase() == 'hard' && t.isDone).length;
+        int hardDone = tasks
+            .where((t) => t.difficulty.toLowerCase() == 'Hard' && t.isDone)
+            .length;
         return hardDone >= 10;
 
       default:

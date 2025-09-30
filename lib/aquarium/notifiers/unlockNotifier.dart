@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import '../models/fish_definition.dart';
 
 class UnlockNotifier extends ChangeNotifier {
-  FishDefinition? _lastUnlocked;
+  FishDefinition? _justUnlocked;
 
-  FishDefinition? get lastUnlocked => _lastUnlocked;
+  FishDefinition? get justUnlocked => _justUnlocked;
 
-  void notifyUnlock(FishDefinition fish) {
-    _lastUnlocked = fish;
+  void setUnlocked(FishDefinition fish) {
+    _justUnlocked = fish;
     notifyListeners();
   }
 
   void clear() {
-    _lastUnlocked = null;
+    _justUnlocked = null;
     notifyListeners();
   }
 }
