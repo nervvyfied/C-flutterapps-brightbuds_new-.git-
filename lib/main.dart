@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/aquarium/models/placedDecor_model.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlock_listener.dart';
 import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
@@ -78,7 +79,15 @@ class MyApp extends StatelessWidget {
           create: (context) =>
               FishProvider(authProvider: context.read<AuthProvider>()),
         ),
-        ChangeNotifierProvider(create: (_) => UnlockNotifier()), 
+        ChangeNotifierProvider(create: (_) => UnlockNotifier()),
+
+        Provider(
+          create: (context) => UnlockManager(
+            unlockNotifier: context.read<UnlockNotifier>(),
+            fishProvider: context.read<FishProvider>(),
+            selectedChildProvider: context.read<SelectedChildProvider>(),
+          ),
+        ),
       ],
       child: Consumer<AuthProvider>(
   builder: (context, auth, _) {

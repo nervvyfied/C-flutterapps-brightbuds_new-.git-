@@ -21,6 +21,7 @@ class SelectedChildProvider extends ChangeNotifier {
     _selectedChild = null;
     notifyListeners();
   }
+  
 
   bool get hasSelectedChild => _selectedChild != null;
 }

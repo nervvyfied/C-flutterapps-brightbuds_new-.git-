@@ -1,4 +1,5 @@
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
+import 'package:brightbuds_new/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -31,10 +32,32 @@ class _AchievementPageState extends State<AchievementPage> {
   void initState() {
     super.initState();
     final fishProvider = context.read<FishProvider>();
-    child = fishProvider.currentChild;
-    unlockManager = UnlockManager(context.read<UnlockNotifier>(), fishProvider: fishProvider);
+  final unlockNotifier = context.read<UnlockNotifier>();
+  final selectedChildProvider = context.read<SelectedChildProvider>();
+
+  child = fishProvider.currentChild;
+
+  // Pass unlockNotifier as positional, then the named arguments
+  unlockManager = UnlockManager(
+    unlockNotifier: unlockNotifier,
+    fishProvider: fishProvider,
+    selectedChildProvider: selectedChildProvider,
+  );
 
     _setupStreams();
+
+        tasksStream?.listen((latestTasks) {
+      setState(() {
+        tasks = latestTasks;
+      });
+    });
+
+    decorsStream?.listen((latestDecors) {
+      setState(() {
+        decors = latestDecors;
+      });
+    });
+
   }
 
   void _setupStreams() {
@@ -51,131 +74,154 @@ class _AchievementPageState extends State<AchievementPage> {
 
     // Decors snapshot listener
     decorsStream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(child.parentUid)
-        .collection('children')
-        .doc(child.cid)
-        .collection('aquarium')
-        .doc('decor')
-        .collection('placedDecors')
-        .snapshots()
-        .map((snapshot) =>
-            snapshot.docs.map((d) => PlacedDecor.fromMap(d.data())).toList());
+    .collection('users')
+    .doc(child.parentUid)
+    .collection('children')
+    .doc(child.cid)
+    .collection('aquarium')
+    .doc('decor')
+    .snapshots()
+    .map((snapshot) {
+      if (!snapshot.exists || snapshot.data()?['placedDecors'] == null) return <PlacedDecor>[];
+      return (snapshot.data()!['placedDecors'] as List)
+          .map((d) => PlacedDecor.fromMap(d))
+          .toList();
+    });
+
   }
 
   @override
-  Widget build(BuildContext context) {
-    final fishProvider = context.watch<FishProvider>();
+Widget build(BuildContext context) {
+  final fishProvider = context.watch<FishProvider>();
+  final unlockNotifier = context.watch<UnlockNotifier>();
 
-    List<FishDefinition> unlockables = FishCatalog.all
-        .where((fish) => fish.type == FishType.unlockable)
-        .toList();
+  List<FishDefinition> unlockables = FishCatalog.all
+      .where((fish) => fish.type == FishType.unlockable)
+      .toList();
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Milestones & Unlockables')),
-      body: StreamBuilder<List<TaskModel>>(
-          stream: tasksStream,
-          builder: (context, taskSnapshot) {
-            if (taskSnapshot.hasData) tasks = taskSnapshot.data!;
-            return StreamBuilder<List<PlacedDecor>>(
-              stream: decorsStream,
-              builder: (context, decorSnapshot) {
-                if (decorSnapshot.hasData) decors = decorSnapshot.data!;
+  return Scaffold(
+    appBar: AppBar(title: const Text('Milestones & Unlockables')),
+    body: ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: unlockables.length,
+      itemBuilder: (context, index) {
+        final fish = unlockables[index];
+        final isOwned = fishProvider.isOwned(fish.id);
+        final isJustUnlocked = unlockNotifier.justUnlocked?.id == fish.id;
 
-                // Run unlock check on every update
-                unlockManager.checkUnlocks();
+        double progressPercent = _calculateProgressPercent(fish);
+        String progressText = _getProgressText(fish, progressPercent);
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: unlockables.length,
-                  itemBuilder: (context, index) {
-                    final fish = unlockables[index];
-                    final isOwned = fishProvider.isOwned(fish.id);
+        Widget card = Card(
+          elevation: 3,
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                // Fish icon
+                Image.asset(
+                  fish.storeIconAsset,
+                  width: 60,
+                  height: 60,
+                  color: isOwned ? null : Colors.grey,
+                ),
+                const SizedBox(width: 12),
 
-                    double progressPercent = _calculateProgressPercent(fish);
-                    String progressText = _getProgressText(fish, progressPercent);
-
-                    return Card(
-                      elevation: 3,
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            // Fish icon
-                            Image.asset(
-                              fish.storeIconAsset,
-                              width: 60,
-                              height: 60,
-                              color: isOwned ? null : Colors.grey,
-                            ),
-                            const SizedBox(width: 12),
-
-                            // Name + Description + Progress
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    fish.name,
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: isOwned ? Colors.black : Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    fish.description,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: isOwned ? Colors.black : Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: LinearProgressIndicator(
-                                      value: progressPercent,
-                                      minHeight: 10,
-                                      backgroundColor: Colors.grey.shade300,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                          isOwned ? Colors.green : Colors.blue),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    progressText,
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: isOwned ? Colors.green : Colors.grey),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            // Lock / check icon
-                            Icon(
-                              isOwned ? Icons.check_circle : Icons.lock,
-                              color: isOwned ? Colors.green : Colors.grey,
-                              size: 28,
-                            ),
-                          ],
+                // Name + Description + Progress
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        fish.name,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isOwned ? Colors.black : Colors.grey,
                         ),
                       ),
-                    );
-                  },
-                );
-              },
-            );
-          }),
-    );
-  }
+                      const SizedBox(height: 4),
+                      Text(
+                        fish.description,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isOwned ? Colors.black : Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: progressPercent,
+                          minHeight: 10,
+                          backgroundColor: Colors.grey.shade300,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                              isOwned ? Colors.green : Colors.blue),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        progressText,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: isOwned ? Colors.green : Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Lock / check icon
+                Icon(
+                  isOwned ? Icons.check_circle : Icons.lock,
+                  color: isOwned ? Colors.green : Colors.grey,
+                  size: 28,
+                ),
+              ],
+            ),
+          ),
+        );
+
+        if (isJustUnlocked) {
+          return TweenAnimationBuilder<double>(
+            duration: const Duration(seconds: 2),
+            curve: Curves.easeInOut,
+            tween: Tween(begin: 0.0, end: 20.0),
+            onEnd: () {
+              // after animation ends, clear highlight so it won’t repeat
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                context.read<UnlockNotifier>().clear();
+              });
+            },
+            builder: (context, glow, child) {
+              return Container(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.yellow.withOpacity(0.6),
+                      blurRadius: glow,
+                      spreadRadius: glow / 2,
+                    ),
+                  ],
+                ),
+                child: child,
+              );
+            },
+            child: card,
+          );
+        } else {
+          return card;
+        }
+      },
+    ),
+  );
+}
+
 
   double _calculateProgressPercent(FishDefinition fish) {
     switch (fish.unlockConditionId) {
       case 'first_aquarium_visit':
-        return child.ownedFish.isNotEmpty || child.placedDecors.isNotEmpty ? 1.0 : 0.0;
+        return child.firstVisitUnlocked ? 1.0 : 0.0;
 
       case 'task_milestone_50':
         int totalCompleted = tasks.fold(0, (sum, t) => sum + t.totalDaysCompleted);

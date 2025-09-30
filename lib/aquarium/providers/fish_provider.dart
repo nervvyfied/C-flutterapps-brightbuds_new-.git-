@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../models/fish_definition.dart';
 import '../models/ownedFish_model.dart';
@@ -12,6 +13,8 @@ class FishProvider extends ChangeNotifier {
   final FishRepository _repo = FishRepository();
 
   late ChildUser currentChild;
+
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
   List<OwnedFish> ownedFishes = [];
   List<OwnedFish> _editingBuffer = [];
@@ -275,23 +278,32 @@ bool isFishSelected(String fishId) {
 
   // ---------- Unlock ----------
   Future<void> unlockFish(String fishId) async {
-    final fishDef = FishCatalog.byId(fishId);
-    if (fishDef.type != FishType.unlockable) return;
-    if (isOwned(fishId)) return;
+  final child = currentChild;
 
-    final newFish = OwnedFish(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      fishId: fishId,
-      isActive: false,
-      isNeglected: false,
+  await firestore
+      .collection('users')
+      .doc(child.parentUid)
+      .collection('children')
+      .doc(child.cid)
+      .collection('fishes')
+      .doc(fishId)
+      .set({
+        'fishId': fishId,
+        'isUnlocked': true,
+        'isActive': false,
+      }, SetOptions(merge: true));
+
+      ownedFishes.add(
+      OwnedFish(
+        id: fishId, // 👈 can use same as fishId if you don’t have a unique doc ID
+        fishId: fishId,
+        isUnlocked: true,
+      ),
     );
 
-    await _repo.addOwnedFish(currentChild.parentUid, currentChild.cid, newFish);
-    ownedFishes.add(newFish);
+  notifyListeners();
+}
 
-    notifyListeners();
-    if (kDebugMode) print("🔓 Unlocked fish ${fishDef.name}");
-  }
 
   // ---------- Neglected State ----------
   Future<void> setNeglected(String fishId, bool neglected) async {

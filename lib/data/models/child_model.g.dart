@@ -28,13 +28,14 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       ownedFish: (fields[6] as List?)
           ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
           ?.toList(),
+      firstVisitUnlocked: fields[7] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, ChildUser obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.cid)
       ..writeByte(1)
@@ -48,7 +49,9 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       ..writeByte(5)
       ..write(obj.placedDecors)
       ..writeByte(6)
-      ..write(obj.ownedFish);
+      ..write(obj.ownedFish)
+      ..writeByte(7)
+      ..write(obj.firstVisitUnlocked);
   }
 
   @override
