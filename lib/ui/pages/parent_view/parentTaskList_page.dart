@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/providers/task_provider.dart';
-import 'package:brightbuds_new/providers/selected_child_provider.dart';
+import 'package:brightbuds_new/data/providers/task_provider.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 

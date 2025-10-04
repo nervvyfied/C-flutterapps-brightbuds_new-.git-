@@ -1,6 +1,6 @@
 import 'dart:collection';
 import 'package:flutter/foundation.dart';
-import 'package:brightbuds_new/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import '../models/placedDecor_model.dart';
 import '../models/decor_definition.dart';
 import '../repositories/decor_repository.dart';

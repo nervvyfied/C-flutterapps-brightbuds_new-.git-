@@ -6,7 +6,7 @@ import '../models/fish_definition.dart';
 import '/data/models/task_model.dart';
 import '/data/models/child_model.dart';
 import '../models/placedDecor_model.dart';
-import '/providers/selected_child_provider.dart';
+import '../../data/providers/selected_child_provider.dart';
 
 class UnlockManager {
   final FishProvider fishProvider;

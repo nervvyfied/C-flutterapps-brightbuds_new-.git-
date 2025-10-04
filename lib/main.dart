@@ -5,14 +5,17 @@ import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
+import 'package:brightbuds_new/cbt/models/assigned_cbt_model.dart';
+import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
+import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/journal_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/providers/journal_provider.dart';
-import 'package:brightbuds_new/providers/selected_child_provider.dart';
-import 'package:brightbuds_new/providers/auth_provider.dart';
-import 'package:brightbuds_new/providers/task_provider.dart';
+import 'package:brightbuds_new/data/providers/journal_provider.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
@@ -50,12 +53,20 @@ void main() async {
   if (!Hive.isAdapterRegistered(PlacedDecorAdapter().typeId)) {
     Hive.registerAdapter(PlacedDecorAdapter());
   }
+  if (!Hive.isAdapterRegistered(AssignedCBTAdapter().typeId)) {
+    Hive.registerAdapter(AssignedCBTAdapter());
+  }
+  if (!Hive.isAdapterRegistered(CBTExerciseAdapter().typeId)) {
+    Hive.registerAdapter(CBTExerciseAdapter());
+  }
   // ---------------- Open Boxes ----------------
   await Hive.openBox<ParentUser>('parentBox');
   await Hive.openBox<ChildUser>('childBox');
   await Hive.openBox<TaskModel>('tasksBox');
   await Hive.openBox<JournalEntry>('journalBox');
   await Hive.openBox<PlacedDecor>('placedDecors');
+  await Hive.openBox<CBTExercise>('cbtExercise');
+  await Hive.openBox<AssignedCBT>('assignedCBT');
 
   runApp(const MyApp());
 }
@@ -80,6 +91,7 @@ class MyApp extends StatelessWidget {
               FishProvider(authProvider: context.read<AuthProvider>()),
         ),
         ChangeNotifierProvider(create: (_) => UnlockNotifier()),
+        ChangeNotifierProvider(create: (_) => CBTProvider()),
 
         Provider(
           create: (context) => UnlockManager(

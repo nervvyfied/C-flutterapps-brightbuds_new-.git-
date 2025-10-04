@@ -1,6 +1,6 @@
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
-import 'package:brightbuds_new/providers/auth_provider.dart';
-import 'package:brightbuds_new/providers/task_provider.dart';
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

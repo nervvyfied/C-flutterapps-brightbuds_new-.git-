@@ -11,10 +11,10 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '/data/models/parent_model.dart';
 import '/data/repositories/user_repository.dart';
-import '/providers/auth_provider.dart';
-import '/providers/journal_provider.dart';
-import '/providers/task_provider.dart';
-import '/providers/selected_child_provider.dart';
+import '../../../data/providers/auth_provider.dart';
+import '../../../data/providers/journal_provider.dart';
+import '../../../data/providers/task_provider.dart';
+import '../../../data/providers/selected_child_provider.dart';
 
 class ParentDashboardPage extends StatefulWidget {
   final String parentId;

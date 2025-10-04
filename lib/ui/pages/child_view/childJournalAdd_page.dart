@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '/data/models/journal_model.dart';
-import '/providers/journal_provider.dart';
+import '../../../data/providers/journal_provider.dart';
 
 class JournalAddPage extends StatefulWidget {
   final String parentId;

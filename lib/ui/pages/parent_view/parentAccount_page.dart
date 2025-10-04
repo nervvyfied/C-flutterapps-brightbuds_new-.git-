@@ -5,9 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import '/providers/auth_provider.dart' as app_auth;
-import '/providers/selected_child_provider.dart';
-import '/providers/journal_provider.dart';
+import '../../../data/providers/auth_provider.dart' as app_auth;
+import '../../../data/providers/selected_child_provider.dart';
+import '../../../data/providers/journal_provider.dart';
 
 class ParentAccountPage extends StatefulWidget {
   final String parentId;

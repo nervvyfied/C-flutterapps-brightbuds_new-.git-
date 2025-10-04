@@ -2,11 +2,11 @@ import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import '../data/models/task_model.dart';
-import '../data/repositories/task_repository.dart';
-import '../data/repositories/user_repository.dart';
-import '../data/repositories/streak_repository.dart';
-import '../data/services/sync_service.dart';
+import '../models/task_model.dart';
+import '../repositories/task_repository.dart';
+import '../repositories/user_repository.dart';
+import '../repositories/streak_repository.dart';
+import '../services/sync_service.dart';
 import 'dart:async';
 
 class TaskProvider extends ChangeNotifier {

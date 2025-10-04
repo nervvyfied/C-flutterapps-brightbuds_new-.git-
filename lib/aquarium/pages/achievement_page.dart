@@ -1,5 +1,5 @@
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
-import 'package:brightbuds_new/providers/selected_child_provider.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';

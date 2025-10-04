@@ -1,5 +1,5 @@
 import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

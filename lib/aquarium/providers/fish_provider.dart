@@ -6,7 +6,7 @@ import '../models/ownedFish_model.dart';
 import '../repositories/fish_repository.dart';
 import '../catalogs/fish_catalog.dart';
 import '/data/models/child_model.dart';
-import '/providers/auth_provider.dart';
+import '../../data/providers/auth_provider.dart';
 
 class FishProvider extends ChangeNotifier {
   final AuthProvider authProvider;

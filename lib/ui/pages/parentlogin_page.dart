@@ -2,7 +2,7 @@ import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_sign_in/google_sign_in.dart'; 
-import '../../providers/auth_provider.dart';
+import '../../data/providers/auth_provider.dart';
 import '/data/models/parent_model.dart';
 
 class ParentAuthPage extends StatefulWidget {

@@ -1,10 +1,13 @@
+import 'package:brightbuds_new/cbt/pages/child_cbt_page.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
 import 'package:brightbuds_new/aquarium/pages/aquarium_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '/cbt/providers/cbt_provider.dart';
+import '/cbt/models/cbt_exercise_model.dart'; // if you have Hive types here
 
 class ChildNavigationShell extends StatefulWidget {
   const ChildNavigationShell({super.key});
@@ -20,7 +23,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     return [
       ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
       JournalListPage(parentId: parentId, childId: childId),
-      const PlaceholderPage(title: 'Power Pack'),
+      ChildCBTPage(childId:childId),
       AquariumPage(),
     ];
   }
