@@ -28,6 +28,10 @@ class CBTProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> autoCompleteAfterExercise(String parentId, String childId, String cbtId) async {
+    await markAsCompleted(parentId, childId, cbtId);
+  }
+
   /// Returns a specific CBT by ID (for details page)
   AssignedCBT? getCBTById(String id) {
     try {

@@ -5,9 +5,7 @@ import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
 import 'package:brightbuds_new/aquarium/pages/aquarium_page.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '/cbt/providers/cbt_provider.dart';
-import '/cbt/models/cbt_exercise_model.dart'; // if you have Hive types here
+import 'package:provider/provider.dart'; // if you have Hive types here
 
 class ChildNavigationShell extends StatefulWidget {
   const ChildNavigationShell({super.key});

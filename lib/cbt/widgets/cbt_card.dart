@@ -73,11 +73,6 @@ class CBTCard extends StatelessWidget {
                       label: const Text('Start'),
                     ),
                     const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: isCompleted ? null : onComplete,
-                      icon: const Icon(Icons.done, size: 18),
-                      label: const Text('Complete'),
-                    ),
                   ],
                 ),
               ],

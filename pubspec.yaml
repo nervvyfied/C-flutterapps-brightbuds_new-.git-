@@ -53,6 +53,9 @@ dependencies:
   flutter_signin_button: ^2.1.1
   elegant_notification: ^2.5.1
   confetti: ^0.7.0
+  audioplayers: ^6.5.1
+  lottie: ^3.0.0
+  video_player: ^2.10.0
 
 dev_dependencies:
   flutter_test:
@@ -80,6 +83,16 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
+    - assets/audios/calm/
+    - assets/audios/happy/
+    - assets/audios/angry/
+    - assets/cbt/calm/
+    - assets/cbt/happy/
+    - assets/cbt/angry/
+    - assets/cbt/sad/
+    - assets/cbt/scared/
+    - assets/cbt/confused/
+    - assets/cbt/
     - assets/tank/water_bg.png
     - assets/tank/sand_bg.png
     - assets/tank/sand1.png

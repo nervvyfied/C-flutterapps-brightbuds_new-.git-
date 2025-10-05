@@ -13,10 +13,15 @@ class CBTLibrary {
           'A guided 1-minute meditation to help children relax, breathe, and feel safe while imagining a peaceful garden.',
       duration: '1 minute',
       assets: [
-        'garden_bg.png',
-        'sun.png',
-        'sun_glow.png',
-        'flower_field.png',
+        // Visuals
+        'assets/cbt/calm/garden_bg.png',
+        'assets/cbt/calm/sun.png',
+        'assets/cbt/calm/sun_glow.png',
+        'assets/cbt/calm/flower_field.png',
+        // Audio (multiple segments)
+        'assets/audios/calm/01GardenMeditation.m4a',
+        'assets/audios/calm/02GardenMeditation.m4a',
+        'assets/audios/calm/03GardenMeditation.m4a',
       ],
     ),
 
@@ -31,16 +36,16 @@ class CBTLibrary {
           'Tap each rainbow color to express gratitude and build your own “Gratitude Rainbow.”',
       duration: '30s - 1 minute',
       assets: [
-        'sky_bg.png',
-        'cloud.png',
-        'red_band.png',
-        'orange_band.png',
-        'yellow_band.png',
-        'green_band.png',
-        'blue_band.png',
-        'indigo_band.png',
-        'violet_band.png',
-        'sparkle.json',
+        'assets/cbt/sad/sky_bg.png',
+        'assets/cbt/sad/cloud.png',
+        'assets/cbt/sad/red_band.png',
+        'assets/cbt/sad/orange_band.png',
+        'assets/cbt/sad/yellow_band.png',
+        'assets/cbt/sad/green_band.png',
+        'assets/cbt/sad/blue_band.png',
+        'assets/cbt/sad/indigo_band.png',
+        'assets/cbt/sad/violet_band.png',
+        'assets/cbt/sad/sparkle.json',
       ],
     ),
 
@@ -55,9 +60,14 @@ class CBTLibrary {
           'A fun 1-minute stretching routine with voice prompts and a cheerful sun animation to boost happiness.',
       duration: '1 minute',
       assets: [
-        'Stretch_up.gif',
-        'wide_hug.gif',
-        'sparkle.json',
+        // Visuals
+        'assets/cbt/happy/stretch_up.gif',
+        'assets/cbt/happy/wide_hug.gif',
+        'assets/cbt/happy/sparkle.json',
+        // Audio
+        'assets/audios/happy/01HappyStretch.m4a',
+        'assets/audios/happy/02HappyStretch.m4a',
+        'assets/audios/happy/03HappyStretch.m4a',
       ],
     ),
 
@@ -72,11 +82,11 @@ class CBTLibrary {
           'Helps children process confusion by expressing what confuses them, what they understand, and what they can try next.',
       duration: '30s - 1 minute',
       assets: [
-        'river_bg.png',
-        'stone1.png',
-        'stone2.png',
-        'stone3.png',
-        'frog.png',
+        'assets/cbt/confused/river_bg.png',
+        'assets/cbt/confused/stone1.png',
+        'assets/cbt/confused/stone2.png',
+        'assets/cbt/confused/stone3.png',
+        'assets/cbt/confused/frog.png',
       ],
     ),
 
@@ -91,8 +101,13 @@ class CBTLibrary {
           'A calming breathing exercise where a red bubble expands and pops as anger is released and calm returns.',
       duration: '1 - 2 minutes',
       assets: [
-        'bubble.png',
-        'bubble_pop.png',
+        // Visuals
+        'assets/cbt/angry/bubble.png',
+        'assets/cbt/angry/bubble_pop.png',
+        // Audio
+        'assets/audios/angry/01BubblePop.m4a',
+        'assets/audios/angry/02BubblePop.m4a',
+        'assets/audios/angry/03BubblePop.m4a',
       ],
     ),
 
@@ -107,10 +122,10 @@ class CBTLibrary {
           'Encourages children to write down and “lock away” their worries, teaching emotional safety and release.',
       duration: '1 - 2 minutes',
       assets: [
-        'box_body.png',
-        'box_lid.png',
-        'paper_note.png',
-        'heart_lock.png',
+        'assets/cbt/scared/box_body.png',
+        'assets/cbt/scared/box_lid.png',
+        'assets/cbt/scared/paper_note.png',
+        'assets/cbt/scared/heart_lock.png',
       ],
     ),
   ];
