@@ -93,13 +93,41 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ---------------- PARENT METHODS ----------------
-  Future<void> signUpParent(String name, String email, String password) async {
-    final parent = await _auth.signUpParent(name, email, password);
-    if (parent != null) await _saveParentSession(parent);
+Future<void> signUpParent(String name, String email, String password) async {
+  final parent = await _auth.signUpParent(name, email, password);
+  if (parent != null) {
+    firebaseUser = _auth.currentUser;
+
+    // 🔹 Send verification email if not verified
+    if (firebaseUser != null && !firebaseUser!.emailVerified) {
+      await firebaseUser!.sendEmailVerification();
+      // Keep parent cached so we can load it after verification
+      currentUserModel = parent;
+      await _userRepo.cacheParent(parent);
+      await _parentBox.put(parent.uid, parent);
+      notifyListeners();
+      return; // exit here, let VerifyEmailScreen handle navigation
+    }
+
+    await _saveParentSession(parent);
   }
+}
+
 
   Future<void> loginParent(String email, String password) async {
     final parent = await _auth.loginParent(email, password);
+    firebaseUser = _auth.currentUser;
+
+    // 🔹 Reload user to check latest email verification status
+    await firebaseUser?.reload();
+    firebaseUser = _auth.currentUser;
+
+    // 🔹 Prevent login if not verified
+    if (firebaseUser != null && !firebaseUser!.emailVerified) {
+      await _auth.signOut();
+      throw Exception("Please verify your email before logging in.");
+    }
+
     if (parent != null) await _saveParentSession(parent);
   }
 
@@ -117,6 +145,45 @@ class AuthProvider extends ChangeNotifier {
     await firebaseUser!.updatePassword(password);
   }
 
+  // 🔹 Resend email verification link
+  Future<void> resendVerificationEmail() async {
+    final user = _auth.currentUser;
+    if (user != null && !user.emailVerified) {
+      await user.sendEmailVerification();
+    } else {
+      throw Exception("Email is already verified or no user found.");
+    }
+  }
+Future<void> setPasswordForGoogleUser(String password) async {
+  if (firebaseUser == null) throw Exception("No logged-in user");
+
+  try {
+    // Update Firebase password
+    await firebaseUser!.updatePassword(password);
+    await firebaseUser!.reload(); // refresh user
+
+    // Fetch parent model (or create if first time)
+    var parent = await _userRepo.fetchParentAndCache(firebaseUser!.uid);
+    if (parent != null) {
+      // Save session
+      await _saveParentSession(parent);
+    }
+  } catch (e) {
+    throw Exception("Failed to set password: $e");
+  }
+}
+
+  // 🔹 Manually check and refresh email verification status
+  Future<void> checkEmailVerifiedStatus() async {
+    await firebaseUser?.reload();
+    if (firebaseUser != null && firebaseUser!.emailVerified) {
+      final parent = await _userRepo.fetchParentAndCache(firebaseUser!.uid);
+      if (parent != null) {
+        await _saveParentSession(parent);
+      }
+    }
+  }
+
   Future<void> _saveParentSession(ParentUser parent) async {
     currentUserModel = parent;
     firebaseUser = _auth.currentUser;
@@ -126,6 +193,14 @@ class AuthProvider extends ChangeNotifier {
     await _childBox.clear();
     notifyListeners();
   }
+
+// Add this method to AuthProvider (public)
+Future<void> saveParentAfterVerification(ParentUser parent) async {
+  currentUserModel = parent;           // set current model
+  await _userRepo.cacheParent(parent); // cache in repository
+  await _parentBox.put(parent.uid, parent); // save in Hive
+  notifyListeners();
+}
 
   // ---------------- CHILD METHODS ----------------
   Future<ChildUser?> addChild(String name) async {

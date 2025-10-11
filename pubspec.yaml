@@ -51,11 +51,12 @@ dependencies:
   printing: ^5.14.2
   pdf: ^3.11.3
   flutter_signin_button: ^2.1.1
-  elegant_notification: ^2.5.1
   confetti: ^0.7.0
   audioplayers: ^6.5.1
   lottie: ^3.0.0
   video_player: ^2.10.0
+  firebase_messaging: ^15.2.10
+  flutter_local_notifications: ^19.4.2
 
 dev_dependencies:
   flutter_test:
