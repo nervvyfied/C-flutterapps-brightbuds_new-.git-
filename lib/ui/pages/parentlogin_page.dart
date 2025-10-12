@@ -103,22 +103,15 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
   }
 
   // ---------------- GOOGLE SIGN-IN ----------------
-  void _handleGoogleSignIn() async {
+  void _handleGoogleSignUp() async {
     final auth = context.read<AuthProvider>();
     setState(() => isLoading = true);
 
     try {
       await auth.signInWithGoogle();
 
-      // If user already exists, bypass password
-      if (auth.currentUserModel != null && auth.currentUserModel is ParentUser) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
-        );
-      } else {
-        await _showSetPasswordDialog();
-      }
+      // Always require setting a password after Google signup
+      await _showSetPasswordDialog();
     } catch (e) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -140,7 +133,7 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
       builder: (context) {
         return StatefulBuilder(builder: (context, setState) {
           return AlertDialog(
-            title: const Text("Set a password"),
+            title: const Text("Set a Password"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -165,9 +158,8 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                   decoration: InputDecoration(
                     labelText: "Confirm Password",
                     suffixIcon: IconButton(
-                      icon: Icon(obscureConfirm
-                          ? Icons.visibility_off
-                          : Icons.visibility),
+                      icon: Icon(
+                          obscureConfirm ? Icons.visibility_off : Icons.visibility),
                       onPressed: () {
                         setState(() => obscureConfirm = !obscureConfirm);
                       },
@@ -288,7 +280,7 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                 ),
               const SizedBox(height: 10),
 
-              // Forgot password in login mode
+              // Forgot password (only for login)
               if (isLogin)
                 Align(
                   alignment: Alignment.centerRight,
@@ -325,32 +317,33 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  height: 45,
-                  child: ElevatedButton(
-                    onPressed: _handleGoogleSignIn,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(color: Colors.grey.shade300),
+                if (!isLogin) // <-- Google only available during signup
+                  SizedBox(
+                    width: double.infinity,
+                    height: 45,
+                    child: ElevatedButton(
+                      onPressed: _handleGoogleSignUp,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(color: Colors.grey.shade300),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Image.asset('assets/images/g-logo.png', height: 24),
+                          const SizedBox(width: 8),
+                          const Text(
+                            "Continue with Google",
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Image.asset('assets/images/g-logo.png', height: 24),
-                        const SizedBox(width: 8),
-                        const Text(
-                          "Continue with Google",
-                          style: TextStyle(fontSize: 16),
-                        ),
-                      ],
-                    ),
                   ),
-                ),
               ],
               const SizedBox(height: 10),
               TextButton(

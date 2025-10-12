@@ -135,7 +135,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        "Please check your Gmail inbox or spam folder.\nOnce verified, this screen will automatically continue.",
+                        "Please check your email inbox or spam.\nOnce verified, this screen will automatically continue.",
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 30),

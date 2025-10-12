@@ -51,7 +51,7 @@ class _ParentForgotPassPageState extends State<ParentForgotPassPage> {
                     const Icon(Icons.email, size: 80, color: Colors.deepPurple),
                     const SizedBox(height: 20),
                     const Text(
-                      "Password reset link sent!\nCheck your email inbox and follow the link to set a new password.",
+                      "Password reset link sent!\nCheck your email inbox or spam and follow the link to set a new password.",
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 16),
                     ),
