@@ -141,122 +141,159 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
     );
   }
 
-  Future<void> _showParentSettingsDialog() async {
-    _newName = parentData!['name'];
-    _newEmail = parentData!['email'];
+    Future<void> _showParentSettingsDialog() async {
+      _newName = parentData!['name'];
+      _newEmail = parentData!['email'];
+      String? _newPasswordConfirm;
+      bool _obscureNewPassword = true;
+      bool _obscureConfirmPassword = true;
 
-    final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
+      final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
 
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Settings"),
-          content: Form(
-            key: _editFormKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  initialValue: _newName,
-                  decoration: const InputDecoration(labelText: "Name"),
-                  onSaved: (val) => _newName = val,
-                  validator: (val) =>
-                      val == null || val.isEmpty ? "Enter a name" : null,
-                ),
-                TextFormField(
-                  initialValue: _newEmail,
-                  decoration: const InputDecoration(labelText: "Email"),
-                  onSaved: (val) => _newEmail = val,
-                  validator: (val) =>
-                      val == null || !val.contains('@')
+      await showDialog(
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (context, setStateDialog) => AlertDialog(
+              title: const Text("Settings"),
+              content: Form(
+                key: _editFormKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      initialValue: _newName,
+                      decoration: const InputDecoration(labelText: "Name"),
+                      onSaved: (val) => _newName = val,
+                      validator: (val) =>
+                          val == null || val.isEmpty ? "Enter a name" : null,
+                    ),
+                    TextFormField(
+                      initialValue: _newEmail,
+                      decoration: const InputDecoration(labelText: "Email"),
+                      onSaved: (val) => _newEmail = val,
+                      validator: (val) => val == null || !val.contains('@')
                           ? "Enter a valid email"
                           : null,
+                    ),
+                    TextFormField(
+                      decoration: InputDecoration(
+                        labelText: "New Password (leave blank to keep)",
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscureNewPassword
+                              ? Icons.visibility
+                              : Icons.visibility_off),
+                          onPressed: () {
+                            setStateDialog(() {
+                              _obscureNewPassword = !_obscureNewPassword;
+                            });
+                          },
+                        ),
+                      ),
+                      onSaved: (val) => _newPassword = val,
+                      obscureText: _obscureNewPassword,
+                    ),
+                    TextFormField(
+                      decoration: InputDecoration(
+                        labelText: "Confirm New Password",
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscureConfirmPassword
+                              ? Icons.visibility
+                              : Icons.visibility_off),
+                          onPressed: () {
+                            setStateDialog(() {
+                              _obscureConfirmPassword = !_obscureConfirmPassword;
+                            });
+                          },
+                        ),
+                      ),
+                      onSaved: (val) => _newPasswordConfirm = val,
+                      obscureText: _obscureConfirmPassword,
+                      validator: (val) {
+                        if ((_newPassword != null && _newPassword!.isNotEmpty) &&
+                            val != _newPassword) {
+                          return "Passwords do not match";
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                TextFormField(
-                  decoration: const InputDecoration(
-                    labelText: "Password (leave blank to keep)",
+              ),
+              actions: [
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.logout),
+                  label: const Text("Log Out"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.deepPurple,
                   ),
-                  onSaved: (val) => _newPassword = val,
-                  obscureText: true,
+                  onPressed: () async {
+                    Provider.of<SelectedChildProvider>(context, listen: false)
+                        .clearSelectedChild();
+
+                    await auth.signOut();
+
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+                      (route) => false,
+                    );
+                  },
                 ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-          actions: [
-           ElevatedButton.icon(
-            icon: const Icon(Icons.logout),
-            label: const Text("Log Out"),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.deepPurple,
-            ),
-            onPressed: () async {
-              final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
+                ElevatedButton(
+                  onPressed: _updateParentInfo,
+                  child: const Text("Save"),
+              ),
+            ],
+          )
+      );
+    },
+  );
+}
 
-              // Clear selected child
-              Provider.of<SelectedChildProvider>(context, listen: false)
-                  .clearSelectedChild();
+Future<void> _updateParentInfo() async {
+  if (!_editFormKey.currentState!.validate()) return;
+  _editFormKey.currentState!.save();
 
-              // Sign out parent and clear cached children
-              await auth.signOut();
+  try {
+    final user = FirebaseAuth.instance.currentUser;
 
-              // Navigate back to role selection page
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const ChooseRolePage()),
-                (route) => false,
-              );
-            },
-          ),
-            ElevatedButton(
-              onPressed: _updateParentInfo,
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
+    // Update email if changed
+    if (_newEmail != null &&
+        _newEmail!.isNotEmpty &&
+        _newEmail != parentData!['email']) {
+      await user?.updateEmail(_newEmail!);
+    }
+
+    // Update password if provided
+    if (_newPassword != null && _newPassword!.isNotEmpty) {
+      await user?.updatePassword(_newPassword!);
+    }
+
+    // Update Firestore data
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.parentId)
+        .update({'name': _newName, 'email': _newEmail});
+
+    setState(() {
+      parentData!['name'] = _newName;
+      parentData!['email'] = _newEmail;
+    });
+
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Parent info updated successfully!")),
+    );
+  } catch (e) {
+    print("Error updating parent info: $e");
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Failed to update: $e")),
     );
   }
+}
 
-  Future<void> _updateParentInfo() async {
-    if (!_editFormKey.currentState!.validate()) return;
-    _editFormKey.currentState!.save();
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-
-      if (_newEmail != null &&
-          _newEmail!.isNotEmpty &&
-          _newEmail != parentData!['email']) {
-        await user?.updateEmail(_newEmail!);
-      }
-
-      if (_newPassword != null && _newPassword!.isNotEmpty) {
-        await user?.updatePassword(_newPassword!);
-      }
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.parentId)
-          .update({'name': _newName, 'email': _newEmail});
-
-      setState(() {
-        parentData!['name'] = _newName;
-        parentData!['email'] = _newEmail;
-      });
-
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Parent info updated successfully!")),
-      );
-    } catch (e) {
-      print("Error updating parent info: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to update: $e")),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {

@@ -37,7 +37,7 @@ class DecorService {
   final decorMaps = placedDecors.map((d) => d.toMap()).toList();
 
   await firestore
-      .collection('parents')
+      .collection('users')
       .doc(parentId)
       .collection('children')
       .doc(childId)
