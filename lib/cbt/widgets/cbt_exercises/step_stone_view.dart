@@ -7,8 +7,9 @@ import '../../providers/cbt_provider.dart';
 class StepStoneView extends StatefulWidget {
   final CBTExercise exercise;
   final String childId;
+  final String parentId;
 
-  const StepStoneView({super.key, required this.exercise, required this.childId});
+  const StepStoneView({super.key, required this.exercise, required this.childId, required this.parentId});
 
   @override
   State<StepStoneView> createState() => _StepStoneViewState();
@@ -91,7 +92,7 @@ class _StepStoneViewState extends State<StepStoneView> with TickerProviderStateM
 
   Future<void> _markCompleted() async {
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted('parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
   }
 
   void _showCompletionDialog() {

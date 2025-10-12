@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:ui';
+import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -301,23 +302,39 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      "This week's top mood is: $weeklyTopMood, assign a Power Pack?",
+                      "This week's top mood is: $weeklyTopMood, assign a Power Boost?",
                       style: const TextStyle(fontSize: 12),
                     ),
                     const SizedBox(height: 6),
                     ElevatedButton.icon(
                       onPressed: () {
-                        debugPrint(
-                            "Assign Power Pack pressed for ${activeChild['name']}");
+                        final parentId = widget.parentId;
+                        final childId = activeChild['cid'];
+
+                        if (childId == null || childId.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('No active child selected!')),
+                          );
+                          return;
+                        }
+
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ParentCBTPage(
+                              parentId: parentId,
+                              childId: childId,
+                            ),
+                          ),
+                        );
                       },
                       icon: const Icon(Icons.bolt, size: 16),
                       label: const Text(
-                        "Assign Power Pack",
+                        "Assign Power Boost",
                         style: TextStyle(fontSize: 12),
                       ),
                       style: ElevatedButton.styleFrom(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         textStyle: const TextStyle(fontSize: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),

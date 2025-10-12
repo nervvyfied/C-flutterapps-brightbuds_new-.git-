@@ -7,11 +7,13 @@ import '../../models/cbt_exercise_model.dart';
 class GratitudeRainbowView extends StatefulWidget {
   final CBTExercise exercise;
   final String childId;
+  final String parentId;
 
   const GratitudeRainbowView({
     super.key,
     required this.exercise,
     required this.childId,
+    required this.parentId,
   });
 
   @override
@@ -112,7 +114,7 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
 
   Future<void> _onCompleted() async {
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted('parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
 
     if (mounted) {
       showDialog(
@@ -124,7 +126,6 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
                 Navigator.pop(context);
               },
               child: const Text('OK'),

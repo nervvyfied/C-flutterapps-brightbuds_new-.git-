@@ -6,11 +6,13 @@ import '../../models/cbt_exercise_model.dart';
 
 class GardenMeditationView extends StatefulWidget {
   final CBTExercise exercise;
+  final String parentId;
   final String childId;
 
   const GardenMeditationView({
     super.key,
     required this.exercise,
+    required this.parentId,
     required this.childId,
   });
 
@@ -67,20 +69,19 @@ class _GardenMeditationViewState extends State<GardenMeditationView>
 
   Future<void> _onCompleted() async {
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted('parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
 
     if (mounted) {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Well done! 🌸'),
-          content: const Text(
-              'You’ve completed the Garden Meditation.\nYou are calm, safe, and strong.'),
+          content: Text('You’ve completed the "${widget.exercise.title}" exercise!'),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context); // Close dialog
-                Navigator.pop(context); // Return to CBT page
+                Navigator.pop(context);
+                Navigator.pop(context); // back to CBT page
               },
               child: const Text('OK'),
             ),
@@ -98,96 +99,55 @@ class _GardenMeditationViewState extends State<GardenMeditationView>
     super.dispose();
   }
 
-@override
-Widget build(BuildContext context) {
-  final screenWidth = MediaQuery.of(context).size.width;
-
-  // Sun pulse
-  final sunGlow = Tween<double>(begin: 0.5, end: 1.5).animate(
-    CurvedAnimation(parent: _sunGlowController, curve: Curves.easeInOut),
-  );
-
-  // Flower sway in pixels
-  final sway = Tween<double>(begin: -15, end: 15).animate(
-    CurvedAnimation(parent: _flowerSwayController, curve: Curves.easeInOut),
-  );
-
-  return Scaffold(
-    backgroundColor: Colors.green[100],
-    appBar: AppBar(title: Text(widget.exercise.title)),
-    body: Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.asset('assets/cbt/calm/garden_bg.png', fit: BoxFit.cover),
-
-        // ☀️ Sun + glow
-        Align(
-          alignment: const Alignment(0.8, -0.8),
-          child: AnimatedBuilder(
-            animation: sunGlow,
-            builder: (_, child) {
-              return Transform.scale(
-                scale: sunGlow.value,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Image.asset('assets/cbt/calm/sun_glow.png', width: 150),
-                    Image.asset('assets/cbt/calm/sun.png', width: 100),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-
-        // 🌻 Flower field swaying left/right at bottom
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: AnimatedBuilder(
-            animation: sway,
-            builder: (_, child) {
-              return Transform.translate(
-                offset: Offset(sway.value, 0),
-                child: child,
-              );
-            },
-            child: Container(
-              width: screenWidth * 0.9,
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Image.asset(
-                'assets/cbt/calm/flower_field.png',
-                fit: BoxFit.contain,
+  @override
+  Widget build(BuildContext context) {
+    // keep animation and UI logic as-is
+    return Scaffold(
+      backgroundColor: Colors.green[100],
+      appBar: AppBar(title: Text(widget.exercise.title)),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/cbt/calm/garden_bg.png', fit: BoxFit.cover),
+          // ☀️ Sun animation
+          Align(
+            alignment: const Alignment(0.8, -0.8),
+            child: AnimatedBuilder(
+              animation: _sunGlowController,
+              builder: (_, child) {
+                final scale = Tween<double>(begin: 0.5, end: 1.5).animate(
+                    CurvedAnimation(parent: _sunGlowController, curve: Curves.easeInOut));
+                return Transform.scale(scale: scale.value, child: child);
+              },
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Image.asset('assets/cbt/calm/sun_glow.png', width: 150),
+                  Image.asset('assets/cbt/calm/sun.png', width: 100),
+                ],
               ),
             ),
           ),
-        ),
-
-        // 🎵 Progress overlay + Back button
-        SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 8),
-                      Text(
-                        'Track $_currentTrack / ${_tracks.length}',
-                        style: const TextStyle(fontSize: 16, color: Colors.black54),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          // 🌻 Flower animation
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: AnimatedBuilder(
+              animation: _flowerSwayController,
+              builder: (_, child) {
+                final offset = Tween<double>(begin: -15, end: 15).animate(
+                    CurvedAnimation(parent: _flowerSwayController, curve: Curves.easeInOut));
+                return Transform.translate(offset: Offset(offset.value, 0), child: child);
+              },
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.9,
+                margin: const EdgeInsets.only(bottom: 16),
+                child: Image.asset('assets/cbt/calm/flower_field.png', fit: BoxFit.contain),
+              ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
-
-}

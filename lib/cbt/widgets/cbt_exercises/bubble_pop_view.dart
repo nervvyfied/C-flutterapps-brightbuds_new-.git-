@@ -8,11 +8,13 @@ import '../../models/cbt_exercise_model.dart';
 class BubblePopView extends StatefulWidget {
   final CBTExercise exercise;
   final String childId;
+  final String parentId;
 
   const BubblePopView({
     super.key,
     required this.exercise,
     required this.childId,
+    required this.parentId
   });
 
   @override
@@ -129,7 +131,7 @@ class _BubblePopViewState extends State<BubblePopView>
     await Future.delayed(const Duration(seconds: 2));
 
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted('parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
 
     setState(() => _completed = true);
     if (mounted) _showCompletionDialog();

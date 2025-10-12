@@ -22,6 +22,9 @@ class AssignedCBTAdapter extends TypeAdapter<AssignedCBT> {
       childId: fields[2] as String,
       assignedDate: fields[3] as DateTime,
       recurrence: fields[4] as String,
+      weekOfYear: fields[7] as int,
+      assignedBy: fields[8] as String,
+      source: fields[9] as String,
       completed: fields[5] as bool,
       lastCompleted: fields[6] as DateTime?,
     );
@@ -30,7 +33,7 @@ class AssignedCBTAdapter extends TypeAdapter<AssignedCBT> {
   @override
   void write(BinaryWriter writer, AssignedCBT obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -44,7 +47,13 @@ class AssignedCBTAdapter extends TypeAdapter<AssignedCBT> {
       ..writeByte(5)
       ..write(obj.completed)
       ..writeByte(6)
-      ..write(obj.lastCompleted);
+      ..write(obj.lastCompleted)
+      ..writeByte(7)
+      ..write(obj.weekOfYear)
+      ..writeByte(8)
+      ..write(obj.assignedBy)
+      ..writeByte(9)
+      ..write(obj.source);
   }
 
   @override

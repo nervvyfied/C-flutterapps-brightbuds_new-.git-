@@ -70,7 +70,7 @@ class CBTCard extends StatelessWidget {
                     ElevatedButton.icon(
                       onPressed: onStart,
                       icon: const Icon(Icons.play_arrow, size: 18),
-                      label: const Text('Start'),
+                      label: Text(isCompleted ? 'Assigned' : 'Assign'),
                     ),
                     const SizedBox(width: 8),
                   ],

@@ -1,22 +1,24 @@
-import 'package:brightbuds_new/cbt/widgets/cbt_exercises/bubble_pop_view.dart';
-import 'package:brightbuds_new/cbt/widgets/cbt_exercises/happy_stretch_view.dart';
-import 'package:brightbuds_new/cbt/widgets/cbt_exercises/step_stone_view.dart';
-import 'package:brightbuds_new/cbt/widgets/cbt_exercises/worry_box_view.dart';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:provider/provider.dart';
 import '../models/cbt_exercise_model.dart';
 import '../providers/cbt_provider.dart';
+import 'cbt_exercises/bubble_pop_view.dart';
 import 'cbt_exercises/garden_meditation_view.dart';
 import 'cbt_exercises/gratitude_rainbow_view.dart';
+import 'cbt_exercises/happy_stretch_view.dart';
+import 'cbt_exercises/step_stone_view.dart';
+import 'cbt_exercises/worry_box_view.dart';
 
 class CBTExerciseViewer extends StatefulWidget {
   final CBTExercise exercise;
+  final String parentId;
   final String childId;
 
   const CBTExerciseViewer({
     super.key,
     required this.exercise,
+    required this.parentId,
     required this.childId,
   });
 
@@ -26,7 +28,7 @@ class CBTExerciseViewer extends StatefulWidget {
 
 class _CBTExerciseViewerState extends State<CBTExerciseViewer> {
   final AudioPlayer _player = AudioPlayer();
-  int _currentTrack = 0; // start at 0
+  int _currentTrack = 0;
   bool _isPlaying = false;
 
   List<String> get _tracks {
@@ -58,100 +60,38 @@ class _CBTExerciseViewerState extends State<CBTExerciseViewer> {
   void initState() {
     super.initState();
 
-    // 🌟 Redirect to special animated CBT views
-    if (widget.exercise.id == 'calm_garden') {
-      Future.microtask(() {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GardenMeditationView(
-              exercise: widget.exercise,
-              childId: widget.childId,
-            ),
-          ),
-        );
-      });
-      return;
-    }
+    // Redirect special animated CBTs
+    Future.microtask(() {
+      switch (widget.exercise.id) {
+        case 'calm_garden':
+          _pushSpecial(GardenMeditationView(exercise: widget.exercise, parentId: widget.parentId, childId: widget.childId));
+          return;
+        case 'sad_rainbow':
+          _pushSpecial(GratitudeRainbowView(exercise: widget.exercise, parentId: widget.parentId, childId: widget.childId));
+          return;
+        case 'happy_stretch':
+          _pushSpecial(HappyStretchView(exercise: widget.exercise, parentId: widget.parentId, childId: widget.childId));
+          return;
+        case 'confused_stepstone':
+          _pushSpecial(StepStoneView(exercise: widget.exercise, parentId: widget.parentId, childId: widget.childId));
+          return;
+        case 'angry_bubble':
+          _pushSpecial(BubblePopView(exercise: widget.exercise, parentId: widget.parentId, childId: widget.childId));
+          return;
+        case 'scared_worrybox':
+          _pushSpecial(WorryBoxView(exercise: widget.exercise, parentId: widget.parentId, childId: widget.childId));
+          return;
+      }
 
-    if (widget.exercise.id == 'sad_rainbow') {
-      Future.microtask(() {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => GratitudeRainbowView(
-              exercise: widget.exercise,
-              childId: widget.childId,
-            ),
-          ),
-        );
-      });
-      return;
-    }
+      _playNext();
+    });
+  }
 
-    if (widget.exercise.id == 'happy_stretch') {
-      Future.microtask(() {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => HappyStretchView(
-              exercise: widget.exercise,
-              childId: widget.childId,
-            ),
-          ),
-        );
-      });
-      return;
-    }
-
-    if (widget.exercise.id == 'confused_stepstone') {
-      Future.microtask(() {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => StepStoneView(
-              exercise: widget.exercise,
-              childId: widget.childId,
-            ),
-          ),
-        );
-      });
-      return;
-    }
-
-    if (widget.exercise.id == 'angry_bubble') {
-      Future.microtask(() {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => BubblePopView(
-              exercise: widget.exercise,
-              childId: widget.childId,
-            ),
-          ),
-        );
-      });
-      return;
-    }
-
-    if (widget.exercise.id == 'scared_worrybox') {
-      Future.microtask(() {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => WorryBoxView(
-              exercise: widget.exercise,
-              childId: widget.childId,
-            ),
-          ),
-        );
-      });
-      return;
-    }
-
-
-
-    _playNext();
+  void _pushSpecial(Widget specialView) {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => specialView),
+    );
   }
 
   Future<void> _playNext() async {
@@ -160,9 +100,7 @@ class _CBTExerciseViewerState extends State<CBTExerciseViewer> {
       return;
     }
 
-    setState(() {
-      _isPlaying = true;
-    });
+    setState(() => _isPlaying = true);
 
     await _player.play(AssetSource(_tracks[_currentTrack]));
 
@@ -181,20 +119,19 @@ class _CBTExerciseViewerState extends State<CBTExerciseViewer> {
 
   Future<void> _onCompleted() async {
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted(
-        'parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
 
     if (mounted) {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text('Well done!'),
+          title: const Text('Well done! 🎉'),
           content: Text('You’ve completed the "${widget.exercise.title}" exercise!'),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context); // close dialog
-                Navigator.pop(context); // return to CBT page
+                Navigator.pop(context);
+                Navigator.pop(context); // return to child CBT page
               },
               child: const Text('OK'),
             ),
@@ -216,8 +153,7 @@ class _CBTExerciseViewerState extends State<CBTExerciseViewer> {
       'calm': Colors.green[200],
       'happy': Colors.yellow[200],
       'angry': Colors.red[200],
-    }[widget.exercise.mood] ??
-        Colors.blueGrey[100];
+    }[widget.exercise.mood] ?? Colors.blueGrey[100];
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.exercise.title)),

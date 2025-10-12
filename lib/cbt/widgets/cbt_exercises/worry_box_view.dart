@@ -7,8 +7,9 @@ import '../../providers/cbt_provider.dart';
 class WorryBoxView extends StatefulWidget {
   final CBTExercise exercise;
   final String childId;
+  final String parentId;
 
-  const WorryBoxView({super.key, required this.exercise, required this.childId});
+  const WorryBoxView({super.key, required this.exercise, required this.childId, required this.parentId});
 
   @override
   State<WorryBoxView> createState() => _WorryBoxViewState();
@@ -75,7 +76,7 @@ class _WorryBoxViewState extends State<WorryBoxView> with TickerProviderStateMix
     setState(() => _showLockModal = false);
 
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted('parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
 
     setState(() => _completed = true);
     _showCompletionDialog();

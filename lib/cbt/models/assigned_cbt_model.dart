@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
 
@@ -7,18 +8,33 @@ part 'assigned_cbt_model.g.dart';
 class AssignedCBT {
   @HiveField(0)
   final String id;
+
   @HiveField(1)
   final String exerciseId;
+
   @HiveField(2)
   final String childId;
+
   @HiveField(3)
   final DateTime assignedDate;
+
   @HiveField(4)
   final String recurrence; // daily or weekly
+
   @HiveField(5)
   bool completed;
+
   @HiveField(6)
   DateTime? lastCompleted;
+
+  @HiveField(7)
+  final int weekOfYear;
+
+  @HiveField(8)
+  final String assignedBy; // parentId
+
+  @HiveField(9)
+  final String source; // "auto" or "manual"
 
   AssignedCBT({
     required this.id,
@@ -26,10 +42,14 @@ class AssignedCBT {
     required this.childId,
     required this.assignedDate,
     required this.recurrence,
+    required this.weekOfYear,
+    required this.assignedBy,
+    this.source = "auto",
     this.completed = false,
     this.lastCompleted,
   });
 
+  // Factory from Firestore map
   factory AssignedCBT.fromMap(Map<String, dynamic> map) {
     DateTime? toDate(dynamic raw) {
       if (raw == null) return null;
@@ -43,20 +63,52 @@ class AssignedCBT {
       id: map['id'],
       exerciseId: map['exerciseId'],
       childId: map['childId'],
-      assignedDate: (map['assignedDate']).toDate(),
-      recurrence: map['recurrence'],
+      assignedDate: toDate(map['assignedDate'])!,
+      recurrence: map['recurrence'] ?? 'daily',
       completed: map['completed'] ?? false,
-      lastCompleted: toDate(map['lastCompletedDate']),
+      lastCompleted: toDate(map['lastCompleted']),
+      weekOfYear: map['weekOfYear'] ?? 0,
+      assignedBy: map['assignedBy'] ?? 'unknown',
+      source: map['source'] ?? 'manual',
+    );
+  }
+
+  // NEW: Factory to create AssignedCBT from an Exercise object
+  factory AssignedCBT.fromExercise({
+    required String id,
+    required CBTExercise exercise,
+    required String childId,
+    required DateTime assignedDate,
+    required int weekOfYear,
+    required String assignedBy,
+    String recurrence = "daily",
+    String source = "auto",
+  }) {
+    return AssignedCBT(
+      id: id,
+      exerciseId: exercise.id,
+      childId: childId,
+      assignedDate: assignedDate,
+      recurrence: recurrence,
+      weekOfYear: weekOfYear,
+      assignedBy: assignedBy,
+      source: source,
+      completed: false,
+      lastCompleted: null,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'id': id,
-        'exerciseId': exerciseId,
-        'childId': childId,
-        'assignedDate': assignedDate,
-        'recurrence': recurrence,
-        'completed': completed,
-        'lastCompleted': lastCompleted,
-      };
+      'id': id,
+      'exerciseId': exerciseId,
+      'childId': childId,
+      'assignedDate': Timestamp.fromDate(assignedDate),
+      'recurrence': recurrence,
+      'completed': completed,
+      'lastCompleted': lastCompleted != null ? Timestamp.fromDate(lastCompleted!) : null,
+      'weekOfYear': weekOfYear,
+      'assignedBy': assignedBy,
+      'source': source,
+    };
+    
 }

@@ -1,4 +1,6 @@
+import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import '../models/assigned_cbt_model.dart';
 import '../repositories/cbt_repository.dart';
 
@@ -8,40 +10,85 @@ class CBTProvider with ChangeNotifier {
 
   List<AssignedCBT> get assigned => _assigned;
 
-  /// Loads CBTs for a specific child (syncs Firestore → Hive → state)
+  int getCurrentWeekNumber(DateTime date) {
+  final firstDayOfYear = DateTime(date.year, 1, 1);
+  final daysSince = date.difference(firstDayOfYear).inDays;
+  return ((daysSince + firstDayOfYear.weekday) / 7).ceil();
+}
+
+
+  /// Assign a single CBT manually
+  Future<void> assignManualCBT(
+      String parentId, String childId, CBTExercise exercise) async {
+    final weekOfYear = getCurrentWeekNumber(DateTime.now());
+
+    await loadAssignedCBTs(parentId, childId);
+
+    if (_assigned.any((a) =>
+        a.weekOfYear == weekOfYear && a.exerciseId == exercise.id)) return;
+
+    final assigned = AssignedCBT.fromExercise(
+      id: UniqueKey().toString(),
+      exercise: exercise,
+      childId: childId,
+      assignedDate: DateTime.now(),
+      weekOfYear: weekOfYear,
+      assignedBy: parentId,
+      source: "manual",
+    );
+
+    await _repository.addAssignedCBT(parentId, assigned);
+    _assigned.add(assigned);
+    notifyListeners();
+  }
+
+  /// Load CBT assignments for the child
+  Future<void> loadAssignedCBTs(String parentId, String childId) async {
+    final weekOfYear = getCurrentWeekNumber(DateTime.now());
+    final list =
+        await _repository.getAssignedCBTsForWeek(parentId, childId, weekOfYear);
+    _assigned = list;
+    notifyListeners();
+  }
+
+  /// Get current week assignments
+  List<AssignedCBT> getCurrentWeekAssignments() {
+  final week = getCurrentWeekNumber(DateTime.now());
+  return _assigned.where((a) => a.weekOfYear == week).toList();
+}
+
+  /// Sync Firestore → local → state
   Future<void> loadCBT(String parentId, String childId) async {
     await _repository.syncFromFirestore(parentId, childId);
     _assigned = _repository.getLocalCBTs(childId);
     notifyListeners();
   }
 
-  /// Marks a CBT exercise as completed for a child
-  Future<void> markAsCompleted(String parentId, String childId, String cbtId) async {
+  /// Mark CBT as completed
+  Future<void> markAsCompleted(
+      String parentId, String childId, String cbtId) async {
     await _repository.updateCompletion(parentId, childId, cbtId);
-    await loadCBT(parentId, childId); // Refresh list after update
+    await loadCBT(parentId, childId);
   }
 
-  /// Assigns a new CBT to a child (parent side)
-  Future<void> assignCBT(String parentId, AssignedCBT cbt) async {
-    await _repository.addAssignedCBT(parentId, cbt);
-    _assigned.add(cbt);
-    notifyListeners();
+  /// Check if CBT is completed
+  bool isCompleted(String childId, String exerciseId) {
+    final assigned = _assigned
+        .where((a) => a.childId == childId && a.exerciseId == exerciseId)
+        .toList();
+    return assigned.isNotEmpty ? assigned.first.completed : false;
   }
 
-  Future<void> autoCompleteAfterExercise(String parentId, String childId, String cbtId) async {
-    await markAsCompleted(parentId, childId, cbtId);
-  }
-
-  /// Returns a specific CBT by ID (for details page)
+  /// Get assigned CBT by ID
   AssignedCBT? getCBTById(String id) {
     try {
       return _assigned.firstWhere((cbt) => cbt.id == id);
-    } catch (_) {
+    } catch (e) {
       return null;
     }
   }
 
-  /// Clears cache when user logs out or switches child
+  /// Clear provider state
   void clear() {
     _assigned = [];
     notifyListeners();

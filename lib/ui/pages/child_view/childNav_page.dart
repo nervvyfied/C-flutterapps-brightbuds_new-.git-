@@ -21,7 +21,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     return [
       ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
       JournalListPage(parentId: parentId, childId: childId),
-      ChildCBTPage(childId:childId),
+      ChildCBTPage(childId:childId, parentId: parentId, childName: childName,),
       AquariumPage(),
     ];
   }

@@ -8,8 +8,9 @@ import '../../providers/cbt_provider.dart';
 class HappyStretchView extends StatefulWidget {
   final CBTExercise exercise;
   final String childId;
+  final String parentId;
 
-  const HappyStretchView({super.key, required this.exercise, required this.childId});
+  const HappyStretchView({super.key, required this.exercise, required this.childId, required this.parentId});
 
   @override
   State<HappyStretchView> createState() => _HappyStretchViewState();
@@ -66,7 +67,7 @@ class _HappyStretchViewState extends State<HappyStretchView> {
 
   Future<void> _onCompleted() async {
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted('parentId', widget.childId, widget.exercise.id);
+    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
 
     if (mounted) {
       showDialog(
