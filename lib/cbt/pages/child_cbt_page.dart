@@ -43,83 +43,82 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
     return Scaffold(
       body: cbtProvider.assigned.isEmpty
           ? const Center(child: Text("No CBT exercises assigned this week."))
-          : ListView.builder(
-              itemCount: currentWeekAssignments.length,
-              itemBuilder: (_, index) {
-                final assigned = currentWeekAssignments[index];
-                final exercise = CBTLibrary.getById(assigned.exerciseId);
+          : Padding(
+              padding: const EdgeInsets.all(16), // ✨ add padding here
+              child: ListView.builder(
+                itemCount: currentWeekAssignments.length,
+                itemBuilder: (_, index) {
+                  final assigned = currentWeekAssignments[index];
+                  final exercise = CBTLibrary.getById(assigned.exerciseId);
 
-                if (exercise == null) {
-                  return const SizedBox.shrink(); // Skip if exercise not found
-                }
+                  if (exercise == null) {
+                    return const SizedBox.shrink();
+                  }
 
-                return CBTCard(
-                  exercise: exercise,
-                  isParentView: false,
-                  isCompleted: cbtProvider.isCompleted(widget.childId, exercise.id),
-                  onStart: () async {
-                    final assignedEntry = cbtProvider.assigned.firstWhere(
-                      (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
-                    );
-
-                    // 🔒 Prevent execution if not allowed by recurrence window
-                    if (!cbtProvider.canExecute(assignedEntry)) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('You already completed this CBT for now.')),
+                  return CBTCard(
+                    exercise: exercise,
+                    isParentView: false,
+                    isCompleted: cbtProvider.isCompleted(widget.childId, exercise.id),
+                    onStart: () async {
+                      final assignedEntry = cbtProvider.assigned.firstWhere(
+                        (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
                       );
-                      return;
-                    }
 
-                    // ✅ Otherwise, open the viewer
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CBTExerciseViewer(
-                          exercise: exercise,
-                          childId: widget.childId,
-                          parentId: widget.parentId,
+                      if (!cbtProvider.canExecute(assignedEntry)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('You already completed this CBT for now.')),
+                        );
+                        return;
+                      }
+
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CBTExerciseViewer(
+                            exercise: exercise,
+                            childId: widget.childId,
+                            parentId: widget.parentId,
+                          ),
                         ),
-                      ),
-                    );
-
-                    // 🔁 Refresh provider after completion/view
-                    await cbtProvider.loadCBT(widget.parentId, widget.childId);
-                  },
-                  onComplete: () async {
-                    // Find assigned entry safely
-                    final assignedEntry = cbtProvider.assigned.any(
-                      (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
-                    )
-                        ? cbtProvider.assigned.firstWhere(
-                            (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
-                          )
-                        : null;
-
-                    if (assignedEntry == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('This exercise is not assigned.')),
                       );
-                      return;
-                    }
 
-                    final success = await cbtProvider.markAsCompleted(
-                      widget.parentId,
-                      widget.childId,
-                      assignedEntry.id,
-                    );
+                      await cbtProvider.loadCBT(widget.parentId, widget.childId);
+                    },
+                    onComplete: () async {
+                      final assignedEntry = cbtProvider.assigned.any(
+                        (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
+                      )
+                          ? cbtProvider.assigned.firstWhere(
+                              (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
+                            )
+                          : null;
 
-                    if (!success) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Cannot complete again within recurrence window.')),
+                      if (assignedEntry == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('This exercise is not assigned.')),
+                        );
+                        return;
+                      }
+
+                      final success = await cbtProvider.markAsCompleted(
+                        widget.parentId,
+                        widget.childId,
+                        assignedEntry.id,
                       );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Well done! Exercise completed.')),
-                      );
-                    }
-                  },
-                );
-              },
+
+                      if (!success) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Cannot complete again within recurrence window.')),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Well done! Exercise completed.')),
+                        );
+                      }
+                    },
+                  );
+                },
+              ),
             ),
     );
   }
