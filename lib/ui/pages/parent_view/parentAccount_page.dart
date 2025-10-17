@@ -86,7 +86,7 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
       if (tempChildren.isNotEmpty && selectedChildProv.selectedChild == null) {
         selectedChildProv.setSelectedChild(tempChildren[0]);
         Provider.of<JournalProvider>(context, listen: false)
-            .fetchEntries(widget.parentId, tempChildren[0]['cid']);
+            .getEntries(tempChildren[0]['cid']);
       }
 
       setState(() {
@@ -129,7 +129,7 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
                   selectedChildProv.setSelectedChild(childMap);
 
                   await Provider.of<JournalProvider>(context, listen: false)
-                      .fetchEntries(widget.parentId, childMap['cid']);
+                      .getEntries(childMap['cid']);
 
                   Navigator.pop(ctx);
                 },
