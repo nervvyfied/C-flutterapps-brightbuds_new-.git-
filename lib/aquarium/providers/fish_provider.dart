@@ -1,8 +1,6 @@
 import 'dart:collection';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:connectivity_plus/connectivity_plus.dart'; // ✅ ADDED
-import 'package:hive_flutter/hive_flutter.dart'; // ✅ ADDED
 import '../models/fish_definition.dart';
 import '../models/ownedFish_model.dart';
 import '../repositories/fish_repository.dart';
@@ -15,15 +13,13 @@ class FishProvider extends ChangeNotifier {
   final FishRepository _repo = FishRepository();
 
   late ChildUser currentChild;
+
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
   List<OwnedFish> ownedFishes = [];
   List<OwnedFish> _editingBuffer = [];
   bool isInEditMode = false;
   String? movingFishId;
-
-  // ✅ ADDED: local Hive box for offline cache
-  late Box<OwnedFish> _fishBox;
 
   FishProvider({required this.authProvider}) {
     if (authProvider.currentUserModel is ChildUser) {
@@ -32,69 +28,41 @@ class FishProvider extends ChangeNotifier {
     }
   }
 
-  // ✅ ADDED: Updated initialization logic (offline-first)
   Future<void> _init() async {
-    _fishBox = await Hive.openBox<OwnedFish>('ownedFish_${currentChild.cid}');
-
-    final connectivity = await Connectivity().checkConnectivity();
-    final hasConnection = connectivity != ConnectivityResult.none;
-
-    if (hasConnection) {
-      try {
-        // Online: Fetch from Firestore, then cache to Hive
-        ownedFishes =
-            await _repo.getOwnedFishes(currentChild.parentUid, currentChild.cid);
-        await _cacheOwnedFishes(ownedFishes);
-        debugPrint("✅ Loaded fishes from Firestore and cached locally.");
-      } catch (e) {
-        debugPrint("⚠️ Firestore fetch failed, loading from cache: $e");
-        ownedFishes = _fishBox.values.toList();
-      }
-    } else {
-      // Offline: Load from cache immediately
-      ownedFishes = _fishBox.values.toList();
-      debugPrint("📴 Offline mode: loaded fishes from Hive cache.");
-    }
-
+    ownedFishes = await _repo.getOwnedFishes(currentChild.parentUid, currentChild.cid);
     notifyListeners();
-  }
-
-  // ✅ ADDED: Helper to cache latest owned fishes
-  Future<void> _cacheOwnedFishes(List<OwnedFish> fishes) async {
-    await _fishBox.clear();
-    for (var fish in fishes) {
-      await _fishBox.put(fish.id, fish);
-    }
-  }
-
-  // ✅ ADDED: Helper to keep cache synced whenever fishes change
-  Future<void> _updateCache() async {
-    await _cacheOwnedFishes(ownedFishes);
   }
 
   bool isUnlocked(String fishId) {
-    return ownedFishes.any((f) => f.fishId == fishId);
+  return ownedFishes.any((f) => f.fishId == fishId);
+}
+
+
+void selectFish(String fishId) {
+  if (!isInEditMode) return;
+
+  // Find the fish by definition ID
+  final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId);
+  if (idx == -1) return;
+
+  // Deselect all first
+  for (var f in _editingBuffer) {
+    f.isSelected = false;
   }
 
-  void selectFish(String fishId) {
-    if (!isInEditMode) return;
+  // Toggle selection
+  _editingBuffer[idx].isSelected = !_editingBuffer[idx].isSelected;
 
-    final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId);
-    if (idx == -1) return;
+  notifyListeners();
+}
 
-    for (var f in _editingBuffer) {
-      f.isSelected = false;
-    }
+/// Check selection state
+bool isFishSelected(String fishId) {
+  if (!isInEditMode) return false;
+  return _editingBuffer.any((f) => f.fishId == fishId && f.isSelected);
+}
 
-    _editingBuffer[idx].isSelected = !_editingBuffer[idx].isSelected;
-    notifyListeners();
-  }
-
-  bool isFishSelected(String fishId) {
-    if (!isInEditMode) return false;
-    return _editingBuffer.any((f) => f.fishId == fishId && f.isSelected);
-  }
-
+  // ---------- Balance ----------
   void _updateLocalBalance(int newBalance) {
     currentChild = currentChild.copyWith(balance: newBalance);
     notifyListeners();
@@ -104,6 +72,7 @@ class FishProvider extends ChangeNotifier {
     return _repo.fetchBalance(currentChild.parentUid, currentChild.cid);
   }
 
+  // ---------- Inventory ----------
   UnmodifiableListView<OwnedFish> get inventory =>
       UnmodifiableListView(ownedFishes.where((f) => !f.isActive));
 
@@ -119,6 +88,7 @@ class FishProvider extends ChangeNotifier {
     return true;
   }
 
+  // ---------- Purchase ----------
   Future<bool> purchaseFish(FishDefinition fish) async {
     if (!canPurchase(fish)) return false;
     final count = ownedFishes.where((f) => f.fishId == fish.id).length;
@@ -135,10 +105,10 @@ class FishProvider extends ChangeNotifier {
 
     await _repo.addOwnedFish(currentChild.parentUid, currentChild.cid, newFish);
     ownedFishes.add(newFish);
-    await _updateCache(); // ✅ ADDED
 
     await _repo.deductBalance(currentChild.parentUid, currentChild.cid, fish.price);
     _updateLocalBalance(currentChild.balance - fish.price);
+
     await _refreshBalance();
 
     notifyListeners();
@@ -146,6 +116,7 @@ class FishProvider extends ChangeNotifier {
     return true;
   }
 
+  // ---------- Edit Mode ----------
   UnmodifiableListView<OwnedFish> get editingFishes =>
       UnmodifiableListView(_editingBuffer);
 
@@ -153,6 +124,7 @@ class FishProvider extends ChangeNotifier {
     _editingBuffer = ownedFishes.map((f) => OwnedFish.fromMap(f.toMap())).toList();
     isInEditMode = true;
 
+    // Deselect all first
     for (var f in _editingBuffer) f.isSelected = false;
 
     if (focusFishId != null) {
@@ -174,8 +146,7 @@ class FishProvider extends ChangeNotifier {
   Future<void> saveEditMode() async {
     if (!isInEditMode) return;
 
-    await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid,
-        _editingBuffer as OwnedFish);
+    await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, _editingBuffer as OwnedFish);
 
     ownedFishes
       ..clear()
@@ -185,7 +156,6 @@ class FishProvider extends ChangeNotifier {
     movingFishId = null;
     isInEditMode = false;
 
-    await _updateCache(); // ✅ ADDED
     notifyListeners();
     if (kDebugMode) print("✅ Edit mode saved. ${ownedFishes.length} fishes synced.");
   }
@@ -193,7 +163,10 @@ class FishProvider extends ChangeNotifier {
   void toggleFishSelection(String fishId) {
     if (!isInEditMode) enterEditMode(focusFishId: fishId);
 
+    // Deselect all first
     for (var f in _editingBuffer) f.isSelected = false;
+
+    // Select this fish
     final idx = _editingBuffer.indexWhere((f) => f.id == fishId);
     if (idx != -1) _editingBuffer[idx].isSelected = true;
 
@@ -201,7 +174,7 @@ class FishProvider extends ChangeNotifier {
   }
 
   void deselectFish(String fishId) {
-    final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId);
+    final idx = _editingBuffer.indexWhere((f) => f.id == fishId);
     if (idx == -1) return;
 
     _editingBuffer[idx].isSelected = false;
@@ -212,7 +185,8 @@ class FishProvider extends ChangeNotifier {
     if (!isInEditMode) return;
 
     movingFishId = fishId;
-    final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId);
+
+    final idx = _editingBuffer.indexWhere((f) => f.id == fishId);
     if (idx != -1) _editingBuffer[idx].isSelected = true;
 
     notifyListeners();
@@ -223,119 +197,137 @@ class FishProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------- Store ----------
   Future<void> storeFish(String fishId) async {
-    OwnedFish? fish;
+  OwnedFish? fish;
 
-    if (isInEditMode) {
-      final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId && f.isActive);
-      if (idx == -1) return;
-
-      _editingBuffer[idx] = _editingBuffer[idx].copyWith(isActive: false);
-      fish = _editingBuffer[idx];
-      final mainIdx = ownedFishes.indexWhere((f) => f.id == fish!.id);
-      if (mainIdx != -1) ownedFishes[mainIdx] = fish;
-    } else {
-      final idx = ownedFishes.indexWhere((f) => f.fishId == fishId && f.isActive);
-      if (idx == -1) return;
-
-      ownedFishes[idx] = ownedFishes[idx].copyWith(isActive: false);
-      fish = ownedFishes[idx];
-    }
-
-    await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, fish);
-    await _updateCache(); // ✅ ADDED
-    notifyListeners();
-  }
-
-  Future<void> activateFish(String fishId) async {
-    OwnedFish? fish;
-
-    if (isInEditMode) {
-      final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId && !f.isActive);
-      if (idx == -1) return;
-
-      _editingBuffer[idx] = _editingBuffer[idx].copyWith(isActive: true);
-      fish = _editingBuffer[idx];
-      final mainIdx = ownedFishes.indexWhere((f) => f.id == fish!.id);
-      if (mainIdx != -1) ownedFishes[mainIdx] = fish;
-    } else {
-      final idx = ownedFishes.indexWhere((f) => f.fishId == fishId && !f.isActive);
-      if (idx == -1) return;
-
-      ownedFishes[idx] = ownedFishes[idx].copyWith(isActive: true);
-      fish = ownedFishes[idx];
-    }
-
-    await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, fish);
-    await _updateCache(); // ✅ ADDED
-
-    notifyListeners();
-    if (kDebugMode) print("🟢 Activated fish $fishId in aquarium");
-  }
-
-  Future<void> sellFish(String fishId) async {
-    final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
+  if (isInEditMode) {
+    final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId && f.isActive);
     if (idx == -1) return;
 
-    final fishDef = FishCatalog.byId(fishId);
-    final price = fishDef.type == FishType.purchasable ? fishDef.price : 0;
+    _editingBuffer[idx] = _editingBuffer[idx].copyWith(isActive: false);
+    fish = _editingBuffer[idx];
+    final mainIdx = ownedFishes.indexWhere((f) => f.id == fish!.id);
+    if (mainIdx != -1) ownedFishes[mainIdx] = fish;
+  } else {
+    final idx = ownedFishes.indexWhere((f) => f.fishId == fishId && f.isActive);
+    if (idx == -1) return;
 
-    await _repo.sellFish(currentChild.parentUid, currentChild.cid, fishId, price);
-    ownedFishes.removeAt(idx);
-    await _updateCache(); // ✅ ADDED
-
-    await _refreshBalance();
-    notifyListeners();
-    if (kDebugMode) print("🟢 Sold fish $fishId for $price tokens");
+    ownedFishes[idx] = ownedFishes[idx].copyWith(isActive: false);
+    fish = ownedFishes[idx];
   }
 
+  await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, fish);
+
+  notifyListeners();
+}
+
+
+
+  // ---------- Activate ----------
+  Future<void> activateFish(String fishId) async {
+  OwnedFish? fish;
+
+  if (isInEditMode) {
+    final idx = _editingBuffer.indexWhere((f) => f.fishId == fishId && !f.isActive);
+    if (idx == -1) return;
+
+    _editingBuffer[idx] = _editingBuffer[idx].copyWith(isActive: true);
+    fish = _editingBuffer[idx];
+    final mainIdx = ownedFishes.indexWhere((f) => f.id == fish!.id);
+    if (mainIdx != -1) ownedFishes[mainIdx] = fish;
+  } else {
+    final idx = ownedFishes.indexWhere((f) => f.fishId == fishId && !f.isActive);
+    if (idx == -1) return;
+
+    ownedFishes[idx] = ownedFishes[idx].copyWith(isActive: true);
+    fish = ownedFishes[idx];
+  }
+
+  await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, fish);
+
+  notifyListeners();
+  if (kDebugMode) print("🟢 Activated fish $fishId in aquarium");
+}
+
+
+  // ---------- Sell ----------
+  Future<void> sellFish(String fishId) async {
+  // Find the fish in the main ownedFishes list
+  final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
+  if (idx == -1) return; // nothing to sell
+
+  final fishDef = FishCatalog.byId(fishId);
+  final price = fishDef.type == FishType.purchasable ? fishDef.price : 0;
+
+  // Remove from Hive & Firestore
+  await _repo.sellFish(currentChild.parentUid, currentChild.cid, fishId, price);
+
+  // Remove locally
+  ownedFishes.removeAt(idx);
+
+  // Refresh balance locally
+  await _refreshBalance();
+
+  notifyListeners();
+  if (kDebugMode) print("🟢 Sold fish $fishId for $price tokens");
+}
+
+
+
+
+  // ---------- Unlock ----------
   Future<void> unlockFish(String fishId) async {
-    final child = currentChild;
+  final child = currentChild;
 
-    await firestore
-        .collection('users')
-        .doc(child.parentUid)
-        .collection('children')
-        .doc(child.cid)
-        .collection('fishes')
-        .doc(fishId)
-        .set({
-      'fishId': fishId,
-      'isUnlocked': true,
-      'isActive': false,
-    }, SetOptions(merge: true));
+  await firestore
+      .collection('users')
+      .doc(child.parentUid)
+      .collection('children')
+      .doc(child.cid)
+      .collection('fishes')
+      .doc(fishId)
+      .set({
+        'fishId': fishId,
+        'isUnlocked': true,
+        'isActive': false,
+      }, SetOptions(merge: true));
 
-    ownedFishes.add(
+      ownedFishes.add(
       OwnedFish(
-        id: fishId,
+        id: fishId, // 👈 can use same as fishId if you don’t have a unique doc ID
         fishId: fishId,
         isUnlocked: true,
       ),
     );
 
-    await _updateCache(); // ✅ ADDED
-    notifyListeners();
-  }
+  notifyListeners();
+}
 
+
+  // ---------- Neglected State ----------
   Future<void> setNeglected(String fishId, bool neglected) async {
     final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
     if (idx == -1) return;
 
     ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
     await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
-    await _updateCache(); // ✅ ADDED
 
     notifyListeners();
     if (kDebugMode) print("⚠️ Fish $fishId neglected state: $neglected");
   }
 
+  // ---------- Helpers ----------
   FishDefinition getFishDefinition(String fishId) {
     return FishCatalog.byId(fishId);
   }
 
   Future<void> _refreshBalance() async {
-    final newBalance = await fetchBalance();
-    currentChild = currentChild.copyWith(balance: newBalance);
-    notifyListeners();
-  }
+  final newBalance = await fetchBalance();
+  currentChild = currentChild.copyWith(balance: newBalance);
+  notifyListeners();
+}
+
+
+  
 }
