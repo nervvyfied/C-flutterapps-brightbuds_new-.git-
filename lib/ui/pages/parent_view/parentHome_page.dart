@@ -324,6 +324,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                             builder: (context) => ParentCBTPage(
                               parentId: parentId,
                               childId: childId,
+                              suggestedMood: weeklyTopMood,
                             ),
                           ),
                         );

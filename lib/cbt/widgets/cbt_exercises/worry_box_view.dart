@@ -76,7 +76,12 @@ class _WorryBoxViewState extends State<WorryBoxView> with TickerProviderStateMix
     setState(() => _showLockModal = false);
 
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
+    final assigned = provider.assigned.firstWhere(
+    (a) => a.exerciseId == widget.exercise.id && a.childId == widget.childId,
+    orElse: () => throw Exception('Assigned CBT not found for this exercise'),
+  );
+
+  await provider.markAsCompleted(widget.parentId, widget.childId, assigned.id);
 
     setState(() => _completed = true);
     _showCompletionDialog();
