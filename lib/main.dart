@@ -21,6 +21,7 @@ import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
 import 'package:brightbuds_new/ui/pages/childlogin_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -69,7 +70,22 @@ Future<void> _initFlutterLocalNotifications() async {
 /// ------------------ MAIN ENTRY ------------------
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ---------------- Firebase Core ----------------
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // ✅ ADD THIS: Enable Firestore offline caching
+  // ------------------------------------------------
+  try {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+    );
+    debugPrint('✅ Firestore offline persistence enabled');
+  } catch (e) {
+    debugPrint('⚠️ Failed to enable Firestore persistence: $e');
+  }
+
+  // ---------------- FCM Setup ----------------
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await _initFlutterLocalNotifications();
 
@@ -106,8 +122,12 @@ void main() async {
   await Hive.openBox<CBTExercise>('cbtExercise');
   await Hive.openBox<AssignedCBT>('assignedCBT');
 
+  // ✅ (Optional but recommended) Print confirmation for debug
+  debugPrint('✅ Hive boxes opened and ready.');
+
   runApp(const MyApp());
 }
+
 
 /// ------------------ APP ------------------
 class MyApp extends StatelessWidget {

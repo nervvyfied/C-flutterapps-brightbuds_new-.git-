@@ -1,5 +1,8 @@
+import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:hive/hive.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/journal_model.dart';
 import '../repositories/journal_repository.dart';
 import '../repositories/user_repository.dart';
@@ -21,6 +24,10 @@ class JournalProvider extends ChangeNotifier {
   final Map<String, List<JournalEntry>> _entries = {};
   bool _isLoading = false;
   bool get isLoading => _isLoading;
+
+  // ✅ New local + firestore caching fields
+  final Box<JournalEntry> _journalBox = Hive.box('journalBox');
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   JournalProvider() {
     // SyncService requires (UserRepository, TaskRepository, StreakRepository)
@@ -64,9 +71,8 @@ class JournalProvider extends ChangeNotifier {
             debugPrint("Failed to pull journals for child ${child.cid}: $e");
           }
 
-          // Load local entries for this child
-          final allLocal = _journalRepo.getAllEntriesLocal(child.cid);
-          _entries[child.cid] = allLocal;
+          // ✅ Use local-first caching logic for each child
+          await loadJournalsWithCache(parentId, child.cid);
         }
       } else {
         // child view: require parentId & childId
@@ -80,8 +86,8 @@ class JournalProvider extends ChangeNotifier {
           return;
         }
 
-        // Load local first (instant)
-        _entries[childId] = _journalRepo.getAllEntriesLocal(childId);
+        // ✅ Load using caching logic
+        await loadJournalsWithCache(parentId, childId);
 
         // Try to pull remote and then refresh local cache
         try {
@@ -100,6 +106,41 @@ class JournalProvider extends ChangeNotifier {
     }
   }
 
+  // ✅ New caching-aware loader
+  Future<void> loadJournalsWithCache(String parentId, String childId) async {
+    // 1️⃣ Load local Hive data first
+    final localEntries = _journalBox.values.toList();
+    _entries[childId] = localEntries;
+    notifyListeners();
+
+    // 2️⃣ Then sync Firestore data if online
+    if (await NetworkHelper.isOnline()) {
+      try {
+        final snapshot = await _firestore
+            .collection('users')
+            .doc(parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('journals')
+            .get();
+
+        final firestoreEntries = snapshot.docs
+            .map((doc) => JournalEntry.fromMap(doc.data()))
+            .toList();
+
+        // Replace local Hive cache
+        await _journalBox.clear();
+        await _journalBox.addAll(firestoreEntries);
+
+        // Update provider state
+        _entries[childId] = firestoreEntries;
+        notifyListeners();
+      } catch (e) {
+        debugPrint("⚠️ Firestore journal fetch failed: $e");
+      }
+    }
+  }
+
   // ---------------- CRUD OPERATIONS ----------------
   Future<void> addEntry(
     String parentId,
@@ -114,6 +155,25 @@ class JournalProvider extends ChangeNotifier {
 
     // Save locally & remotely (saveEntry handles both in your repository)
     await _journalRepo.saveEntry(parentId, childId, newEntry);
+
+    // ✅ Save to Hive cache
+    await _journalBox.add(newEntry);
+
+    // ✅ Save to Firestore (with offline-safe check)
+    if (await NetworkHelper.isOnline()) {
+      try {
+        await _firestore
+            .collection('users')
+            .doc(parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('journals')
+            .doc(newEntry.jid)
+            .set(newEntry.toMap());
+      } catch (e) {
+        debugPrint("⚠️ Firestore add failed: $e");
+      }
+    }
 
     // Try to push pending local changes for this child
     try {
@@ -135,6 +195,30 @@ class JournalProvider extends ChangeNotifier {
   ) async {
     await _journalRepo.saveEntry(parentId, childId, updatedEntry);
 
+    // ✅ Update Hive cache
+    final index = _journalBox.values
+        .toList()
+        .indexWhere((e) => e.jid == updatedEntry.jid);
+    if (index != -1) {
+      await _journalBox.putAt(index, updatedEntry);
+    }
+
+    // ✅ Firestore update if online
+    if (await NetworkHelper.isOnline()) {
+      try {
+        await _firestore
+            .collection('users')
+            .doc(parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('journals')
+            .doc(updatedEntry.jid)
+            .set(updatedEntry.toMap());
+      } catch (e) {
+        debugPrint("⚠️ Firestore update failed: $e");
+      }
+    }
+
     try {
       await _journalRepo.pushPendingLocalChanges(parentId, childId);
     } catch (e) {
@@ -143,10 +227,9 @@ class JournalProvider extends ChangeNotifier {
 
     final list = _entries[childId];
     if (list != null) {
-      final index = list.indexWhere((e) => e.jid == updatedEntry.jid);
-      if (index != -1) list[index] = updatedEntry;
+      final idx = list.indexWhere((e) => e.jid == updatedEntry.jid);
+      if (idx != -1) list[idx] = updatedEntry;
     } else {
-      // If not present, ensure it's added to local list
       _entries.putIfAbsent(childId, () => [updatedEntry]);
     }
 
@@ -159,6 +242,27 @@ class JournalProvider extends ChangeNotifier {
     String jid,
   ) async {
     await _journalRepo.deleteEntry(parentId, childId, jid);
+
+    // ✅ Remove from Hive cache
+    final index =
+        _journalBox.values.toList().indexWhere((entry) => entry.jid == jid);
+    if (index != -1) await _journalBox.deleteAt(index);
+
+    // ✅ Firestore delete if online
+    if (await NetworkHelper.isOnline()) {
+      try {
+        await _firestore
+            .collection('users')
+            .doc(parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('journals')
+            .doc(jid)
+            .delete();
+      } catch (e) {
+        debugPrint("⚠️ Firestore delete failed: $e");
+      }
+    }
 
     try {
       await _journalRepo.pushPendingLocalChanges(parentId, childId);
@@ -182,7 +286,8 @@ class JournalProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _syncService.syncOnLogin(uid: uid, accessCode: accessCode, isParent: isParent);
+      await _syncService.syncOnLogin(
+          uid: uid, accessCode: accessCode, isParent: isParent);
 
       if (isParent && uid != null) {
         // After syncing, load entries for every child
@@ -191,12 +296,14 @@ class JournalProvider extends ChangeNotifier {
           await loadEntries(parentId: uid, childId: child.cid, isParent: false);
         }
       } else if (!isParent && accessCode != null) {
-        final result = await _userRepo.fetchParentAndChildByAccessCode(accessCode);
+        final result =
+            await _userRepo.fetchParentAndChildByAccessCode(accessCode);
         if (result != null) {
           final parent = result['parent'] as ParentUser?;
           final child = result['child'] as ChildUser?;
           if (parent != null && child != null) {
-            await loadEntries(parentId: parent.uid, childId: child.cid, isParent: false);
+            await loadEntries(
+                parentId: parent.uid, childId: child.cid, isParent: false);
           }
         }
       }
