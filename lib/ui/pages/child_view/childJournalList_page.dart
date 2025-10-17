@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '/data/models/journal_model.dart';
 import '../../../data/providers/journal_provider.dart';
 import 'childJournalAdd_page.dart';
-import 'childJournalEdit_page.dart'; // new edit page
+import 'childJournalEdit_page.dart';
 
 class JournalListPage extends StatefulWidget {
   final String parentId;
@@ -22,26 +22,56 @@ class JournalListPage extends StatefulWidget {
 
 class _JournalListPageState extends State<JournalListPage> {
   bool _isLoading = true;
+  bool _isSyncing = false;
 
   @override
   void initState() {
     super.initState();
-    _loadEntries();
+    _loadOfflineThenSync();
   }
 
-  Future<void> _loadEntries() async {
+  Future<void> _loadOfflineThenSync() async {
     final journalProvider = Provider.of<JournalProvider>(
       context,
       listen: false,
     );
-    await journalProvider.fetchEntries(widget.parentId, widget.childId);
-    setState(() {
-      _isLoading = false;
-    });
+
+    // 1️⃣ Load Hive data first (instant)
+    await journalProvider.loadEntries(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
+
+    // 2️⃣ Immediately update UI
+    setState(() => _isLoading = false);
+
+    // 3️⃣ Sync in background, only if Hive is empty or offline changes exist
+    _syncWithOnline();
   }
 
-  // ---------------- PREVIEW DIALOG ----------------
-  Future<bool?> _showPreviewDialog(JournalEntry entry) {
+  Future<void> _syncWithOnline() async {
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
+
+    setState(() => _isSyncing = true);
+    try {
+      await journalProvider.pushPendingChanges(widget.parentId, widget.childId);
+      // Reload entries after syncing
+      await journalProvider.loadEntries(
+        parentId: widget.parentId,
+        childId: widget.childId,
+      );
+      setState(() {}); // Refresh UI after sync
+    } catch (e) {
+      debugPrint("⚠️ Sync failed: $e");
+    } finally {
+      setState(() => _isSyncing = false);
+    }
+  }
+
+  Future<bool?> _showPreviewDialog(JournalEntry entry) async {
     final journalProvider = Provider.of<JournalProvider>(
       context,
       listen: false,
@@ -66,9 +96,8 @@ class _JournalListPageState extends State<JournalListPage> {
           ),
         ),
         actions: [
-          
           TextButton(
-            onPressed: () => Navigator.of(context).pop(true), // triggers Edit
+            onPressed: () => Navigator.of(context).pop(true),
             child: const Text("Edit"),
           ),
           TextButton(
@@ -78,8 +107,17 @@ class _JournalListPageState extends State<JournalListPage> {
                 widget.childId,
                 entry.jid,
               );
+
+              // Optimistic UI update
+              setState(() {});
+
+              // Reload Hive data just in case
+              await journalProvider.loadEntries(
+                parentId: widget.parentId,
+                childId: widget.childId,
+              );
+
               Navigator.of(context).pop(false);
-              _loadEntries();
             },
             child: const Text("Delete", style: TextStyle(color: Colors.red)),
           ),
@@ -94,8 +132,27 @@ class _JournalListPageState extends State<JournalListPage> {
     final entries = journalProvider.getEntries(widget.childId);
 
     return Scaffold(
-      appBar: AppBar(title: const Text("My Journal"),
-      automaticallyImplyLeading: false,
+      appBar: AppBar(
+        title: const Text("My Journal"),
+        automaticallyImplyLeading: false,
+        actions: [
+          if (_isSyncing)
+            const Padding(
+              padding: EdgeInsets.only(right: 16.0),
+              child: Center(
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: "Sync Now",
+            onPressed: _syncWithOnline,
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -118,7 +175,14 @@ class _JournalListPageState extends State<JournalListPage> {
                             ),
                           ),
                         );
-                        if (refreshed == true) _loadEntries();
+                        if (refreshed == true) {
+                          // Optimistic UI update
+                          setState(() {});
+                          await journalProvider.loadEntries(
+                            parentId: widget.parentId,
+                            childId: widget.childId,
+                          );
+                        }
                       },
                     ),
                   ),
@@ -158,7 +222,13 @@ class _JournalListPageState extends State<JournalListPage> {
                                         ),
                                       ),
                                     );
-                                    if (edited == true) _loadEntries();
+                                    if (edited == true) {
+                                      setState(() {});
+                                      await journalProvider.loadEntries(
+                                        parentId: widget.parentId,
+                                        childId: widget.childId,
+                                      );
+                                    }
                                   }
                                 },
                               ),
