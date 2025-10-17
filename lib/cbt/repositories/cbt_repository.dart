@@ -38,6 +38,29 @@ class CBTRepository {
     }
   }
 
+    /// Remove an assigned CBT (Hive + Firestore)
+  Future<void> removeAssignedCBT(String parentId, String childId, String cbtId) async {
+    try {
+      // Remove from Firestore
+      await _firestore
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('CBT')
+          .doc(cbtId)
+          .delete();
+
+      // Remove from local Hive
+      await _cbtBox.delete(cbtId);
+
+      debugPrint('CBT $cbtId removed for child $childId');
+    } catch (e, st) {
+      debugPrint('Failed to remove CBT: $e\n$st');
+    }
+  }
+
+
   /// Fetch CBTs from Firestore for a specific week
   Future<List<AssignedCBT>> getAssignedCBTsForWeek(
       String parentId, String childId, int weekOfYear) async {
@@ -84,7 +107,7 @@ class CBTRepository {
       await _firestore
           .collection('users')
           .doc(parentId)
-          .collection('child')
+          .collection('children')
           .doc(childId)
           .collection('CBT')
           .doc(cbt.id)

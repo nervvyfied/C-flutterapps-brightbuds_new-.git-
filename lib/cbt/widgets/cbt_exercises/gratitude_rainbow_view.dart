@@ -114,7 +114,12 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
 
   Future<void> _onCompleted() async {
     final provider = context.read<CBTProvider>();
-    await provider.markAsCompleted(widget.parentId, widget.childId, widget.exercise.id);
+    final assigned = provider.assigned.firstWhere(
+    (a) => a.exerciseId == widget.exercise.id && a.childId == widget.childId,
+    orElse: () => throw Exception('Assigned CBT not found for this exercise'),
+  );
+
+  await provider.markAsCompleted(widget.parentId, widget.childId, assigned.id);
 
     if (mounted) {
       showDialog(

@@ -73,7 +73,6 @@ class AssignedCBT {
     );
   }
 
-  // NEW: Factory to create AssignedCBT from an Exercise object
   factory AssignedCBT.fromExercise({
     required String id,
     required CBTExercise exercise,
@@ -81,7 +80,7 @@ class AssignedCBT {
     required DateTime assignedDate,
     required int weekOfYear,
     required String assignedBy,
-    String recurrence = "daily",
+    String? recurrence, // use exercise.recurrence by default
     String source = "auto",
   }) {
     return AssignedCBT(
@@ -89,7 +88,7 @@ class AssignedCBT {
       exerciseId: exercise.id,
       childId: childId,
       assignedDate: assignedDate,
-      recurrence: recurrence,
+      recurrence: recurrence ?? exercise.recurrence,
       weekOfYear: weekOfYear,
       assignedBy: assignedBy,
       source: source,

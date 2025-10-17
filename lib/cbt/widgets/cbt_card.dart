@@ -3,16 +3,26 @@ import '../models/cbt_exercise_model.dart';
 
 class CBTCard extends StatelessWidget {
   final CBTExercise exercise;
-  final VoidCallback onStart;
-  final VoidCallback onComplete;
+  final VoidCallback? onStart;
+  final VoidCallback? onAssign;
+  final VoidCallback? onUnassign;
+  final VoidCallback? onComplete;
   final bool isCompleted;
+  final bool isParentView; // if true, show assign/unassign controls
+  final bool isAssigned;
+  final bool isSuggested;
 
   const CBTCard({
     super.key,
     required this.exercise,
-    required this.onStart,
-    required this.onComplete,
+    this.onStart,
+    this.onAssign,
+    this.onUnassign,
+    this.onComplete,
     this.isCompleted = false,
+    this.isParentView = false,
+    this.isAssigned = false,
+    this.isSuggested = false,
   });
 
   @override
@@ -21,8 +31,9 @@ class CBTCard extends StatelessWidget {
       duration: const Duration(milliseconds: 250),
       margin: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: isCompleted ? Colors.green[50] : Colors.white,
+        color: isSuggested ? (isCompleted ? Colors.green[50] : Colors.yellow[50]) : (isCompleted ? Colors.green[50] : Colors.white),
         borderRadius: BorderRadius.circular(16),
+        border: isSuggested ? Border.all(color: Colors.orangeAccent, width: 1.6) : null,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -62,16 +73,38 @@ class CBTCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${exercise.mood.toUpperCase()} • ${exercise.duration}',
+                  '${exercise.mood.toUpperCase()} • ${exercise.duration} • ${exercise.recurrence.toUpperCase()}',
                   style: TextStyle(color: Colors.blueGrey[600]),
                 ),
                 Row(
                   children: [
-                    ElevatedButton.icon(
-                      onPressed: onStart,
-                      icon: const Icon(Icons.play_arrow, size: 18),
-                      label: Text(isCompleted ? 'Assigned' : 'Assign'),
-                    ),
+                    if (isParentView) ...[
+                      if (!isAssigned)
+                        ElevatedButton.icon(
+                          onPressed: onAssign,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Assign'),
+                        )
+                      else
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                          onPressed: onUnassign,
+                          icon: const Icon(Icons.remove_circle, size: 18),
+                          label: const Text('Unassign'),
+                        ),
+                    ] else ...[
+                      ElevatedButton.icon(
+                        onPressed: isCompleted ? null : onStart, // 🔒 disable if completed
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isCompleted ? Colors.grey : Colors.blue,
+                        ),
+                        icon: Icon(
+                          isCompleted ? Icons.check : Icons.play_arrow,
+                          size: 18,
+                        ),
+                        label: Text(isCompleted ? 'Completed' : 'Start'),
+                      ),
+                    ],
                     const SizedBox(width: 8),
                   ],
                 ),
