@@ -18,7 +18,6 @@ class ParentCBTPage extends StatefulWidget {
 
 class _ParentCBTPageState extends State<ParentCBTPage> {
   String _selectedCategory = 'All';
-  String _peakMood = 'sad'; // 👉 later connect this dynamically from child's data
 
   @override
   void initState() {
@@ -39,9 +38,10 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
         ? exercises
         : exercises.where((e) => e.mood.toLowerCase() == _selectedCategory.toLowerCase()).toList();
 
-    // 🔹 Find suggested CBT based on peak mood
+    // 🔹 Find suggested CBT based on the passed mood
+    final moodToSuggest = widget.suggestedMood?.toLowerCase() ?? 'calm'; // fallback if null
     CBTExercise? suggested = exercises.firstWhere(
-      (e) => e.mood.toLowerCase() == _peakMood.toLowerCase(),
+      (e) => e.mood.toLowerCase() == moodToSuggest,
       orElse: () => exercises.first,
     );
 
@@ -120,7 +120,7 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
   }
 
   Widget _buildCategoryTabs() {
-    final moods = ['All', 'Happy', 'Sad', 'Angry', 'Calm', 'Anxious'];
+    final moods = ['All', 'Happy', 'Sad', 'Angry', 'Calm', 'Anxious', 'Confused'];
     return SizedBox(
       height: 40,
       child: ListView.builder(
