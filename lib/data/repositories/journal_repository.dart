@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
-import 'package:uuid/uuid.dart';
 import '../models/journal_model.dart';
+import 'dart:io';
 
 class JournalRepository {
   static const String hiveBoxName = 'journalBox';
@@ -10,6 +10,10 @@ class JournalRepository {
   late final Box<JournalEntry> _journalBox;
 
   JournalRepository() {
+    // Ensure Hive box is already opened before using this repository
+    if (!Hive.isBoxOpen(hiveBoxName)) {
+      throw Exception("Hive box '$hiveBoxName' is not open. Open it before using JournalRepository.");
+    }
     _journalBox = Hive.box<JournalEntry>(hiveBoxName);
   }
 
@@ -27,7 +31,11 @@ class JournalRepository {
   JournalEntry? getEntryLocal(String jid) => _journalBox.get(jid);
 
   List<JournalEntry> getAllEntriesLocal(String childId) {
-    return _journalBox.values.where((e) => e.cid == childId).toList();
+    final entries = _journalBox.values.where((e) => e.cid == childId).toList()
+      ..sort((a, b) => b.entryDate.compareTo(a.entryDate));
+
+    debugPrint("Fetched ${entries.length} local entries for child $childId");
+    return entries;
   }
 
   Future<void> deleteEntryLocal(String jid) async {
@@ -40,7 +48,6 @@ class JournalRepository {
     if (parentId.isEmpty || childId.isEmpty) {
       throw ArgumentError("parentId and childId must not be empty");
     }
-    // Path: users/{parentId}/children/{childId}/journals
     return _firestore
         .collection('users')
         .doc(parentId)
@@ -56,19 +63,19 @@ class JournalRepository {
     debugPrint("Journal ${entry.jid} saved remotely under child $childId.");
   }
 
-  Future<JournalEntry?> getEntryRemote(String parentId, String childId, String jid) async {
-    final doc = await _childJournalRef(parentId, childId).doc(jid).get();
-    if (doc.exists && doc.data() != null) {
-      return JournalEntry.fromMap(doc.data() as Map<String, dynamic>);
-    }
-    return null;
-  }
-
   Future<List<JournalEntry>> getAllEntriesRemote(String parentId, String childId) async {
-    final snapshot = await _childJournalRef(parentId, childId).get();
-    return snapshot.docs
-        .map((doc) => JournalEntry.fromMap(doc.data() as Map<String, dynamic>))
-        .toList();
+    try {
+      final snapshot = await _childJournalRef(parentId, childId).get();
+      final remoteEntries = snapshot.docs
+          .map((doc) => JournalEntry.fromMap(doc.data() as Map<String, dynamic>))
+          .toList();
+
+      debugPrint("Fetched ${remoteEntries.length} remote entries for child $childId");
+      return remoteEntries;
+    } catch (e) {
+      debugPrint("Error fetching remote entries: $e");
+      return [];
+    }
   }
 
   Future<void> deleteEntryRemote(String parentId, String childId, String jid) async {
@@ -76,55 +83,67 @@ class JournalRepository {
     debugPrint("Journal $jid deleted remotely.");
   }
 
-  // ---------------- SYNC HELPERS ----------------
-  Future<void> saveEntry(String parentId, String childId, JournalEntry entry) async {
-    if (parentId.isEmpty || childId.isEmpty) {
-      throw Exception("Cannot save journal: parentId or childId is empty.");
+  // ---------------- OFFLINE-FIRST SYNC ----------------
+  Future<bool> _hasConnection() async {
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 3));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
     }
-
-    final updatedEntry = entry.copyWith(
-      jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
-      cid: childId,
-      createdAt: entry.createdAt,
-    );
-
-    // Save locally and remotely
-    await saveEntryLocal(updatedEntry);
-    await saveEntryRemote(parentId, childId, updatedEntry);
-
-    debugPrint("Journal ${updatedEntry.jid} saved locally and remotely under child $childId.");
   }
 
-  Future<void> deleteEntry(String parentId, String childId, String jid) async {
-    await deleteEntryLocal(jid);
-    await deleteEntryRemote(parentId, childId, jid);
-    debugPrint("Journal $jid deleted locally and remotely.");
-  }
+  // ---------------- MERGE LOCAL + REMOTE ----------------
+  Future<List<JournalEntry>> getMergedEntries(String parentId, String childId) async {
+    final localEntries = getAllEntriesLocal(childId);
 
-  Future<void> pullChildEntries(String parentId, String childId) async {
-    final remoteEntries = await getAllEntriesRemote(parentId, childId);
+    bool online = await _hasConnection();
+    List<JournalEntry> remoteEntries = [];
 
-    // Clear local entries first
-    final existing = getAllEntriesLocal(childId).map((e) => e.jid).toList();
-    for (final jid in existing) {
-      await deleteEntryLocal(jid);
+    if (online) {
+      try {
+        remoteEntries = await getAllEntriesRemote(parentId, childId);
+
+        // Merge: remote overwrites local if same jid
+        final Map<String, JournalEntry> mergedMap = {};
+        for (var e in [...localEntries, ...remoteEntries]) {
+          mergedMap[e.jid] = e;
+        }
+
+        final mergedList = mergedMap.values.toList()
+          ..sort((a, b) => b.entryDate.compareTo(a.entryDate));
+
+        // Persist merged entries to Hive
+        for (var e in mergedList) {
+          await _journalBox.put(e.jid, e);
+        }
+
+        debugPrint(
+            "✅ Merged ${mergedList.length} entries for child $childId (Local: ${localEntries.length}, Remote: ${remoteEntries.length}, Online: $online)");
+        return mergedList;
+      } catch (e) {
+        debugPrint("Error merging remote entries: $e");
+        return localEntries;
+      }
     }
 
-    // Save remote entries locally
-    for (final remote in remoteEntries) {
-      await saveEntryLocal(remote);
-    }
-
-    debugPrint("Pulled ${remoteEntries.length} journals for child $childId.");
+    debugPrint(
+        "Offline: returning local entries (${localEntries.length}) for child $childId");
+    return localEntries;
   }
 
   Future<void> pushPendingLocalChanges(String parentId, String childId) async {
-    final localEntries = getAllEntriesLocal(childId);
+    if (!await _hasConnection()) {
+      debugPrint("Offline: skipping push of local changes.");
+      return;
+    }
 
+    final localEntries = getAllEntriesLocal(childId);
     for (final entry in localEntries) {
       await saveEntryRemote(parentId, childId, entry);
     }
-
-    debugPrint("Pushed ${localEntries.length} local journals to Firestore under child $childId.");
+    debugPrint(
+        "Pushed ${localEntries.length} local journals to Firestore for child $childId.");
   }
 }

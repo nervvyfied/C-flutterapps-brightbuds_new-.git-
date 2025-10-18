@@ -63,7 +63,7 @@ class SyncService {
     await _taskRepo.pushPendingLocalChanges();
 
     // 🔹 Journals
-    await _journalRepo.pullChildEntries(parent.uid, child.cid);
+    await _journalRepo.getMergedEntries(parent.uid, child.cid);
     await _journalRepo.pushPendingLocalChanges(parent.uid, child.cid);
   }
 

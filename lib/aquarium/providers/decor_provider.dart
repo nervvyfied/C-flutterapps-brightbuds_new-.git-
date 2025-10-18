@@ -6,46 +6,50 @@ import '../models/decor_definition.dart';
 import '../repositories/decor_repository.dart';
 import '/data/models/child_model.dart';
 import '../catalogs/decor_catalog.dart';
+import 'package:brightbuds_new/utils/network_helper.dart';
 
+/// Offline-first DecorProvider
+///
+/// Handles decor placement, offline caching, and online sync with Firestore.
 class DecorProvider extends ChangeNotifier {
   final DecorRepository _repo = DecorRepository();
   final AuthProvider authProvider;
 
   late ChildUser currentChild;
 
+  /// Canonical list of placed decors (merged local + remote)
   List<PlacedDecor> placedDecors = [];
+
+  /// Local edit buffer for placement screen
   List<PlacedDecor> _editingBuffer = [];
+
   bool isInEditMode = false;
   String? movingDecorId;
 
-  bool isDecorSelected(String decorId) {
-  if (!isInEditMode) return false;
-  return _editingBuffer.any((d) => d.id == decorId && d.isSelected);
-}
-
+  /// Queue of pending local changes (by decor ID)
+  final Set<String> _pendingPushIds = {};
 
   DecorProvider({required this.authProvider}) {
     if (authProvider.currentUserModel is ChildUser) {
-      currentChild = authProvider.currentUserModel;
-      _init();
+      currentChild = authProvider.currentUserModel as ChildUser;
+      loadOfflineFirst();
     }
   }
 
-  Future<void> _init() async {
-    placedDecors = await _repo.getPlacedDecors(currentChild.parentUid, currentChild.cid);
-    notifyListeners();
-  }
-
-  List<PlacedDecor> get inventory =>
-      placedDecors.where((d) => !d.isPlaced).toList();
+  // ---------- GETTERS ----------
 
   UnmodifiableListView<PlacedDecor> get editingDecors =>
       UnmodifiableListView(_editingBuffer);
 
-  void _updateLocalBalance(int newBalance) {
-    currentChild = currentChild.copyWith(balance: newBalance);
-    notifyListeners();
-  }
+  List<PlacedDecor> get inventory =>
+      placedDecors.where((d) => !d.isPlaced).toList();
+
+  bool isDecorSelected(String decorId) =>
+      isInEditMode &&
+      _editingBuffer.any((d) => d.id == decorId && d.isSelected);
+
+  DecorDefinition getDecorDefinition(String decorId) =>
+      DecorCatalog.all.firstWhere((d) => d.id == decorId);
 
   bool isAlreadyPlaced(String decorId) =>
       placedDecors.any((d) => d.decorId == decorId && d.isPlaced);
@@ -53,101 +57,143 @@ class DecorProvider extends ChangeNotifier {
   bool isOwnedButNotPlaced(String decorId) =>
       placedDecors.any((d) => d.decorId == decorId && !d.isPlaced);
 
-  Future<bool> purchaseDecor(DecorDefinition decor) async {
-    if (isAlreadyPlaced(decor.id)) return false;
-    if (currentChild.balance < decor.price) return false;
+Future<bool> purchaseDecor(DecorDefinition decor) async {
+  if (isAlreadyPlaced(decor.id)) return false;
+  if (currentChild.balance < decor.price) return false;
 
-    final newDecor = PlacedDecor(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      decorId: decor.id,
-      x: 100,
-      y: 100,
-      isPlaced: false,
-    );
+  final newDecor = PlacedDecor(
+    id: DateTime.now().millisecondsSinceEpoch.toString(),
+    decorId: decor.id,
+    x: 100,
+    y: 100,
+    isPlaced: false,
+  );
 
-    await _repo.addPlacedDecor(currentChild.parentUid, currentChild.cid, newDecor);
-    await _repo.deductBalance(currentChild.parentUid, currentChild.cid, decor.price);
-    _updateLocalBalance(currentChild.balance - decor.price);
+  // Deduct balance
+  currentChild = currentChild.copyWith(
+    balance: currentChild.balance - decor.price,
+  );
 
-    placedDecors.add(newDecor);
-    notifyListeners();
-    return true;
+  // Add to placedDecors
+  placedDecors.add(newDecor);
+  notifyListeners();
+
+  // Save to repo
+  await _repo.addPlacedDecor(
+    currentChild.parentUid,
+    currentChild.cid,
+    newDecor,
+  );
+
+  return true; // ✅ Return success
+}
+
+  // ---------- OFFLINE-FIRST LOAD ----------
+
+  Future<void> loadOfflineFirst() async {
+    try {
+      // Load cached local decors
+      final local = await _repo.getPlacedDecors(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
+      placedDecors = List.from(local);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('DecorProvider: Failed to load local placed decors: $e');
+      placedDecors = [];
+      notifyListeners();
+    }
+
+    // Merge remote when online
+    if (await NetworkHelper.isOnline()) {
+      await _mergeRemote();
+    } else {
+      debugPrint('DecorProvider: offline — showing cached decors.');
+    }
   }
 
-  /// Place an inventory item and immediately enter edit mode so user can move it.
-  Future<void> placeFromInventory(String decorId, double x, double y) async {
-    final decor = placedDecors.firstWhere((d) => d.decorId == decorId && !d.isPlaced,
-        orElse: () => throw Exception('Decor not found in inventory'));
-    decor.x = x;
-    decor.y = y;
-    decor.isPlaced = true;
+  Future<void> _mergeRemote() async {
+    try {
+      final remote = await _repo.getPlacedDecors(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
 
-    await _repo.updatePlacedDecor(currentChild.parentUid, currentChild.cid, decor);
+      final Map<String, PlacedDecor> merged = {
+        for (var d in placedDecors) d.id: PlacedDecor.fromMap(d.toMap()),
+      };
 
-    final idx = placedDecors.indexWhere((d) => d.id == decor.id);
-    if (idx != -1) placedDecors[idx] = decor;
+      for (var r in remote) {
+        merged[r.id] = PlacedDecor.fromMap(r.toMap());
+      }
 
-    // Enter edit mode and focus the new placed item so the user can move it immediately
-    enterEditMode(focusDecorId: decor.id);
+      placedDecors = merged.values.toList();
 
-    notifyListeners();
+      // Save merged local copy
+      await _repo.updatePlacedDecors(
+        currentChild.parentUid,
+        currentChild.cid,
+        placedDecors,
+      );
+
+      // Push queued changes
+      if (_pendingPushIds.isNotEmpty) {
+        await pushPendingChanges();
+      }
+
+      notifyListeners();
+      debugPrint(
+        'DecorProvider: merged remote placed decors (${remote.length}) into local cache.',
+      );
+    } catch (e) {
+      debugPrint('DecorProvider: failed merging remote decors: $e');
+    }
   }
 
-  // ---------- Edit Mode ----------
-  /// Creates a deep copy buffer. If `focusDecorId` provided we'll set that item selected
-  /// and make it the initial movingDecorId so UI shows controls.
-  void enterEditMode({String? focusDecorId}) {
-    _editingBuffer =
-        placedDecors.map((d) => PlacedDecor.fromMap(d.toMap())).toList();
+  // ---------- EDIT MODE ----------
+
+  enterEditMode({String? focusDecorId}) {
+    _editingBuffer = placedDecors
+        .map((d) => PlacedDecor.fromMap(d.toMap()))
+        .toList();
     isInEditMode = true;
 
-    // Clear all selections first
-    for (var d in _editingBuffer) d.isSelected = false;
+    for (var d in _editingBuffer) {
+      d.isSelected = false;
+    }
 
     if (focusDecorId != null) {
       final idx = _editingBuffer.indexWhere((d) => d.id == focusDecorId);
       if (idx != -1) _editingBuffer[idx].isSelected = true;
     }
 
-    movingDecorId = null; // only start moving when Move button is clicked
+    movingDecorId = null;
     notifyListeners();
   }
 
   void cancelEditMode() {
-    _editingBuffer = [];
+    _editingBuffer.clear();
     isInEditMode = false;
     movingDecorId = null;
     notifyListeners();
   }
 
- 
-
   void toggleDecorSelection(String decorId) {
-  if (!isInEditMode) enterEditMode(focusDecorId: decorId);
+    if (!isInEditMode) enterEditMode(focusDecorId: decorId);
 
-  // Deselect all first
-  for (var decor in _editingBuffer) {
-    decor.isSelected = false;
+    for (var d in _editingBuffer) d.isSelected = false;
+
+    final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
+    if (idx != -1) _editingBuffer[idx].isSelected = true;
+
+    notifyListeners();
   }
 
-  // Select this decor
-  final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (idx != -1) _editingBuffer[idx].isSelected = true;
-
-  notifyListeners();
-
-  if (kDebugMode) {
-    print("Decor $decorId selected.");
-  }
-}
-
-
-void startMovingDecor(String decorId) {
+  void startMovingDecor(String decorId) {
     if (!isInEditMode) return;
-
     movingDecorId = decorId;
 
-    // Ensure decor is selected
     final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
     if (idx != -1) _editingBuffer[idx].isSelected = true;
 
@@ -159,137 +205,243 @@ void startMovingDecor(String decorId) {
     notifyListeners();
   }
 
-  Future<void> updateDecorPosition(String decorId, double x, double y, {bool persist = false}) async {
-  final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (idx != -1) {
-    _editingBuffer[idx].x = x;
-    _editingBuffer[idx].y = y;
-  }
+  // ---------- PLACEMENT / POSITION ----------
 
-  final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
-  if (mainIdx != -1) {
-    placedDecors[mainIdx].x = x;
-    placedDecors[mainIdx].y = y;
-  }
-
-  notifyListeners();
-
-  // Persist immediately
-  if (persist && mainIdx != -1) {
-    final decor = placedDecors[mainIdx];
-    await _repo.updatePlacedDecor(currentChild.parentUid, currentChild.cid, decor);
-  }
-}
-
-  /// Handles storing back to inventory or selling a decor
-Future<void> handleDecorAction(
-  String decorId, {
-  bool storeBack = false,
-  bool sell = false,
-}) async {
-  final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (idx == -1) return;
-
-  final decor = _editingBuffer[idx];
-
-  if (storeBack) {
-    // Mark as inventory
-    decor.isPlaced = false;
-    decor.isSelected = false;
-
-    // Update repo (Hive + Firestore)
-    await _repo.storeDecor(currentChild.parentUid, currentChild.cid, decorId);
-
-    // Update main placedDecors
-    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
-    if (mainIdx != -1) placedDecors[mainIdx].isPlaced = false;
-
-    // Remove from edit buffer so it disappears from aquarium view
-    _editingBuffer[idx].isPlaced = false;   
-    placedDecors.firstWhere((d) => d.id == decorId).isPlaced = false;
-
-    await _repo.updatePlacedDecor(currentChild.parentUid, currentChild.cid, _editingBuffer[idx]);
-
-    if (kDebugMode) print("🟡 Stored $decorId back to inventory");
-  } else if (sell) {
-    final def = getDecorDefinition(decor.decorId);
-
-    // Call repo sell → removes decor + refunds balance
-    await _repo.sellDecor(currentChild.parentUid, currentChild.cid, decorId, def.price);
-
-    // Update local balance copy
-    _updateLocalBalance(currentChild.balance + def.price);
-
-    // Remove from local lists
-    _editingBuffer.removeAt(idx);
-    placedDecors.removeWhere((d) => d.id == decorId);
-
-    if (kDebugMode) print("🟢 Sold $decorId for ${def.price} tokens");
-  }
-
-  notifyListeners();
-}
-
-void deselectDecor(String decorId) {
-  final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
-  if (idx == -1) return;
-
-  _editingBuffer[idx].isSelected = false;
-  notifyListeners();
-}
-
-
-Future<void> saveEditMode() async {
-  if (!isInEditMode) return;
-
-  // Sync the current buffer to repository (Hive + Firestore)
-  await _repo.updatePlacedDecors(
-    currentChild.parentUid,
-    currentChild.cid,
-    _editingBuffer,
-  );
-
-  // Update main list to match buffer (keep ALL decors, both placed & stored)
-  placedDecors
-    ..clear()
-    ..addAll(_editingBuffer);
-
-  // Clear buffer and exit edit mode
-  _editingBuffer.clear();
-  movingDecorId = null;
-  isInEditMode = false;
-
-  notifyListeners();
-
-  if (kDebugMode) {
-    print("✅ Edit mode saved. ${placedDecors.length} decors now synced.");
-  }
-}
-
-
-
-
-
-  Future<void> openEditModeForPlacement(String decorId) async {
-    await _init();
-    final decor = placedDecors.firstWhere((d) => d.decorId == decorId, orElse: () => throw Exception('not found'));
-    enterEditMode(focusDecorId: decor.id);
-  }
-
-  Future<void> removeDecorPermanently(String decorId, {bool refund = true}) async {
-    final decor = placedDecors.firstWhere((d) => d.id == decorId);
-    await _repo.removePlacedDecor(currentChild.parentUid, currentChild.cid, decorId);
-
-    if (refund) {
-      final def = getDecorDefinition(decor.decorId);
-      await _repo.refundBalance(currentChild.parentUid, currentChild.cid, def.price);
-      _updateLocalBalance(currentChild.balance + def.price);
+  Future<void> updateDecorPosition(
+    String decorId,
+    double x,
+    double y, {
+    bool persist = false,
+  }) async {
+    final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
+    if (idx != -1) {
+      _editingBuffer[idx].x = x;
+      _editingBuffer[idx].y = y;
     }
 
-    await _init();
+    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
+    if (mainIdx != -1) {
+      placedDecors[mainIdx].x = x;
+      placedDecors[mainIdx].y = y;
+    }
+
+    notifyListeners();
+
+    if (persist && mainIdx != -1) {
+      final decor = placedDecors[mainIdx];
+      await _repo.updatePlacedDecor(
+        currentChild.parentUid,
+        currentChild.cid,
+        decor,
+      );
+      _pendingPushIds.add(decor.id);
+
+      if (await NetworkHelper.isOnline()) {
+        await pushPendingChanges();
+      }
+    }
   }
 
-  DecorDefinition getDecorDefinition(String decorId) {
-    return DecorCatalog.all.firstWhere((d) => d.id == decorId);
+  Future<void> placeFromInventory(String decorId, double x, double y) async {
+    final newDecor = PlacedDecor(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      decorId: decorId,
+      x: x,
+      y: y,
+      isPlaced: true,
+    );
+
+    placedDecors.add(newDecor);
+    notifyListeners();
+
+    await _repo.addPlacedDecor(
+      currentChild.parentUid,
+      currentChild.cid,
+      newDecor,
+    );
+    _pendingPushIds.add(newDecor.id);
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges();
+    }
+
+    enterEditMode(focusDecorId: newDecor.id);
+  }
+
+  // ---------- STORE / SELL / REMOVE ----------
+
+  Future<void> storeDecor(String decorId) async {
+    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
+    if (mainIdx == -1) return;
+
+    placedDecors[mainIdx].isPlaced = false;
+    await _repo.updatePlacedDecor(
+      currentChild.parentUid,
+      currentChild.cid,
+      placedDecors[mainIdx],
+    );
+    _pendingPushIds.add(decorId);
+
+    notifyListeners();
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges();
+    }
+  }
+
+  Future<void> sellDecor(String decorId) async {
+    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
+    if (mainIdx == -1) return;
+
+    final decor = placedDecors.removeAt(mainIdx);
+    final def = getDecorDefinition(decor.decorId);
+
+    await _repo.removePlacedDecor(
+      currentChild.parentUid,
+      currentChild.cid,
+      decorId,
+    );
+
+    currentChild = currentChild.copyWith(
+      balance: currentChild.balance + def.price,
+    );
+    _pendingPushIds.add(decorId);
+
+    notifyListeners();
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges();
+    }
+  }
+
+  Future<void> removeDecorPermanently(
+    String decorId, {
+    bool refund = true,
+  }) async {
+    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
+    if (mainIdx == -1) return;
+
+    final decor = placedDecors.removeAt(mainIdx);
+    final def = getDecorDefinition(decor.decorId);
+
+    await _repo.removePlacedDecor(
+      currentChild.parentUid,
+      currentChild.cid,
+      decorId,
+    );
+
+    if (refund) {
+      currentChild = currentChild.copyWith(
+        balance: currentChild.balance + def.price,
+      );
+      await _repo.updateBalance(
+        currentChild.parentUid,
+        currentChild.cid,
+        currentChild.balance,
+      );
+    }
+
+    _pendingPushIds.add(decorId);
+    notifyListeners();
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges();
+    }
+
+    await _initFromRepo();
+  }
+
+  // ---------- SAVE / CANCEL EDIT ----------
+
+  Future<void> saveEditMode() async {
+    if (!isInEditMode) return;
+
+    final Map<String, PlacedDecor> bufMap = {
+      for (var d in _editingBuffer) d.id: PlacedDecor.fromMap(d.toMap()),
+    };
+
+    final Map<String, PlacedDecor> canon = {
+      for (var d in placedDecors) d.id: PlacedDecor.fromMap(d.toMap()),
+    };
+
+    for (var entry in bufMap.entries) {
+      canon[entry.key] = entry.value;
+      _pendingPushIds.add(entry.key);
+    }
+
+    placedDecors = canon.values.toList();
+
+    await _repo.updatePlacedDecors(
+      currentChild.parentUid,
+      currentChild.cid,
+      placedDecors,
+    );
+
+    _editingBuffer.clear();
+    isInEditMode = false;
+    movingDecorId = null;
+
+    notifyListeners();
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges();
+      await _mergeRemote();
+    }
+  }
+
+  // ---------- SYNC / PUSH ----------
+
+  Future<void> pushPendingChanges() async {
+    if (_pendingPushIds.isEmpty) return;
+
+    final online = await NetworkHelper.isOnline();
+    if (!online) {
+      debugPrint('DecorProvider: offline — skipping pushPendingChanges.');
+      return;
+    }
+
+    try {
+      final toPush = placedDecors
+          .where((d) => _pendingPushIds.contains(d.id))
+          .map((d) => PlacedDecor.fromMap(d.toMap()))
+          .toList();
+
+      if (toPush.isEmpty) {
+        _pendingPushIds.clear();
+        return;
+      }
+
+      await _repo.pushPlacedDecorChanges(
+        currentChild.parentUid,
+        currentChild.cid,
+        toPush,
+      );
+
+      for (var d in toPush) {
+        _pendingPushIds.remove(d.id);
+      }
+
+      await _mergeRemote();
+
+      debugPrint(
+        'DecorProvider: pushed ${toPush.length} pending decor changes.',
+      );
+    } catch (e) {
+      debugPrint('DecorProvider: pushPendingChanges failed: $e');
+    }
+  }
+
+  // ---------- INTERNAL ----------
+
+  Future<void> _initFromRepo() async {
+    try {
+      placedDecors = await _repo.getPlacedDecors(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
+      notifyListeners();
+    } catch (e) {
+      debugPrint('DecorProvider: _initFromRepo failed: $e');
+    }
   }
 }

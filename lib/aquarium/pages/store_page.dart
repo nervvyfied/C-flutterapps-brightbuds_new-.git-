@@ -70,7 +70,7 @@ class StorePage extends StatelessWidget {
                             : () async {
                                 if (ownedButNotPlaced) {
                                   await decorProvider
-                                      .openEditModeForPlacement(decor.id);
+                                      .enterEditMode(focusDecorId: decor.id);
                                   Navigator.pop(context);
                                   return;
                                 }
@@ -107,7 +107,7 @@ class StorePage extends StatelessWidget {
 
                                 if (placeNow == true) {
                                   await decorProvider
-                                      .openEditModeForPlacement(decor.id);
+                                      .enterEditMode(focusDecorId: decor.id);
                                   Navigator.pop(context);
                                 }
                               },

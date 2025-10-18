@@ -309,41 +309,6 @@ void didChangeDependencies() {
     }).toList();
   });
 }
-
-
-  // ----- Initialize Test Fishes -----
-  /*void _initFishes(UnmodifiableListView<OwnedFish> activeFishes) {
-  final screenWidth = MediaQuery.of(context).size.width;
-  final screenHeight = MediaQuery.of(context).size.height;
-
-  // Get active fishes (owned & marked active) from provider
-  final fishProvider = Provider.of<FishProvider>(context, listen: false);
-  final activeOwned = fishProvider.activeFishes; // List<OwnedFish>
-
-  // If nothing active, optionally we can spawn a small default set or leave empty
-  if (activeOwned.isEmpty) {
-    return;
-  }
-
-  for (var owned in activeOwned) {
-    final def = FishCatalog.byId(owned.fishId);
-    fishes.add(
-      AquariumFish(
-        definition: def,
-        x: random.nextDouble() * screenWidth,
-        y: screenHeight * 0.3 + random.nextDouble() * screenHeight * 0.4,
-        speed: 1 + random.nextDouble() * 2,
-        movingRight: random.nextBool(),
-        verticalOffset: random.nextDouble() * 20,
-        sineFrequency: 0.01 + random.nextDouble() * 0.02,
-        neglected: owned.isNeglected,
-      ),
-    );
-  }
-}*/
-
-
-
   // ----- Initialize Dirts -----
   void _initDirts() {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -679,7 +644,7 @@ Stack(
         onTap: () {
           if (!decorProvider.isInEditMode) return;
           if (isSelected) {
-            decorProvider.deselectDecor(decor.id);
+            decorProvider.isDecorSelected(decor.id);
           } else {
             decorProvider.toggleDecorSelection(decor.id);
           }
@@ -729,7 +694,7 @@ Stack(
               tooltip: 'Store',
               onTap: () async {
                 debugPrint('🟠 Store tapped for ${decor.id}');
-                await decorProvider.handleDecorAction(decor.id, storeBack: true);
+                await decorProvider.storeDecor(decor.id);
               },
             ),
             const SizedBox(width: 8),
@@ -739,7 +704,7 @@ Stack(
               tooltip: 'Sell',
               onTap: () async {
                 debugPrint('🟢 Sell tapped for ${decor.id}');
-                await decorProvider.handleDecorAction(decor.id, sell: true);
+                await decorProvider.sellDecor(decor.id);
               },
             ),
           ],

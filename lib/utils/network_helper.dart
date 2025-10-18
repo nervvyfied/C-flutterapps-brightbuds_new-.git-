@@ -4,5 +4,7 @@ class NetworkHelper {
   static Future<bool> isOnline() async {
     final result = await Connectivity().checkConnectivity();
     return result != ConnectivityResult.none;
+    
   }
+  
 }

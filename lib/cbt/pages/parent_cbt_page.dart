@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/cbt/models/assigned_cbt_model.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../catalogs/cbt_catalog.dart';
@@ -10,7 +11,12 @@ class ParentCBTPage extends StatefulWidget {
   final String childId;
   final String? suggestedMood;
 
-  const ParentCBTPage({super.key, required this.parentId, required this.childId, this.suggestedMood,});
+  const ParentCBTPage({
+    super.key,
+    required this.parentId,
+    required this.childId,
+    this.suggestedMood,
+  });
 
   @override
   State<ParentCBTPage> createState() => _ParentCBTPageState();
@@ -23,24 +29,29 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CBTProvider>().loadAssignedCBTs(widget.parentId, widget.childId);
+      context.read<CBTProvider>().loadLocalCBT(widget.parentId, widget.childId);
+      // Optional: attempt remote sync if online
+      context.read<CBTProvider>().syncPendingCompletions(widget.parentId);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final cbtProvider = context.watch<CBTProvider>();
-    final assignedIds = cbtProvider.getCurrentWeekAssignments().map((a) => a.exerciseId).toSet();
+    final assignedIds =
+        cbtProvider.getCurrentWeekAssignments().map((a) => a.exerciseId).toSet();
     final exercises = CBTLibrary.all;
 
     // 🔹 Filter by category (mood)
     List<CBTExercise> filtered = _selectedCategory == 'All'
         ? exercises
-        : exercises.where((e) => e.mood.toLowerCase() == _selectedCategory.toLowerCase()).toList();
+        : exercises
+            .where((e) => e.mood.toLowerCase() == _selectedCategory.toLowerCase())
+            .toList();
 
-    // 🔹 Find suggested CBT based on the passed mood
-    final moodToSuggest = widget.suggestedMood?.toLowerCase() ?? 'calm'; // fallback if null
-    CBTExercise? suggested = exercises.firstWhere(
+    // 🔹 Find suggested CBT based on passed mood
+    final moodToSuggest = widget.suggestedMood?.toLowerCase() ?? 'calm';
+    CBTExercise suggested = exercises.firstWhere(
       (e) => e.mood.toLowerCase() == moodToSuggest,
       orElse: () => exercises.first,
     );
@@ -81,18 +92,28 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
               isSuggested: isSuggested,
               onAssign: () async {
                 if (isAssigned) return;
-                await cbtProvider.assignManualCBT(widget.parentId, widget.childId, exercise);
+                await cbtProvider.assignManualCBT(
+                    widget.parentId, widget.childId, exercise);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('${exercise.title} assigned!')),
                 );
               },
               onUnassign: () async {
-                final assignedEntry = cbtProvider.assigned.firstWhere(
-                  (a) => a.exerciseId == exercise.id && a.childId == widget.childId,
-                  orElse: () => null as dynamic, // workaround for type system
-                );
+                // ✅ Proper null-safe handling
+                AssignedCBT? assignedEntry;
+                try {
+                  assignedEntry = cbtProvider.assigned.firstWhere(
+                    (a) =>
+                        a.exerciseId == exercise.id &&
+                        a.childId == widget.childId,
+                  );
+                } catch (_) {
+                  assignedEntry = null;
+                }
                 if (assignedEntry == null) return;
-                await cbtProvider.unassignCBT(widget.parentId, widget.childId, assignedEntry.id);
+
+                await cbtProvider.unassignCBT(
+                    widget.parentId, widget.childId, assignedEntry.id);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('${exercise.title} unassigned.')),
                 );
@@ -103,11 +124,11 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
-          // 🔸 Prevent moving on if suggested CBT isn’t assigned
           final hasSuggestedAssigned = assignedIds.contains(suggested.id);
           if (!hasSuggestedAssigned) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Please assign the suggested CBT first!')),
+              const SnackBar(
+                  content: Text('Please assign the suggested CBT first!')),
             );
           } else {
             Navigator.pop(context);
@@ -135,7 +156,8 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
               label: Text(cat),
               selected: isSelected,
               selectedColor: Colors.blueAccent,
-              labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+              labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : Colors.black87),
               onSelected: (_) => setState(() => _selectedCategory = cat),
             ),
           );

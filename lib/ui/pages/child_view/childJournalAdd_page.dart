@@ -29,30 +29,45 @@ class _JournalAddPageState extends State<JournalAddPage> {
   final _todayITriedController = TextEditingController();
   final _bestPartOfDayController = TextEditingController();
 
-  // ---------------- SAVE ENTRY ----------------
-  Future<void> _saveEntry() async {
-    final uuid = const Uuid().v4();
+// ---------------- SAVE ENTRY ----------------
+Future<void> _saveEntry() async {
+  final uuid = const Uuid().v4();
 
-    final newEntry = JournalEntry(
-      jid: uuid,
-      cid: widget.childId,
-      entryDate: DateTime.now(),
-      stars: _stars,
-      affirmation: "I am amazing",
-      mood: _mood,
-      thankfulFor: _thankfulForController.text,
-      todayILearned: _todayILearnedController.text,
-      todayITried: _todayITriedController.text,
-      bestPartOfDay: _bestPartOfDayController.text,
-      createdAt: DateTime.now(),
-    );
+  final newEntry = JournalEntry(
+    jid: uuid,
+    cid: widget.childId,
+    entryDate: DateTime.now(),
+    stars: _stars,
+    affirmation: "I am amazing",
+    mood: _mood,
+    thankfulFor: _thankfulForController.text,
+    todayILearned: _todayILearnedController.text,
+    todayITried: _todayITriedController.text,
+    bestPartOfDay: _bestPartOfDayController.text,
+    createdAt: DateTime.now(),
+  );
 
+  try {
     // Save via JournalProvider (which calls repository)
     await Provider.of<JournalProvider>(context, listen: false)
         .addEntry(widget.parentId, widget.childId, newEntry);
 
-    Navigator.pop(context); // close page
+    // Refresh entries in provider
+    await Provider.of<JournalProvider>(context, listen: false)
+        .getMergedEntries(
+          parentId: widget.parentId,
+          childId: widget.childId,
+        );
+
+    // Close page and return true to indicate success
+    Navigator.pop(context, true);
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Failed to save entry: $e")),
+    );
   }
+}
+
 
   @override
   void dispose() {

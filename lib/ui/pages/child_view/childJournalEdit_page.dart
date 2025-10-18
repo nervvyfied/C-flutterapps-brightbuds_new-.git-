@@ -96,23 +96,37 @@ class _JournalEditPageState extends State<JournalEditPage> {
   }
 
   Future<void> _saveEdit() async {
-    final updatedEntry = widget.entry.copyWith(
-      stars: _stars,
-      mood: _mood,
-      thankfulFor: _thankfulForController.text,
-      todayILearned: _todayILearnedController.text,
-      todayITried: _todayITriedController.text,
-      bestPartOfDay: _bestPartOfDayController.text,
-      entryDate: DateTime.now(),
-    );
+  final updatedEntry = widget.entry.copyWith(
+    stars: _stars,
+    mood: _mood,
+    thankfulFor: _thankfulForController.text,
+    todayILearned: _todayILearnedController.text,
+    todayITried: _todayITriedController.text,
+    bestPartOfDay: _bestPartOfDayController.text,
+    createdAt: DateTime.now(),
+  );
 
-    final provider = Provider.of<JournalProvider>(context, listen: false);
+  final provider = Provider.of<JournalProvider>(context, listen: false);
 
+  try {
+    // Update the entry (delete old + add updated)
     await provider.deleteEntry(widget.parentId, widget.childId, widget.entry.jid);
     await provider.addEntry(widget.parentId, widget.childId, updatedEntry);
 
+    // Refresh all entries for this child
+    await provider.getMergedEntries(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
+
+    // Close page and return true to indicate success
     Navigator.pop(context, true);
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Failed to update entry: $e")),
+    );
   }
+}
 
   Widget _affirmationPage() {
     return Column(
