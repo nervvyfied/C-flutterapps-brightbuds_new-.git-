@@ -1,6 +1,9 @@
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
+import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
+import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
@@ -92,39 +95,56 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Widget _buildTaskGroupCard(String title, List<TaskModel> tasks,
-      UnlockManager unlockManager, bool isOffline) {
-    if (tasks.isEmpty) return const SizedBox.shrink();
+    UnlockManager unlockManager, bool isOffline) {
+  if (tasks.isEmpty) return const SizedBox.shrink();
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-      child: ExpansionTile(
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        children: tasks.map((task) {
-          return ListTile(
-            title: Text(task.name),
-            subtitle: Text("Routine: ${task.routine} • Reward: ${task.reward} tokens"),
-            trailing: task.isDone
-                ? (task.verified
-                    ? const Icon(Icons.verified, color: Colors.blue)
-                    : const Icon(Icons.check, color: Colors.green))
-                : ElevatedButton(
-                    onPressed: () async {
-                      await Provider.of<TaskProvider>(context, listen: false)
-                          .markTaskAsDone(task.id, widget.childId);
-                      unlockManager.checkUnlocks();
+  return Card(
+    margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 8),
+          ...tasks.map((task) {
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 6),
+              color: Colors.grey[100],
+              child: ListTile(
+                title: Text(task.name),
+                subtitle: Text(
+                    "Routine: ${task.routine} • Reward: ${task.reward} tokens"),
+                trailing: task.isDone
+                    ? (task.verified
+                        ? const Icon(Icons.verified, color: Colors.blue)
+                        : const Icon(Icons.check, color: Colors.green))
+                    : ElevatedButton(
+                        onPressed: () async {
+                          await Provider.of<TaskProvider>(context,
+                                  listen: false)
+                              .markTaskAsDone(task.id, widget.childId);
+                          unlockManager.checkUnlocks();
 
-                      if (!isOffline) {
-                        await Provider.of<TaskProvider>(context, listen: false)
-                            .pushPendingChanges();
-                      }
-                    },
-                    child: const Text("Done"),
-                  ),
-          );
-        }).toList(),
+                          if (!isOffline) {
+                            await Provider.of<TaskProvider>(context,
+                                    listen: false)
+                                .pushPendingChanges();
+                          }
+                        },
+                        child: const Text("Done"),
+                      ),
+              ),
+            );
+          }).toList(),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -136,12 +156,22 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         automaticallyImplyLeading: false,
         backgroundColor: _isOffline ? Colors.grey : null,
         actions: [
-          ElevatedButton(
+        ElevatedButton(
             onPressed: () async {
-              await context.read<AuthProvider>().logoutChild();
-              Navigator.pushReplacement(
+              final auth = context.read<AuthProvider>();
+              final fishProvider = context.read<FishProvider>();
+              final decorProvider = context.read<DecorProvider>();
+
+              await auth.logoutChild();
+
+              // Clear aquarium data for previous child
+              fishProvider.clearData();
+              decorProvider.clearData();
+
+              Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+                MaterialPageRoute(builder: (_) => ChooseRolePage()),
+                (route) => false,
               );
             },
             child: const Text("Logout"),

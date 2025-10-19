@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/aquarium/models/fish_definition.dart';
-import 'package:brightbuds_new/aquarium/models/ownedFish_model.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlockDialog.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:brightbuds_new/aquarium/pages/inventory_modal.dart';
@@ -846,24 +845,32 @@ Positioned(
     crossAxisAlignment: CrossAxisAlignment.end,
     children: [
       // Balance
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.blueAccent.withOpacity(0.7),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.account_balance_wallet, color: Colors.white, size: 18),
-            const SizedBox(width: 4),
-            Text(
-              '\$${decorProvider.currentChild.balance}',
-              style: const TextStyle(color: Colors.white, fontSize: 16),
+      Consumer2<DecorProvider, FishProvider>(
+        builder: (context, decorProvider, fishProvider, _) {
+          // Take balance from FishProvider if available, otherwise fallback to DecorProvider
+          final balance = fishProvider.currentChild.balance;
+
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.account_balance_wallet,
+                    color: Colors.white, size: 18),
+                const SizedBox(width: 4),
+                Text(
+                  '\$$balance',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
             ),
           ],
         ),
-      ),
+      );
+    },      
+  ),
       const SizedBox(height: 10),
       // Achievement Page Button
       GestureDetector(

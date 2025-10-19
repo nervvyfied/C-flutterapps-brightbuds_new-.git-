@@ -1,3 +1,5 @@
+import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
+import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
@@ -27,6 +29,14 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
       await authProvider.loginChild(code); // ✅ Persist child session via Hive
 
       final child = authProvider.currentUserModel as ChildUser;
+
+      // ✅ Update providers to use the new child
+      final fishProvider = context.read<FishProvider>();
+      final decorProvider = context.read<DecorProvider>();
+
+      // Set the new child and reload their data
+      await fishProvider.setChild(child);
+      await decorProvider.setChild(child);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Child login successful')),

@@ -253,15 +253,19 @@ Future<void> saveParentAfterVerification(ParentUser parent) async {
     await _parentBox.clear();
     notifyListeners();
   }
-
+    
   Future<void> logoutChild() async {
     if (currentUserModel is ChildUser) {
       final child = currentUserModel as ChildUser;
-      currentUserModel = null;
+      // Remove from Hive cache (so next launch doesn’t restore the same child)
       await _childBox.delete(child.cid);
+      // Reset current session
+      currentUserModel = null;
+      // Notify all listeners that no child is currently active
       notifyListeners();
     }
   }
+
 
   // ---------------- UPDATE USER ----------------
   Future<void> updateCurrentUserModel(dynamic updatedUser) async {

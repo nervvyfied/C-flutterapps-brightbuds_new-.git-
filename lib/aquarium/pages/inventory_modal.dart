@@ -13,9 +13,8 @@ class InventoryModal extends StatelessWidget {
   Widget build(BuildContext context) {
     final decorProvider = context.watch<DecorProvider>();
     final fishProvider = context.watch<FishProvider>();
-    final inactiveFishes = fishProvider.ownedFishes.where((fish) => !fish.isActive).toList();
     final allFishes = fishProvider.ownedFishes;
-
+    final allDecors = decorProvider.inventory;
 
     return DraggableScrollableSheet(
       expand: false,
@@ -35,17 +34,17 @@ class InventoryModal extends StatelessWidget {
               children: [
                 const Padding(
                   padding: EdgeInsets.all(12.0),
-                  child: Text("Your Inventory",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  child: Text(
+                    "Your Inventory",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
                 ),
 
-                // ----- DECORS -----
+                // ===== DECORS =====
                 const Padding(
                   padding: EdgeInsets.all(8.0),
                   child: Text("Decors",
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
                 GridView.builder(
                   shrinkWrap: true,
@@ -56,74 +55,93 @@ class InventoryModal extends StatelessWidget {
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
                   ),
-                  itemCount: decorProvider.inventory.length,
+                  itemCount: allDecors.length,
                   itemBuilder: (context, index) {
-                    final decor = decorProvider.inventory[index];
+                    final decor = allDecors[index];
                     final def = DecorCatalog.byId(decor.decorId);
 
-                    return GestureDetector(
-                      onTap: () {
-                        Navigator.pop(context,decor);
-                      },
-                      child: Column(
-                        children: [
-                          Expanded(child: Image.asset(def.assetPath)),
-                          Text(def.name, style: const TextStyle(fontSize: 12)),
-                        ],
-                      ),
+                    return Column(
+                      children: [
+                        Expanded(child: Image.asset(def.assetPath)),
+                        Text(def.name, style: const TextStyle(fontSize: 12)),
+                        if (decor.isPlaced)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.inventory),
+                                onPressed: () =>
+                                    decorProvider.storeDecor(decor.id),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.attach_money),
+                                onPressed: () =>
+                                    decorProvider.sellDecor(decor.id),
+                              ),
+                            ],
+                          )
+                        else
+                          ElevatedButton(
+                            onPressed: () => decorProvider.placeFromInventory(
+                                decor.decorId, 100, 100),
+                            child: const Text("Place"),
+                          ),
+                      ],
                     );
                   },
                 ),
 
-                // ----- FISH -----
+                // ===== FISH =====
                 const Padding(
                   padding: EdgeInsets.all(8.0),
                   child: Text("Fishes",
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
                 GridView.builder(
-  shrinkWrap: true,
-  physics: const NeverScrollableScrollPhysics(),
-  padding: const EdgeInsets.all(12),
-  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: 3,
-    mainAxisSpacing: 8,
-    crossAxisSpacing: 8,
-  ),
-  itemCount: allFishes.length,
-  itemBuilder: (context, index) {
-    final fish = allFishes[index];
-    final def = FishCatalog.byId(fish.fishId);
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                  ),
+                  itemCount: allFishes.length,
+                  itemBuilder: (context, index) {
+                    final fish = allFishes[index];
+                    final def = FishCatalog.byId(fish.fishId);
 
-    return Column(
-      children: [
-        Expanded(child: Image.asset(def.storeIconAsset)),
-        Text(def.name, style: const TextStyle(fontSize: 12)),
-        if (fish.isActive) 
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: Icon(Icons.inventory),
-                onPressed: () => fishProvider.storeFish(fish.fishId),
-              ),
-              if (def.type == FishType.purchasable) // ✅ only show sell for purchasable
-              IconButton(
-                icon: const Icon(Icons.attach_money),
-                onPressed: () => fishProvider.sellFish(fish.fishId),
-              ),
-            ],
-          )
-        else
-          ElevatedButton(
-            onPressed: () => fishProvider.activateFish(fish.fishId),
-            child: const Text("Place"),
-          ),
-      ],
-    );
-  },
-)
-
+                    return Column(
+                      children: [
+                        Expanded(child: Image.asset(def.storeIconAsset)),
+                        Text(def.name, style: const TextStyle(fontSize: 12)),
+                        if (fish.isActive)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.inventory),
+                                onPressed: () =>
+                                    fishProvider.storeFish(fish.fishId),
+                              ),
+                              if (def.type == FishType.purchasable)
+                                IconButton(
+                                  icon: const Icon(Icons.attach_money),
+                                  onPressed: () =>
+                                      fishProvider.sellFish(fish.fishId),
+                                ),
+                            ],
+                          )
+                        else
+                          ElevatedButton(
+                            onPressed: () =>
+                                fishProvider.activateFish(fish.fishId),
+                            child: const Text("Place"),
+                          ),
+                      ],
+                    );
+                  },
+                ),
               ],
             ),
           ),
