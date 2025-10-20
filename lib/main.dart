@@ -16,6 +16,7 @@ import 'package:brightbuds_new/data/providers/journal_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
+import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
@@ -27,6 +28,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'firebase_options.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 // 🔔 FCM + local notifications
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -67,29 +70,35 @@ Future<void> _initFlutterLocalNotifications() async {
       ?.createNotificationChannel(_androidChannel);
 }
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 /// ------------------ MAIN ENTRY ------------------
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ---------------- Firebase Core ----------------
+  // ✅ Initialize Firebase first
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // ✅ ADD THIS: Enable Firestore offline caching
-  // ------------------------------------------------
+  // ✅ Initialize timezone (important for alarms)
+  tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Manila'));
+
+  // ✅ Initialize local notifications (for both alarm + FCM compatibility)
+  await _initFlutterLocalNotifications();
+  await NotificationService().init();
+
+  // ✅ Enable Firestore offline caching (optional but good)
   try {
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-    );
+    FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
     debugPrint('✅ Firestore offline persistence enabled');
   } catch (e) {
     debugPrint('⚠️ Failed to enable Firestore persistence: $e');
   }
 
-  // ---------------- FCM Setup ----------------
+  // ✅ Setup FCM background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await _initFlutterLocalNotifications();
 
-  // ---------------- Hive Setup ----------------
+  // ✅ Initialize Hive
   await Hive.initFlutter();
 
   if (!Hive.isAdapterRegistered(ParentUserAdapter().typeId)) {
@@ -122,7 +131,6 @@ void main() async {
   await Hive.openBox<CBTExercise>('cbtExercise');
   await Hive.openBox<AssignedCBT>('assignedCBT');
 
-  // ✅ (Optional but recommended) Print confirmation for debug
   debugPrint('✅ Hive boxes opened and ready.');
 
   runApp(const MyApp());
@@ -221,6 +229,7 @@ class MyApp extends StatelessWidget {
         builder: (context, auth, _) {
           return UnlockListener(
             child: MaterialApp(
+              navigatorKey: navigatorKey,
               title: 'BrightBuds',
               theme: ThemeData(primarySwatch: Colors.blue),
               home: Builder(

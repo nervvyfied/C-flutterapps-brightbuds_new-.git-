@@ -2,6 +2,7 @@ import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
+import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/material.dart';
@@ -40,28 +41,23 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Future<void> _loadTasksOnce() async {
-    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
-    await taskProvider.initHive();
+  await taskProvider.initHive();
 
-    await taskProvider.loadTasks(
-        parentId: widget.parentId, childId: widget.childId);
+  await taskProvider.loadTasks(
+      parentId: widget.parentId, childId: widget.childId,);
 
-    await _checkConnectivity();
+  // Schedule alarms after tasks loaded
+  final childTasks = taskProvider.tasks
+      .where((task) => task.childId == widget.childId && task.alarm != null)
+      .toList();
 
-    if (!_isOffline) {
-      setState(() => _isSyncing = true);
-
-      await taskProvider.pushPendingChanges();
-
-      await taskProvider.mergeRemoteTasks(
-        parentId: widget.parentId,
-        childId: widget.childId,
-      );
-
-      if (mounted) setState(() => _isSyncing = false);
-    }
+  for (var task in childTasks) {
+    await taskProvider.scheduleTaskAlarm(task);
   }
+}
+
 
   /// Group tasks by time of day
   Map<String, List<TaskModel>> _groupTasksByTime(List<TaskModel> tasks) {
@@ -129,6 +125,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   @override
   Widget build(BuildContext context) {
     final unlockManager = context.read<UnlockManager>();
+    
 
     return Scaffold(
       appBar: AppBar(

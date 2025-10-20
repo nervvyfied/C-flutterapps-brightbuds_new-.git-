@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -42,29 +43,38 @@ class TaskProvider extends ChangeNotifier {
 
   /// Load local tasks first, then merge remote tasks asynchronously
   Future<void> loadTasks({
-    String? parentId,
-    String? childId,
-    bool isParent = false,
-  }) async {
-    _isLoading = true;
-    notifyListeners();
+  String? parentId,
+  String? childId,
+  bool isParent = false,
+}) async {
+  _isLoading = true;
+  notifyListeners();
 
-    try {
-      // Load local Hive tasks immediately
-      _tasks = _taskBox?.values.toList() ?? [];
-      notifyListeners();
+  try {
+    // Load local tasks immediately
+    _tasks = _taskBox?.values.toList() ?? [];
+    notifyListeners(); // <-- UI updates immediately
 
-      // Check online
-      final online = await NetworkHelper.isOnline();
-      if (online && parentId != null && parentId.isNotEmpty) {
-        await mergeRemoteTasks(parentId: parentId, childId: childId, isParent: isParent);
-      }
-    } finally {
-      await autoResetIfNeeded();
-      _isLoading = false;
-      notifyListeners();
+    // Schedule alarms asynchronously (non-blocking)
+    for (var task in _tasks) {
+      if (!kIsWeb) scheduleTaskAlarm(task); // only on mobile
     }
+
+    // Check online and merge remote tasks
+    final online = await NetworkHelper.isOnline();
+    if (online && parentId != null && parentId.isNotEmpty) {
+      await mergeRemoteTasks(parentId: parentId, childId: childId, isParent: isParent);
+
+      for (var task in _tasks) {
+        if (!kIsWeb) scheduleTaskAlarm(task); // only on mobile
+      }
+    }
+  } finally {
+    await autoResetIfNeeded();
+    _isLoading = false;
+    notifyListeners();
   }
+}
 
   /// Merge remote tasks over local (offline-first)
   Future<void> mergeRemoteTasks({
@@ -124,6 +134,8 @@ class TaskProvider extends ChangeNotifier {
     _tasks.add(newTask);
     notifyListeners();
 
+    await scheduleTaskAlarm(task);
+
     if (await NetworkHelper.isOnline()) {
       try {
         await _firestore
@@ -149,6 +161,9 @@ class TaskProvider extends ChangeNotifier {
 
     notifyListeners();
 
+    // Reschedule alarm
+    await scheduleTaskAlarm(task);
+
     if (await NetworkHelper.isOnline()) {
       try {
         await _firestore
@@ -165,12 +180,25 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+
   Future<void> deleteTask(String taskId, String parentId, String childId) async {
+    TaskModel? task;
+    try {
+      task = _tasks.firstWhere((t) => t.id == taskId);
+    } catch (_) {
+      task = null;
+    }
+  
     await _taskRepo.deleteTask(taskId, parentId, childId);
     await _taskBox?.delete(taskId);
 
     _tasks.removeWhere((t) => t.id == taskId);
     notifyListeners();
+
+    // Cancel scheduled alarm
+    if (task != null) {
+      cancelTaskAlarm(task);
+    }
 
     if (await NetworkHelper.isOnline()) {
       try {
@@ -221,6 +249,9 @@ class TaskProvider extends ChangeNotifier {
     );
 
     await updateTask(updatedTask);
+
+      // Cancel alarm for today
+    cancelTaskAlarm(task);
   }
 
   Future<void> verifyTask(String taskId, String childId) async {
@@ -233,6 +264,53 @@ class TaskProvider extends ChangeNotifier {
     if (updatedTask != null) await updateTask(updatedTask);
   }
 
+  // ---------------- ALARMS ----------------
+Future<void> scheduleTaskAlarm(TaskModel task) async {
+  if (task.alarm == null) return;
+
+  // Web cannot schedule local notifications
+  if (kIsWeb) return;
+
+  final now = DateTime.now();
+
+  // Use today's date but the alarm's hour & minute
+  DateTime scheduledDate = DateTime(
+    now.year,
+    now.month,
+    now.day,
+    task.alarm!.hour,
+    task.alarm!.minute,
+  );
+
+  // If time has passed today, schedule for tomorrow
+  if (scheduledDate.isBefore(now)) {
+    scheduledDate = scheduledDate.add(const Duration(days: 1));
+  }
+
+  // Schedule asynchronously (non-blocking)
+  NotificationService()
+      .scheduleNotification(
+        id: task.hashCode,
+        title: "Time for your task!",
+        body: task.name,
+        scheduledDate: scheduledDate,
+        payload: '${task.id}|${task.childId}|${task.parentId}|${task.childId}',
+      )
+      .then((_) => debugPrint('✅ Alarm scheduled for ${task.name} at $scheduledDate'))
+      .catchError((e) => debugPrint('⚠️ Failed to schedule alarm: $e'));
+}
+
+void cancelTaskAlarm(TaskModel task) {
+  if (kIsWeb) return; // skip on web
+
+  try {
+    NotificationService().cancelNotification(task.hashCode);
+    debugPrint('❌ Alarm cancelled for ${task.name}');
+  } catch (e) {
+    debugPrint('⚠️ Failed to cancel alarm for ${task.name}: $e');
+  }
+}
+
   // ---------------- SYNC ----------------
   Future<void> pushPendingChanges() async {
     await _syncService.syncAllPendingChanges();
@@ -240,35 +318,40 @@ class TaskProvider extends ChangeNotifier {
   }
 
   // ---------------- DAILY RESET ----------------
-  Future<void> resetDailyTasks() async {
-    final today = DateTime.now();
-    final todayDateOnly = DateTime(today.year, today.month, today.day);
+Future<void> resetDailyTasks() async {
+  final today = DateTime.now();
+  final todayDateOnly = DateTime(today.year, today.month, today.day);
 
-    for (var task in _tasks) {
-      final lastDate = task.lastCompletedDate != null
-          ? DateTime(task.lastCompletedDate!.year,
-              task.lastCompletedDate!.month, task.lastCompletedDate!.day)
-          : null;
+  for (var task in _tasks) {
+    final lastDate = task.lastCompletedDate != null
+        ? DateTime(task.lastCompletedDate!.year,
+            task.lastCompletedDate!.month, task.lastCompletedDate!.day)
+        : null;
 
-      int updatedActiveStreak = task.activeStreak;
-      if (lastDate != null &&
-          lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
-        updatedActiveStreak = 0;
-      }
-
-      if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
-        final updated = task.copyWith(
-          isDone: false,
-          verified: false,
-          activeStreak: updatedActiveStreak,
-          lastUpdated: DateTime.now(),
-        );
-        await updateTask(updated);
-      }
+    int updatedActiveStreak = task.activeStreak;
+    if (lastDate != null &&
+        lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
+      updatedActiveStreak = 0;
     }
 
-    await pushPendingChanges();
+    if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
+      final updated = task.copyWith(
+        isDone: false,
+        verified: false,
+        activeStreak: updatedActiveStreak,
+        lastUpdated: DateTime.now(),
+      );
+
+      await updateTask(updated);
+
+      // Cancel old alarm and schedule today's alarm (mobile only)
+      cancelTaskAlarm(updated);
+      if (!kIsWeb) scheduleTaskAlarm(updated);
+    }
   }
+
+  await pushPendingChanges();
+}
 
   void startDailyResetScheduler() {
     _midnightTimer?.cancel();

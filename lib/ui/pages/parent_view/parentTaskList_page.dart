@@ -174,6 +174,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
   late String difficulty;
   late int reward;
   late String routine;
+  DateTime? alarmDateTime;
 
   @override
   void initState() {
@@ -182,6 +183,25 @@ class _TaskFormModalState extends State<TaskFormModal> {
     difficulty = widget.task?.difficulty ?? 'Easy';
     reward = widget.task?.reward ?? 10;
     routine = widget.task?.routine ?? 'Anytime';
+    alarmDateTime = widget.task?.alarm;
+  }
+
+  Future<void> _pickAlarmTime() async {
+    final now = DateTime.now();
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: alarmDateTime != null
+          ? TimeOfDay.fromDateTime(alarmDateTime!)
+          : TimeOfDay.now(),
+    );
+
+    if (pickedTime == null) return;
+
+    // Store only hour & minute for daily repeat
+    setState(() {
+      alarmDateTime = DateTime(0, 1, 1, pickedTime.hour, pickedTime.minute);
+    });
   }
 
   @override
@@ -224,6 +244,25 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   .toList(),
               onChanged: (val) => setState(() => routine = val!),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text("Alarm Reminder"),
+              subtitle: Text(
+                alarmDateTime != null
+                    ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2,'0')}:${alarmDateTime!.minute.toString().padLeft(2,'0')}"
+                    : "No alarm set",
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.access_time),
+                onPressed: _pickAlarmTime,
+              ),
+            ),
+            if (alarmDateTime != null)
+              TextButton.icon(
+                icon: const Icon(Icons.delete_forever, color: Colors.red),
+                label: const Text("Remove Alarm"),
+                onPressed: () => setState(() => alarmDateTime = null),
+              ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -276,6 +315,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                         parentId: widget.parentId,
                         childId: widget.childId,
                         createdAt: widget.task?.createdAt ?? DateTime.now(),
+                        alarm: alarmDateTime,
                       );
 
                       if (widget.task == null) {

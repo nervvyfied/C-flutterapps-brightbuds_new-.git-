@@ -113,27 +113,33 @@ class TaskModel {
   }
 
   // ---------------- MODEL -> FIRESTORE ----------------
-  Map<String, dynamic> toFirestore() {
-    return {
-      'name': name,
-      'difficulty': difficulty,
-      'reward': reward,
-      'routine': routine,
-      'alarm': alarm,
-      'note': note,
-      'isDone': isDone,
-      'doneAt': doneAt,
-      'activeStreak': activeStreak,
-      'longestStreak': longestStreak,
-      'totalDaysCompleted': totalDaysCompleted,
-      'lastCompletedDate': lastCompletedDate,
-      'parentId': parentId,
-      'childId': childId,
-      'lastUpdated': lastUpdated,
-      'verified': verified,
-      'createdAt': createdAt,
-    };
+  dynamic toTimestamp(DateTime? date) {
+    if (date == null || date.isBefore(DateTime(1900))) {
+      return Timestamp.fromDate(DateTime.now());
+    }
+    return Timestamp.fromDate(date);
   }
+
+  Map<String, dynamic> toFirestore() => {
+    'name': name,
+    'difficulty': difficulty,
+    'reward': reward,
+    'routine': routine,
+    'alarm': toTimestamp(alarm),
+    'note': note,
+    'isDone': isDone,
+    'doneAt': toTimestamp(doneAt),
+    'activeStreak': activeStreak,
+    'longestStreak': longestStreak,
+    'totalDaysCompleted': totalDaysCompleted,
+    'lastCompletedDate': toTimestamp(lastCompletedDate),
+    'parentId': parentId,
+    'childId': childId,
+    'lastUpdated': toTimestamp(lastUpdated),
+    'verified': verified,
+    'createdAt': toTimestamp(createdAt),
+  };
+
 
   Map<String, dynamic> toMap() => toFirestore();
 

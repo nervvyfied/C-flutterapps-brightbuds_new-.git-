@@ -17,6 +17,7 @@ class ParentAccountPage extends StatefulWidget {
   State<ParentAccountPage> createState() => _ParentAccountPageState();
 }
 
+
 class _ParentAccountPageState extends State<ParentAccountPage> {
   final UserRepository _userRepo = UserRepository();
   Map<String, dynamic>? parentData;
@@ -33,7 +34,11 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
   void initState() {
     super.initState();
     // Reset selected child on new login
-    Provider.of<SelectedChildProvider>(context, listen: false).clearSelectedChild();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+    final selectedChildProvider = 
+        Provider.of<SelectedChildProvider>(context, listen: false);
+    selectedChildProvider.clearSelectedChild();
+  });
     fetchParentData();
   }
 
@@ -322,7 +327,7 @@ Future<void> _updateParentInfo() async {
                   const CircleAvatar(
                     radius: 40,
                     backgroundImage:
-                        AssetImage("assets/profile_placeholder.png"),
+                        AssetImage("assets/profile_placeholder.jpg"),
                   ),
                   const SizedBox(width: 16),
                   Expanded(

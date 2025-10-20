@@ -123,6 +123,43 @@ class TaskRepository {
   }
 }
 
+Future<void> updateTaskFields({
+  required String parentId,
+  required String childId,
+  required String taskId,
+  required Map<String, dynamic> updatedFields,
+}) async {
+  try {
+    updatedFields['lastUpdated'] = DateTime.now();
+
+    await _childTasksRef(parentId, childId)
+        .doc(taskId)
+        .update(updatedFields);
+
+    // Also update locally
+    final local = getTaskLocal(taskId);
+    if (local != null) {
+      final updatedTask = local.copyWith(
+        lastUpdated: DateTime.now(),
+        // apply only changed fields
+        alarm: updatedFields.containsKey('alarm') 
+            ? updatedFields['alarm'] 
+            : local.alarm,
+        difficulty: updatedFields.containsKey('difficulty') 
+            ? updatedFields['difficulty'] 
+            : local.difficulty,
+        name: updatedFields.containsKey('name') 
+            ? updatedFields['name'] 
+            : local.name,
+        // add other editable fields as needed
+      );
+      await saveTaskLocal(updatedTask);
+    }
+  } catch (e) {
+    debugPrint('❌ Error in updateTaskFields: $e');
+  }
+}
+
 
   /// Delete task both locally and remotely
   Future<void> deleteTask(String taskId, String parentUid, String childId) async {
