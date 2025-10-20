@@ -4,184 +4,161 @@ import '../providers/decor_provider.dart';
 import '../providers/fish_provider.dart';
 import '../catalogs/decor_catalog.dart';
 import '../catalogs/fish_catalog.dart';
+import '../../data/providers/auth_provider.dart';
 
 class StorePage extends StatelessWidget {
   const StorePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final decorProvider = context.watch<DecorProvider>();
-    final fishProvider = context.watch<FishProvider>();
-
     return Scaffold(
       appBar: AppBar(title: const Text('Store')),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Balance at top
-            Container(
-              padding: const EdgeInsets.all(12),
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Balance: \$${decorProvider.currentChild.balance}',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
+      body: Consumer3<DecorProvider, FishProvider, AuthProvider>(
+        builder: (context, decorProvider, fishProvider, authProvider, _) {
+          final balance = authProvider.currentUserModel.balance;
 
-            // ----- DECOR STORE -----
-            const Padding(
-              padding: EdgeInsets.all(12.0),
-              child: Text("Decors",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            ),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.8,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemCount: DecorCatalog.all.length,
-              itemBuilder: (context, index) {
-                final decor = DecorCatalog.all[index];
-                final alreadyPlaced = decorProvider.isAlreadyPlaced(decor.id);
-                final ownedButNotPlaced =
-                    decorProvider.isOwnedButNotPlaced(decor.id);
-                final canAfford = decorProvider.currentChild.balance >= decor.price;
-
-                return Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+          return SingleChildScrollView(
+            child: Column(
+              children: [
+                // ----- BALANCE -----
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Balance: \$$balance",
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Image.asset(decor.assetPath, height: 100),
-                      Text(decor.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('\$${decor.price}'),
-                      ElevatedButton(
-                        onPressed: alreadyPlaced
-                            ? null
-                            : () async {
-                                if (ownedButNotPlaced) {
-                                  await decorProvider
-                                      .enterEditMode(focusDecorId: decor.id);
-                                  Navigator.pop(context);
-                                  return;
-                                }
+                ),
 
-                                final success =
-                                    await decorProvider.purchaseDecor(decor);
-                                if (!success) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content: Text(
-                                            "Not enough balance or already placed")),
-                                  );
-                                  return;
-                                }
+                // ----- DECOR STORE -----
+                const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: Text(
+                    "Decors",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                ),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 0.8,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                  ),
+                  itemCount: DecorCatalog.all.length,
+                  itemBuilder: (context, index) {
+                    final decor = DecorCatalog.all[index];
+                    final alreadyPlaced = decorProvider.isAlreadyPlaced(decor.id);
+                    final ownedButNotPlaced = decorProvider.isOwnedButNotPlaced(decor.id);
+                    final canAfford = balance >= decor.price;
 
-                                final placeNow = await showDialog<bool>(
-                                  context: context,
-                                  builder: (_) => AlertDialog(
-                                    title: const Text("Place Decor?"),
-                                    content: const Text(
-                                        "Do you want to place this decor now?"),
-                                    actions: [
-                                      TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context, false),
-                                          child: const Text("No")),
-                                      TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context, true),
-                                          child: const Text("Yes")),
-                                    ],
-                                  ),
-                                );
-
-                                if (placeNow == true) {
-                                  await decorProvider
-                                      .enterEditMode(focusDecorId: decor.id);
-                                  Navigator.pop(context);
-                                }
-                              },
-                        child: Text(
-                          ownedButNotPlaced
-                              ? "Place"
-                              : alreadyPlaced
-                                  ? "Already Placed"
-                                  : "Buy",
-                        ),
+                    return Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Image.asset(decor.assetPath, height: 100),
+                          Text(decor.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text('\$${decor.price}'),
+                          ElevatedButton(
+                            onPressed: (!alreadyPlaced && (canAfford || ownedButNotPlaced))
+                                ? () async {
+                                    if (ownedButNotPlaced) {
+                                      decorProvider.enterEditMode(focusDecorId: decor.id);
+                                      return;
+                                    }
 
-            // ----- FISH STORE -----
-            const Padding(
-              padding: EdgeInsets.all(12.0),
-              child: Text("Fishes",
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            ),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.8,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemCount: FishCatalog.purchasables.length,
-              itemBuilder: (context, index) {
-                final fish = FishCatalog.purchasables[index];
-                final owned = fishProvider.isOwned(fish.id);
-                final unlocked = fishProvider.isUnlocked(fish.id);
-                final canAfford = decorProvider.currentChild.balance >= fish.price;
-
-                return Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      Image.asset(fish.storeIconAsset, height: 100),
-                      Text(fish.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text('\$${fish.price}'),
-                      ElevatedButton(
-                        onPressed: owned
-                            ? null
-                            : () async {
-                                final success = await fishProvider.purchaseFish(fish);
-                                if (!success) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text("Not enough balance or already owned")),
-                                  );
-                                }
-                              },
-                        child: Text(
-                          owned ? "Owned" : "Buy",
-                        ),
+                                    final success = await decorProvider.purchaseDecor(decor);
+                                    if (!success) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Not enough balance or already placed"),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                  }
+                                : null,
+                            child: Text(
+                              ownedButNotPlaced
+                                  ? "Place"
+                                  : alreadyPlaced
+                                      ? "Already Placed"
+                                      : "Buy",
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    );
+                  },
+                ),
+
+                // ----- FISH STORE -----
+                const Padding(
+                  padding: EdgeInsets.all(12.0),
+                  child: Text(
+                    "Fishes",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                   ),
-                );
-              },
+                ),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 0.8,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                  ),
+                  itemCount: FishCatalog.purchasables.length,
+                  itemBuilder: (context, index) {
+                    final fish = FishCatalog.purchasables[index];
+                    final owned = fishProvider.isOwned(fish.id);
+                    final canAfford = balance >= fish.price;
+
+                    return Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Image.asset(fish.storeIconAsset, height: 100),
+                          Text(fish.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text('\$${fish.price}'),
+                          ElevatedButton(
+                            onPressed: (!owned && canAfford)
+                                ? () async {
+                                    final success = await fishProvider.purchaseFish(fish);
+                                    if (!success) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Not enough balance or already owned"),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                : null,
+                            child: Text(owned ? "Owned" : "Buy"),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
