@@ -15,7 +15,8 @@ class StorePage extends StatelessWidget {
       appBar: AppBar(title: const Text('Store')),
       body: Consumer3<DecorProvider, FishProvider, AuthProvider>(
         builder: (context, decorProvider, fishProvider, authProvider, _) {
-          final balance = authProvider.currentUserModel.balance;
+          // ✅ Use the balance from FishProvider, not AuthProvider
+          final balance = fishProvider.currentChild.balance;
 
           return SingleChildScrollView(
             child: Column(
@@ -71,7 +72,12 @@ class StorePage extends StatelessWidget {
                             onPressed: (!alreadyPlaced && (canAfford || ownedButNotPlaced))
                                 ? () async {
                                     if (ownedButNotPlaced) {
-                                      decorProvider.enterEditMode(focusDecorId: decor.id);
+                                      final success = await decorProvider.placeFromInventory(decor.id, 100, 100);
+                                      if (!success) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text("Failed to place decor")),
+                                        );
+                                      }
                                       return;
                                     }
 
@@ -94,6 +100,7 @@ class StorePage extends StatelessWidget {
                                       : "Buy",
                             ),
                           ),
+
                         ],
                       ),
                     );

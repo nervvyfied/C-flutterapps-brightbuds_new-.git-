@@ -287,9 +287,9 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
 
     // 3️⃣ Mark task as done
     final updatedTask = localTask.copyWith(
+      activeStreak: localTask.activeStreak,
       isDone: true,
       doneAt: DateTime.now(),
-      lastUpdated: DateTime.now(),
     );
 
     // 4️⃣ Save locally first
@@ -313,7 +313,7 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
     }
 
     if (child != null) {
-      await _streakRepo.updateStreak(child.cid);
+      await _streakRepo.updateStreak(child.cid, parentId, taskId);
       debugPrint("Streak updated for child ${child.cid}.");
     } else {
       debugPrint("Cannot update streak: child $childId not found.");
@@ -349,7 +349,6 @@ Future<void> verifyTask(String taskId, String childId) async {
     // 2️⃣ Mark task as verified
     final updatedTask = localTask.copyWith(
       verified: true,
-      lastUpdated: DateTime.now(),
     );
 
     await saveTask(updatedTask); // saves both locally + remotely
