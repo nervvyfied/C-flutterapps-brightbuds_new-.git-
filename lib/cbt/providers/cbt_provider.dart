@@ -1,5 +1,7 @@
 import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
+import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '../models/assigned_cbt_model.dart';
@@ -198,31 +200,49 @@ class CBTProvider with ChangeNotifier {
   }
 
   // ===== Assignment =====
-  Future<void> assignManualCBT(String parentId, String childId, CBTExercise exercise) async {
-    final weekOfYear = getCurrentWeekNumber(DateTime.now());
-    await loadLocalCBT(parentId, childId);
+Future<void> assignManualCBT(String parentId, String childId, CBTExercise exercise) async {
+  final weekOfYear = getCurrentWeekNumber(DateTime.now());
+  await loadLocalCBT(parentId, childId);
 
-    final alreadyAssigned = _assigned.any((a) =>
-        a.weekOfYear == weekOfYear && a.exerciseId == exercise.id && a.childId == childId);
-    if (alreadyAssigned) return;
+  final alreadyAssigned = _assigned.any((a) =>
+      a.weekOfYear == weekOfYear && a.exerciseId == exercise.id && a.childId == childId);
+  if (alreadyAssigned) return;
 
-    final assigned = AssignedCBT.fromExercise(
-      id: UniqueKey().toString(),
-      exercise: exercise,
-      childId: childId,
-      assignedDate: DateTime.now(),
-      weekOfYear: weekOfYear,
-      assignedBy: parentId,
-      recurrence: exercise.recurrence,
-      source: "manual",
+  final assigned = AssignedCBT.fromExercise(
+    id: UniqueKey().toString(),
+    exercise: exercise,
+    childId: childId,
+    assignedDate: DateTime.now(),
+    weekOfYear: weekOfYear,
+    assignedBy: parentId,
+    recurrence: exercise.recurrence,
+    source: "manual",
+  );
+
+  _assigned.add(assigned);
+  await _cbtBox?.put(assigned.id, assigned);
+  await _repository.addAssignedCBT(parentId, assigned);
+
+  // ✅ Fetch child token and send notification
+  final childSnapshot = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(parentId)
+      .collection('children')
+      .doc(childId)
+      .get();
+
+  final childToken = childSnapshot.data()?['fcmToken'];
+  if (childToken != null) {
+    await FCMService.sendNotification(
+      title: '🧠 New CBT Exercise',
+      body: 'Your parent assigned you new CBT exercises.',
+      token: childToken,
+      data: {'type': 'cbt_assigned'},
     );
-
-    _assigned.add(assigned);
-    await _cbtBox?.put(assigned.id, assigned);
-    await _repository.addAssignedCBT(parentId, assigned);
-
-    notifyListeners();
   }
+
+  notifyListeners();
+}
 
   Future<void> unassignCBT(String parentId, String childId, String assignedId) async {
     try {

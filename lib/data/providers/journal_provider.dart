@@ -1,3 +1,5 @@
+import 'package:brightbuds_new/notifications/fcm_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/journal_model.dart';
@@ -53,28 +55,66 @@ class JournalProvider extends ChangeNotifier {
   }
 
   // ---------------- CRUD ----------------
-  Future<void> addEntry(String parentId, String childId, JournalEntry entry) async {
-    final newEntry = entry.copyWith(
-      jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
-      cid: childId,
-      entryDate: entry.entryDate,
-      createdAt: DateTime.now(),
-    );
+Future<void> addEntry(String parentId, String childId, JournalEntry entry) async {
+  final newEntry = entry.copyWith(
+    jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
+    cid: childId,
+    entryDate: entry.entryDate,
+    createdAt: DateTime.now(),
+  );
 
-    await _journalRepo.saveEntryLocal(newEntry);
+  // Save locally
+  await _journalRepo.saveEntryLocal(newEntry);
 
-    _entries.putIfAbsent(childId, () => []);
-    _entries[childId]!.insert(0, newEntry);
-    notifyListeners();
+  _entries.putIfAbsent(childId, () => []);
+  _entries[childId]!.insert(0, newEntry);
 
-    if (await NetworkHelper.isOnline()) {
-      try {
-        await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
-      } catch (e) {
-        debugPrint("Firestore add failed: $e");
-      }
+  try {
+    // Fetch parent FCM token
+    final parentSnapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .get();
+    final parentToken = parentSnapshot.data()?['fcmToken'];
+
+    // Fetch child name via childId
+    final childSnapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .get();
+    final childName = childSnapshot.data()?['name'] ?? 'Your child';
+    final mood = newEntry.mood ?? 'unknown';
+
+    if (parentToken != null) {
+      await FCMService.sendNotification(
+        title: '📔 New Journal Entry',
+        body: '$childName just added a new journal entry. Mood: $mood',
+        token: parentToken,
+        data: {
+          'type': 'journal_added',
+          'childName': childName,
+          'mood': mood,
+        },
+      );
+    }
+  } catch (e) {
+    debugPrint('⚠️ Failed to send journal notification: $e');
+  }
+
+  notifyListeners();
+
+  // Save remotely if online
+  if (await NetworkHelper.isOnline()) {
+    try {
+      await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
+    } catch (e) {
+      debugPrint("⚠️ Firestore add failed: $e");
     }
   }
+}
+
 
   Future<void> updateEntry(String parentId, String childId, JournalEntry updated) async {
     final updatedEntry = updated.copyWith(createdAt: DateTime.now());

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
 import '/data/services/auth_service.dart';
@@ -284,6 +286,17 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> saveFcmToken(String parentId, String parentrole, String childrole) async {
+    final token = await FirebaseMessaging.instance.getToken();
+    await FirebaseFirestore.instance
+    .collection('users')
+    .doc(parentId)
+    .update({
+      'fcmToken': token,
+      'parent': parentrole,
+      'child': childrole,
+    });
+  }
   // ---------------- HELPERS ----------------
   bool get isLoggedIn => currentUserModel != null;
   bool get isParent => currentUserModel is ParentUser;

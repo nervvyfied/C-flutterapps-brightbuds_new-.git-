@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class NotificationHandler extends StatefulWidget {
-  const NotificationHandler({super.key});
+  final String parentId;
+  final String? childId; // Only for child
+  final String role; // 'parent' or 'child'
+
+  const NotificationHandler({
+    super.key,
+    required this.parentId,
+    this.childId,
+    required this.role,
+  });
 
   @override
   State<NotificationHandler> createState() => _NotificationHandlerState();
@@ -11,8 +21,7 @@ class NotificationHandler extends StatefulWidget {
 
 class _NotificationHandlerState extends State<NotificationHandler> {
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   @override
   void initState() {
@@ -21,62 +30,97 @@ class _NotificationHandlerState extends State<NotificationHandler> {
   }
 
   Future<void> _initNotifications() async {
-    // Request permission
-    NotificationSettings settings = await _messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    final settings = await _messaging.requestPermission(alert: true, badge: true, sound: true);
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      print('🔹 User granted permission');
+      print('✅ Notification permission granted');
 
-      // Get FCM token
+      // Save FCM token
       final token = await _messaging.getToken();
-      print("🔹 FCM Token: $token");
+      if (token != null) await _saveTokenToFirestore(token);
+      print("🔹 ${widget.role} FCM Token: $token");
 
-      // Foreground messages
-      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        _showLocalNotification(message);
-      });
-
-      // When user taps notification (app in background)
-      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-        _handleNotificationTap(message);
-      });
+      FirebaseMessaging.onMessage.listen(_handleIncomingMessage);
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
     } else {
-      print('🔸 User declined or has not accepted permission');
+      print('⚠️ Notification permission denied');
     }
   }
 
-  void _showLocalNotification(RemoteMessage message) async {
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
+  Future<void> _saveTokenToFirestore(String token) async {
+    try {
+      if (widget.role == 'parent') {
+        await FirebaseFirestore.instance.collection('users').doc(widget.parentId).update({'fcmToken': token});
+      } else if (widget.role == 'child' && widget.childId != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.parentId)
+            .collection('children')
+            .doc(widget.childId)
+            .update({'fcmToken': token});
+      }
+    } catch (e) {
+      print('⚠️ Failed to save FCM token: $e');
+    }
+  }
+
+  void _handleIncomingMessage(RemoteMessage message) {
+    final data = message.data;
+    final type = data['type'] ?? '';
+    String title = message.notification?.title ?? 'BrightBuds';
+    String body = message.notification?.body ?? '';
+
+    if (widget.role == 'parent') {
+      switch (type) {
+        case 'task_completed':
+          title = '🎉 Task Completed';
+          body = '${data['childName']} just finished ${data['taskName']}!';
+          break;
+        case 'journal_added':
+          title = '📔 New Journal Entry';
+          body = '${data['childName']} just added a new journal entry.';
+          break;
+      }
+    } else if (widget.role == 'child') {
+      switch (type) {
+        case 'new_task':
+          title = '🧩 New Task Assigned!';
+          body = 'Your parent added a new task: ${data['taskName']}.';
+          break;
+        case 'cbt_assigned':
+          title = '🧠 New CBT Exercise';
+          body = 'Your parent assigned you new CBT exercises.';
+          break;
+        case 'fish_neglected':
+          title = '🐟 Your Fish Needs Attention!';
+          body = 'You haven’t checked your aquarium lately!';
+          break;
+      }
+    }
+
+    _showLocalNotification(title, body);
+  }
+
+  Future<void> _showLocalNotification(String title, String body) async {
+    const androidDetails = AndroidNotificationDetails(
       'brightbuds_channel',
       'BrightBuds Notifications',
       importance: Importance.high,
       priority: Priority.high,
     );
+    const details = NotificationDetails(android: androidDetails);
 
-    const NotificationDetails details = NotificationDetails(android: androidDetails);
-
-    await _localNotifications.show(
-      message.hashCode,
-      message.notification?.title ?? 'BrightBuds',
-      message.notification?.body ?? '',
-      details,
-    );
+    await _localNotifications.show(DateTime.now().millisecondsSinceEpoch ~/ 1000, title, body, details);
   }
 
   void _handleNotificationTap(RemoteMessage message) {
-    print("🔹 Notification tapped: ${message.notification?.title}");
-    // Optionally navigate to a specific screen
+    final type = message.data['type'];
+    print("🔹 Notification tapped: $type");
+    // Navigate if needed
   }
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: Text("Firebase Cloud Messaging Connected ✅")),
-    );
+    return const Scaffold(body: Center(child: Text("🔔 Notifications Active")));
   }
 }

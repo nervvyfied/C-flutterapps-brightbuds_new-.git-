@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -267,24 +268,45 @@ class FishProvider extends ChangeNotifier {
 
   // ---------- Neglected ----------
   Future<void> setNeglected(String fishId, bool neglected) async {
-    final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
-    if (idx == -1) return;
+  final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
+  if (idx == -1) return;
 
-    ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
+  // Update local fish state
+  ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
 
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
-      final updatedChild = child.copyWith(ownedFish: updatedFishes);
-      await _childBox.put(currentChild.cid, updatedChild);
-    }
-
-    try {
-      await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
-    } catch (_) {}
-
-    notifyListeners();
+  final child = _childBox.get(currentChild.cid);
+  if (child != null) {
+    final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
+    final updatedChild = child.copyWith(ownedFish: updatedFishes);
+    await _childBox.put(currentChild.cid, updatedChild);
   }
+
+  // Update Firestore
+  try {
+    await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
+  } catch (_) {}
+
+  // ✅ Fetch child token and send notification
+  final childSnapshot = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(currentChild.parentUid)
+      .collection('children')
+      .doc(currentChild.cid)
+      .get();
+
+  final childToken = childSnapshot.data()?['fcmToken'];
+  if (childToken != null && neglected) { // Only notify if fish is neglected
+    await FCMService.sendNotification(
+      title: '🐟 Your Fish Needs Attention!',
+      body: 'You haven’t checked your aquarium lately!',
+      token: childToken,
+      data: {'type': 'fish_neglected'},
+    );
+  }
+
+  notifyListeners();
+}
+
 
   // ---------- Edit Mode ----------
   UnmodifiableListView<OwnedFish> get editingFishes =>
