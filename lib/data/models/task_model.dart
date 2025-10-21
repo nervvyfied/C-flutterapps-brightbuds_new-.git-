@@ -120,25 +120,40 @@ class TaskModel {
     return Timestamp.fromDate(date);
   }
 
-  Map<String, dynamic> toFirestore() => {
-    'name': name,
-    'difficulty': difficulty,
-    'reward': reward,
-    'routine': routine,
-    'alarm': toTimestamp(alarm),
-    'note': note,
-    'isDone': isDone,
-    'doneAt': toTimestamp(doneAt),
-    'activeStreak': activeStreak,
-    'longestStreak': longestStreak,
-    'totalDaysCompleted': totalDaysCompleted,
-    'lastCompletedDate': toTimestamp(lastCompletedDate),
-    'parentId': parentId,
-    'childId': childId,
-    'lastUpdated': toTimestamp(lastUpdated),
-    'verified': verified,
-    'createdAt': toTimestamp(createdAt),
-  };
+ Map<String, dynamic> toFirestore({bool forUpdate = false}) {
+  if (forUpdate) {
+    return {
+      'name': name,
+      'difficulty': difficulty,
+      'reward': reward,
+      'routine': routine,
+      'alarm': toTimestamp(alarm),
+      'note': note,
+      'lastUpdated': toTimestamp(lastUpdated ?? DateTime.now()),
+    };
+  } else {
+    return {
+      'name': name,
+      'difficulty': difficulty,
+      'reward': reward,
+      'routine': routine,
+      'alarm': toTimestamp(alarm),
+      'note': note,
+      'isDone': isDone,
+      'doneAt': toTimestamp(doneAt),
+      'activeStreak': activeStreak,
+      'longestStreak': longestStreak,
+      'totalDaysCompleted': totalDaysCompleted,
+      'lastCompletedDate': toTimestamp(lastCompletedDate),
+      'parentId': parentId,
+      'childId': childId,
+      'lastUpdated': toTimestamp(lastUpdated ?? DateTime.now()),
+      'verified': verified,
+      'createdAt': toTimestamp(createdAt),
+    };
+  }
+}
+
 
 
   Map<String, dynamic> toMap() => toFirestore();
@@ -185,4 +200,5 @@ class TaskModel {
       createdAt: createdAt ?? this.createdAt,
     );
   }
+  
 }

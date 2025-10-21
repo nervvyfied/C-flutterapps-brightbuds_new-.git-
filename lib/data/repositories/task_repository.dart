@@ -101,65 +101,33 @@ class TaskRepository {
   debugPrint("Task ${updatedTask.id} saved locally and remotely.");
 }
 
-  Future<void> updateTask(TaskModel task, String parentUid, String childId) async {
+  Future<void> updateTask(TaskModel task) async {
   try {
-    // 1. Update local Hive first
-    await _taskBox.put(task.id, task.copyWith(lastUpdated: DateTime.now()));
+    if (task.parentId.isEmpty || task.childId.isEmpty) {
+      throw Exception("Cannot update task: parentId or childId is empty.");
+    }
 
-    // 2. Push update to Firestore
-    final taskRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentUid)
-        .collection('children')
-        .doc(childId)
-        .collection('tasks')
-        .doc(task.id);
+    // 1️⃣ Always refresh lastUpdated and preserve alarm field
+    final existing = _taskBox.get(task.id);
+    final updatedTask = task.copyWith(
+      alarm: task.alarm ?? existing?.alarm,
+      lastUpdated: DateTime.now(),
+    );
 
-    await taskRef.update(task.toMap());
+    // 2️⃣ Save to local Hive
+    await saveTaskLocal(updatedTask);
 
+    // 3️⃣ Save to Firestore (merge = true so only changed fields overwrite)
+    await _childTasksRef(task.parentId, task.childId)
+        .doc(task.id)
+        .set(updatedTask.toFirestore(), SetOptions(merge: true));
+
+    debugPrint("✅ Task ${updatedTask.id} updated locally and remotely.");
   } catch (e) {
-    print("Error updating task: $e");
+    debugPrint("❌ Error in updateTask: $e");
     rethrow;
   }
 }
-
-Future<void> updateTaskFields({
-  required String parentId,
-  required String childId,
-  required String taskId,
-  required Map<String, dynamic> updatedFields,
-}) async {
-  try {
-    updatedFields['lastUpdated'] = DateTime.now();
-
-    await _childTasksRef(parentId, childId)
-        .doc(taskId)
-        .update(updatedFields);
-
-    // Also update locally
-    final local = getTaskLocal(taskId);
-    if (local != null) {
-      final updatedTask = local.copyWith(
-        lastUpdated: DateTime.now(),
-        // apply only changed fields
-        alarm: updatedFields.containsKey('alarm') 
-            ? updatedFields['alarm'] 
-            : local.alarm,
-        difficulty: updatedFields.containsKey('difficulty') 
-            ? updatedFields['difficulty'] 
-            : local.difficulty,
-        name: updatedFields.containsKey('name') 
-            ? updatedFields['name'] 
-            : local.name,
-        // add other editable fields as needed
-      );
-      await saveTaskLocal(updatedTask);
-    }
-  } catch (e) {
-    debugPrint('❌ Error in updateTaskFields: $e');
-  }
-}
-
 
   /// Delete task both locally and remotely
   Future<void> deleteTask(String taskId, String parentUid, String childId) async {
