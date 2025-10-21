@@ -29,9 +29,14 @@ class FishProvider extends ChangeNotifier {
 
     if (authProvider.currentUserModel is ChildUser) {
       currentChild = authProvider.currentUserModel;
+
+      // Restore local session first
+      _restoreFromHive();
+
+      // Then try fetching remote (optional)
       _init();
 
-      // Hive listener: only update balance to prevent duplicates
+      // Hive listener: update balance only
       _childBox.watch(key: currentChild.cid).listen((event) {
         final updatedChild = _childBox.get(currentChild.cid);
         if (updatedChild != null &&
@@ -46,15 +51,43 @@ class FishProvider extends ChangeNotifier {
     }
   }
 
-  // ---------- Initialization ----------
+  // ---------- Restore from Hive ----------
+  void _restoreFromHive() {
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      // Restore balance
+      currentChild = currentChild.copyWith(balance: child.balance);
+
+      // Restore owned fishes
+      ownedFishes = child.ownedFish
+          .map((map) => OwnedFish.fromMap(Map<String, dynamic>.from(map)))
+          .toList();
+
+      if (kDebugMode) {
+        print("📦 Restored ${ownedFishes.length} fishes from Hive for ${currentChild.cid}");
+      }
+      notifyListeners();
+    }
+  }
+
+  // ---------- Initialization (remote sync) ----------
   Future<void> _init() async {
     try {
-      ownedFishes =
+      final remoteFishes =
           await _repo.getOwnedFishes(currentChild.parentUid, currentChild.cid);
+
+      // Merge remote with local (avoid duplicates)
+      final localIds = ownedFishes.map((f) => f.id).toSet();
+      for (var fish in remoteFishes) {
+        if (!localIds.contains(fish.id)) {
+          ownedFishes.add(fish);
+        }
+      }
+
+      notifyListeners();
     } catch (_) {
-      ownedFishes = [];
+      // Fail silently, rely on local
     }
-    notifyListeners();
   }
 
   Future<void> setChild(ChildUser child) async {
@@ -63,17 +96,30 @@ class FishProvider extends ChangeNotifier {
     _editingBuffer.clear();
     isInEditMode = false;
     movingFishId = null;
-    notifyListeners();
+
+    _restoreFromHive();
     await _init();
   }
 
   // ---------- Balance ----------
   void _updateLocalBalance(int newBalance) {
     if (currentChild.balance == newBalance) return;
+
     currentChild = currentChild.copyWith(balance: newBalance);
-    _childBox.put(currentChild.cid, currentChild);
+
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      final updatedChild = child.copyWith(balance: newBalance);
+      _childBox.put(currentChild.cid, updatedChild);
+    }
+
     notifyListeners();
-    if (onBalanceChanged != null) onBalanceChanged!(newBalance);
+    onBalanceChanged?.call(newBalance);
+
+    // Try remote sync silently
+    try {
+      _repo.updateBalance(currentChild.parentUid, currentChild.cid, newBalance);
+    } catch (_) {}
   }
 
   Future<int> fetchBalance() async {
@@ -114,15 +160,30 @@ class FishProvider extends ChangeNotifier {
       isUnlocked: fish.type != FishType.unlockable,
     );
 
-    _updateLocalBalance(currentChild.balance - fish.price);
+    final newBalance = currentChild.balance - fish.price;
 
+    _updateLocalBalance(newBalance);
+
+    ownedFishes.add(newFish);
+
+    // Persist to Hive
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      child.ownedFish.add(newFish.toMap());
+      await _childBox.put(currentChild.cid, child);
+    }
+
+    notifyListeners();
+
+    // Remote sync
     try {
       await _repo.addOwnedFish(currentChild.parentUid, currentChild.cid, newFish);
     } catch (_) {}
 
-    ownedFishes.add(newFish);
-    notifyListeners();
-    if (kDebugMode) print("🟢 Purchased fish ${fish.name}");
+    if (kDebugMode) {
+      print("🟢 Purchased fish ${fish.name} (offline-ready, balance $newBalance)");
+    }
+
     return true;
   }
 
@@ -138,10 +199,21 @@ class FishProvider extends ChangeNotifier {
     if (idx == -1) return;
 
     ownedFishes[idx] = ownedFishes[idx].copyWith(isActive: isActive);
+
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
+      final updatedChild = child.copyWith(ownedFish: updatedFishes);
+      await _childBox.put(currentChild.cid, updatedChild);
+    }
+
+    notifyListeners();
+
     try {
       await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
     } catch (_) {}
-    notifyListeners();
+
+    if (kDebugMode) print("🟢 Fish ${fishId} state updated: isActive=$isActive (offline-ready)");
   }
 
   // ---------- Sell ----------
@@ -152,10 +224,25 @@ class FishProvider extends ChangeNotifier {
     final fishDef = FishCatalog.byId(fishId);
     final price = fishDef.type == FishType.purchasable ? fishDef.price : 0;
 
-    ownedFishes.removeAt(idx);
+    final soldFish = ownedFishes.removeAt(idx);
+
     if (price > 0) _updateLocalBalance(currentChild.balance + price);
+
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      child.ownedFish.removeWhere((f) => f['id'] == soldFish.id);
+      await _childBox.put(currentChild.cid, child);
+    }
+
+    try {
+      await _repo.removeOwnedFish(currentChild.parentUid, currentChild.cid, soldFish.id);
+    } catch (_) {}
+
     notifyListeners();
-    if (kDebugMode) print("🟢 Sold fish $fishId for $price tokens");
+
+    if (kDebugMode) {
+      print("🟢 Sold fish ${soldFish.fishId} for $price tokens. New balance: ${currentChild.balance}");
+    }
   }
 
   // ---------- Unlock ----------
@@ -164,6 +251,12 @@ class FishProvider extends ChangeNotifier {
 
     final newFish = OwnedFish(id: fishId, fishId: fishId, isUnlocked: true, isActive: false);
     ownedFishes.add(newFish);
+
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      child.ownedFish.add(newFish.toMap());
+      await _childBox.put(currentChild.cid, child);
+    }
 
     try {
       await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, newFish);
@@ -178,6 +271,13 @@ class FishProvider extends ChangeNotifier {
     if (idx == -1) return;
 
     ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
+
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
+      final updatedChild = child.copyWith(ownedFish: updatedFishes);
+      await _childBox.put(currentChild.cid, updatedChild);
+    }
 
     try {
       await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);

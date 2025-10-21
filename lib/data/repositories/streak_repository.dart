@@ -1,61 +1,62 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 class StreakRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  Future<void> updateStreak(String uid) async {
-    final streakRef = _firestore.collection('streaks').doc(uid);
+  /// Updates the active streak and longest streak for a specific task
+  Future<void> updateStreak(String childId, String parentId, String taskId) async {
+    final taskRef = _firestore
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('tasks')
+        .doc(taskId);
 
     await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(streakRef);
+      final snapshot = await transaction.get(taskRef);
+
+      if (!snapshot.exists) {
+        debugPrint("Task $taskId does not exist for child $childId.");
+        return;
+      }
+
+      int activeStreak = snapshot['activeStreak'] ?? 0;
+      int longestStreak = snapshot['longestStreak'] ?? 0;
+      DateTime? lastUpdated;
+
+      final ts = snapshot['lastUpdated'];
+      if (ts != null && ts is Timestamp) lastUpdated = ts.toDate();
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
-      int currentStreak = 0;
-      int longestStreak = 0;
-      DateTime? lastUpdated;
+      DateTime? normalize(DateTime? dt) =>
+          dt != null ? DateTime(dt.year, dt.month, dt.day) : null;
 
-      if (snapshot.exists) {
-        currentStreak = snapshot['currentStreak'] ?? 0;
-        longestStreak = snapshot['longestStreak'] ?? 0;
-        final ts = snapshot['lastUpdated'];
-        if (ts != null) {
-          lastUpdated = (ts as Timestamp).toDate();
-        }
-      }
+      final lastDate = normalize(lastUpdated);
 
-      // Normalize lastUpdated to "date only"
-      DateTime? lastDate = lastUpdated != null
-          ? DateTime(lastUpdated.year, lastUpdated.month, lastUpdated.day)
-          : null;
-
-      if (lastDate == null) {
-        // First streak entry
-        currentStreak = 1;
-      } else if (lastDate == today) {
+      // Calculate new active streak
+      if (lastDate != null && lastDate == today) {
         // Already updated today → do nothing
         return;
-      } else if (lastDate.add(const Duration(days: 1)) == today) {
-        // Consecutive day → increment streak
-        currentStreak += 1;
+      } else if (lastDate != null && lastDate.add(const Duration(days: 1)) == today) {
+        activeStreak += 1; // Consecutive day → increment
       } else {
-        // Break in streak → reset to 1
-        currentStreak = 1;
+        activeStreak = 1; // Streak broken or first update → reset
       }
 
-      // Update longest streak if needed
-      if (currentStreak > longestStreak) {
-        longestStreak = currentStreak;
-      }
+      if (activeStreak > longestStreak) longestStreak = activeStreak;
 
-      // Write back
-      transaction.set(streakRef, {
-        'currentStreak': currentStreak,
+      // Only update streak fields to avoid overwriting other fields
+      transaction.update(taskRef, {
+        'activeStreak': activeStreak,
         'longestStreak': longestStreak,
         'lastUpdated': Timestamp.fromDate(today),
-      }, SetOptions(merge: true));
+      });
+    }).catchError((e) {
+      debugPrint("Failed to update streak for task $taskId: $e");
     });
   }
 }
-

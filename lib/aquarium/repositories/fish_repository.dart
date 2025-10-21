@@ -79,6 +79,22 @@ class FishRepository {
     } catch (_) {}
   }
 
+  Future<void> removeOwnedFish(String parentUid, String childId, String fishId) async {
+    final child = _childBox.get(childId);
+    if (child == null) return;
+
+    child.ownedFish.removeWhere((f) => f['id'] == fishId);
+    await _childBox.put(childId, child);
+
+    try {
+      await _service.syncOwnedFishes(
+        parentUid,
+        childId,
+        child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
+      );
+    } catch (_) {}
+  }
+
   Future<void> storeFish(String parentUid, String childId, String fishId) async {
     final child = _childBox.get(childId);
     if (child == null) return;
@@ -97,24 +113,6 @@ class FishRepository {
         child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
       );
     } catch (_) {}
-  }
-
-  Future<void> sellFish(String parentUid, String childId, String fishId, int price) async {
-    final child = _childBox.get(childId);
-    if (child == null) return;
-
-    child.ownedFish.removeWhere((f) => f['fishId'] == fishId);
-    await _childBox.put(childId, child);
-
-    try {
-      await _service.syncOwnedFishes(
-        parentUid,
-        childId,
-        child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
-      );
-    } catch (_) {}
-
-    await updateBalance(parentUid, childId, child.balance + price);
   }
 
   /// Public balance updates for provider

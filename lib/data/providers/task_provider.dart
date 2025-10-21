@@ -215,43 +215,63 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> markTaskAsDone(String taskId, String childId) async {
-    final task = _taskRepo.getTaskLocal(taskId);
-    if (task == null) return;
+ Future<void> markTaskAsDone(String taskId, String childId) async {
+  final task = _taskRepo.getTaskLocal(taskId);
+  if (task == null) return;
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final lastDone = task.lastCompletedDate != null
-        ? DateTime(task.lastCompletedDate!.year,
-            task.lastCompletedDate!.month, task.lastCompletedDate!.day)
-        : null;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
 
-    int newActiveStreak = 1;
-    if (lastDone != null) {
-      if (lastDone.add(const Duration(days: 1)) == today) {
-        newActiveStreak = task.activeStreak + 1;
-      } else if (lastDone == today) {
-        newActiveStreak = task.activeStreak;
-      }
+  final lastDone = task.lastCompletedDate != null
+      ? DateTime(task.lastCompletedDate!.year,
+          task.lastCompletedDate!.month,
+          task.lastCompletedDate!.day)
+      : null;
+
+  int newActiveStreak = 1;
+  if (lastDone != null) {
+    if (lastDone.add(const Duration(days: 1)) == today) {
+      newActiveStreak = task.activeStreak + 1;
+    } else if (lastDone == today) {
+      newActiveStreak = task.activeStreak;
     }
-
-    final updatedTask = task.copyWith(
-      isDone: true,
-      doneAt: now,
-      lastCompletedDate: today,
-      activeStreak: newActiveStreak,
-      longestStreak: newActiveStreak > task.longestStreak
-          ? newActiveStreak
-          : task.longestStreak,
-      totalDaysCompleted: task.totalDaysCompleted + 1,
-      lastUpdated: now,
-    );
-
-    await updateTask(updatedTask);
-
-      // Cancel alarm for today
-    cancelTaskAlarm(task);
   }
+
+  final updatedTask = task.copyWith(
+    isDone: true,
+    doneAt: now,
+    lastCompletedDate: today,
+    activeStreak: newActiveStreak,
+    longestStreak: newActiveStreak > task.longestStreak
+        ? newActiveStreak
+        : task.longestStreak,
+    totalDaysCompleted: task.totalDaysCompleted + 1,
+    lastUpdated: now,
+  );
+
+  // Save locally
+  await _taskRepo.saveTaskLocal(updatedTask);
+  await _taskBox?.put(updatedTask.id, updatedTask);
+
+  // Update provider list
+  final index = _tasks.indexWhere((t) => t.id == taskId);
+  if (index != -1) {
+    _tasks[index] = updatedTask;
+  } else {
+    _tasks.add(updatedTask);
+  }
+  notifyListeners();
+
+  // Sync changes via your existing service
+  await pushPendingChanges();
+
+  // Cancel today's alarm
+  cancelTaskAlarm(task);
+
+  // Update Firestore streak for this task
+  await _streakRepo.updateStreak(childId, updatedTask.parentId, taskId);
+}
+
 
   Future<void> verifyTask(String taskId, String childId) async {
     final task = _taskRepo.getTaskLocal(taskId);

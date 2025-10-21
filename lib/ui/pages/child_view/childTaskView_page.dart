@@ -3,9 +3,7 @@ import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/material.dart';
@@ -44,23 +42,23 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Future<void> _loadTasksOnce() async {
-  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
-  await taskProvider.initHive();
+    await taskProvider.initHive();
+    await taskProvider.loadTasks(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
 
-  await taskProvider.loadTasks(
-      parentId: widget.parentId, childId: widget.childId,);
+    // Schedule alarms after tasks loaded
+    final childTasks = taskProvider.tasks
+        .where((task) => task.childId == widget.childId && task.alarm != null)
+        .toList();
 
-  // Schedule alarms after tasks loaded
-  final childTasks = taskProvider.tasks
-      .where((task) => task.childId == widget.childId && task.alarm != null)
-      .toList();
-
-  for (var task in childTasks) {
-    await taskProvider.scheduleTaskAlarm(task);
+    for (var task in childTasks) {
+      await taskProvider.scheduleTaskAlarm(task);
+    }
   }
-}
-
 
   /// Group tasks by time of day
   Map<String, List<TaskModel>> _groupTasksByTime(List<TaskModel> tasks) {
@@ -90,8 +88,12 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     return grouped;
   }
 
-  Widget _buildTaskGroupCard(String title, List<TaskModel> tasks,
-    UnlockManager unlockManager, bool isOffline) {
+Widget _buildTaskGroupCard(
+  String title,
+  List<TaskModel> tasks,
+  UnlockManager unlockManager,
+  bool isOffline,
+) {
   if (tasks.isEmpty) return const SizedBox.shrink();
 
   return Card(
@@ -101,9 +103,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style:
-                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
           const SizedBox(height: 8),
           ...tasks.map((task) {
             return Card(
@@ -112,22 +115,40 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
               child: ListTile(
                 title: Text(task.name),
                 subtitle: Text(
-                    "Routine: ${task.routine} • Reward: ${task.reward} tokens"),
+                  "Routine: ${task.routine} • Reward: ${task.reward} tokens",
+                ),
                 trailing: task.isDone
                     ? (task.verified
                         ? const Icon(Icons.verified, color: Colors.blue)
                         : const Icon(Icons.check, color: Colors.green))
                     : ElevatedButton(
                         onPressed: () async {
-                          await Provider.of<TaskProvider>(context,
-                                  listen: false)
-                              .markTaskAsDone(task.id, widget.childId);
+                          final taskProvider = Provider.of<TaskProvider>(
+                            context,
+                            listen: false,
+                          );
+
+                          // ✅ Create an optimistic local copy
+                          final optimisticTask = task.copyWith(isDone: true);
+
+                          // ✅ Temporarily rebuild the UI with updated task
+                          setState(() {
+                            final index = tasks.indexOf(task);
+                            tasks[index] = optimisticTask;
+                          });
+
+                          // ✅ Apply the real change to local Hive
+                          await taskProvider.markTaskAsDone(
+                            task.id,
+                            task.childId,
+                          );
+
+                          // ✅ Unlock checks
                           unlockManager.checkUnlocks();
 
+                          // ✅ Sync only if online
                           if (!isOffline) {
-                            await Provider.of<TaskProvider>(context,
-                                    listen: false)
-                                .pushPendingChanges();
+                            await taskProvider.pushPendingChanges();
                           }
                         },
                         child: const Text("Done"),
@@ -142,10 +163,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 }
 
 
+
   @override
   Widget build(BuildContext context) {
-    final unlockManager = context.read<UnlockManager>();
-    
+    final unlockManager = Provider.of<UnlockManager>(context, listen: false);
 
     return Scaffold(
       appBar: AppBar(
@@ -153,11 +174,11 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         automaticallyImplyLeading: false,
         backgroundColor: _isOffline ? Colors.grey : null,
         actions: [
-        ElevatedButton(
+          ElevatedButton(
             onPressed: () async {
-              final auth = context.read<AuthProvider>();
-              final fishProvider = context.read<FishProvider>();
-              final decorProvider = context.read<DecorProvider>();
+              final auth = Provider.of<AuthProvider>(context, listen: false);
+              final fishProvider = Provider.of<FishProvider>(context, listen: false);
+              final decorProvider = Provider.of<DecorProvider>(context, listen: false);
 
               await auth.logoutChild();
 
@@ -165,9 +186,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
               fishProvider.clearData();
               decorProvider.clearData();
 
+              if (!mounted) return;
               Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (_) => ChooseRolePage()),
+                MaterialPageRoute(builder: (_) => const ChooseRolePage()),
                 (route) => false,
               );
             },
@@ -192,7 +214,8 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
             child: Consumer<TaskProvider>(
               builder: (context, taskProvider, _) {
                 final childTasks = taskProvider.tasks
-                    .where((task) => task.childId == widget.childId && task.name.isNotEmpty)
+                    .where((task) =>
+                        task.childId == widget.childId && task.name.isNotEmpty)
                     .toList();
 
                 if (childTasks.isEmpty) {
@@ -206,14 +229,14 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                   child: ListView(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     children: [
-                      _buildTaskGroupCard(
-                          'Morning', groupedTasks['Morning']!, unlockManager, _isOffline),
+                      _buildTaskGroupCard('Morning', groupedTasks['Morning']!,
+                          unlockManager, _isOffline),
                       _buildTaskGroupCard('Afternoon', groupedTasks['Afternoon']!,
                           unlockManager, _isOffline),
-                      _buildTaskGroupCard(
-                          'Evening', groupedTasks['Evening']!, unlockManager, _isOffline),
-                      _buildTaskGroupCard(
-                          'Anytime', groupedTasks['Anytime']!, unlockManager, _isOffline),
+                      _buildTaskGroupCard('Evening', groupedTasks['Evening']!,
+                          unlockManager, _isOffline),
+                      _buildTaskGroupCard('Anytime', groupedTasks['Anytime']!,
+                          unlockManager, _isOffline),
                     ],
                   ),
                 );
