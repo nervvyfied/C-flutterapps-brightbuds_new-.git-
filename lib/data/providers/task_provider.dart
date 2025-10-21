@@ -180,33 +180,32 @@ class TaskProvider extends ChangeNotifier {
 }
 
 
-  Future<void> updateTask(TaskModel task) async {
-    await _taskRepo.saveTask(task);
-    await _taskBox?.put(task.id, task);
+  Future<void> updateTask(TaskModel updatedFields) async {
+  final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
+  if (index == -1) return;
 
-    final index = _tasks.indexWhere((t) => t.id == task.id);
-    if (index != -1) _tasks[index] = task;
+  final oldTask = _tasks[index];
 
-    notifyListeners();
+  // Merge updated fields while keeping everything else intact
+  final mergedTask = oldTask.copyWith(
+    name: updatedFields.name,
+    difficulty: updatedFields.difficulty,
+    reward: updatedFields.reward,
+    routine: updatedFields.routine,
+    alarm: updatedFields.alarm,
+    lastUpdated: DateTime.now(),
+    // Keep everything else from oldTask (isDone, doneAt, streaks, etc.)
+  );
 
-    // Reschedule alarm
-    await scheduleTaskAlarm(task);
+  _tasks[index] = mergedTask;
 
-    if (await NetworkHelper.isOnline()) {
-      try {
-        await _firestore
-            .collection('users')
-            .doc(task.parentId)
-            .collection('children')
-            .doc(task.childId)
-            .collection('tasks')
-            .doc(task.id)
-            .set(task.toMap());
-      } catch (e) {
-        debugPrint('⚠️ Firestore updateTask failed: $e');
-      }
-    }
-  }
+  await _taskRepo.updateTask(mergedTask); // saves both locally + remotely
+  notifyListeners();
+
+  // Reschedule alarm
+  await scheduleTaskAlarm(mergedTask);
+}
+  
 
   Future<void> deleteTask(
     String taskId,
@@ -347,56 +346,40 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
   }
 
   // ---------------- ALARMS ----------------
-  Future<void> scheduleTaskAlarm(TaskModel task) async {
-    if (task.alarm == null) return;
-
-    // Web cannot schedule local notifications
-    if (kIsWeb) return;
+Future<void> scheduleTaskAlarm(TaskModel task) async {
+  if (task.alarm == null) return;
+  if (kIsWeb) return;
 
     final now = DateTime.now();
 
-    // Use today's date but the alarm's hour & minute
-    DateTime scheduledDate = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      task.alarm!.hour,
-      task.alarm!.minute,
-    );
+  // Extract hour and minute from task.alarm
+  final int hour = task.alarm!.hour;
+  final int minute = task.alarm!.minute;
 
-    // If time has passed today, schedule for tomorrow
-    if (scheduledDate.isBefore(now)) {
-      scheduledDate = scheduledDate.add(const Duration(days: 1));
-    }
-
-    // Schedule asynchronously (non-blocking)
-    NotificationService()
-        .scheduleNotification(
-          id: task.hashCode,
-          title: "Time for your task!",
-          body: task.name,
-          scheduledDate: scheduledDate,
-          payload:
-              '${task.id}|${task.childId}|${task.parentId}|${task.childId}',
-        )
-        .then(
-          (_) => debugPrint(
-            '✅ Alarm scheduled for ${task.name} at $scheduledDate',
-          ),
-        )
-        .catchError((e) => debugPrint('⚠️ Failed to schedule alarm: $e'));
+  // For debugging: calculate the next occurrence of the alarm
+  DateTime nextSchedule = DateTime(now.year, now.month, now.day, hour, minute);
+  if (nextSchedule.isBefore(now)) {
+    nextSchedule = nextSchedule.add(const Duration(days: 1));
   }
 
-  void cancelTaskAlarm(TaskModel task) {
-    if (kIsWeb) return; // skip on web
+  // Schedule the recurring daily notification
+  await NotificationService().scheduleDailyNotification(
+    id: task.hashCode,
+    title: "Time for your task!",
+    body: task.name,
+    hour: hour,
+    minute: minute,
+  );
 
-    try {
-      NotificationService().cancelNotification(task.hashCode);
-      debugPrint('❌ Alarm cancelled for ${task.name}');
-    } catch (e) {
-      debugPrint('⚠️ Failed to cancel alarm for ${task.name}: $e');
-    }
-  }
+  debugPrint(
+      '✅ Daily reminder set for "${task.name}" at ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} (next schedule: $nextSchedule)');
+}
+
+
+Future<void> cancelTaskAlarm(TaskModel task) async {
+  await NotificationService().cancelNotification(task.hashCode);
+}
+
 
   // ---------------- SYNC ----------------
   Future<void> pushPendingChanges() async {

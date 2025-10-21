@@ -190,18 +190,20 @@ class _TaskFormModalState extends State<TaskFormModal> {
     final now = DateTime.now();
 
     final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: alarmDateTime != null
-          ? TimeOfDay.fromDateTime(alarmDateTime!)
-          : TimeOfDay.now(),
+  context: context,
+  initialTime: TimeOfDay.fromDateTime(alarmDateTime ?? DateTime.now()),
     );
-
-    if (pickedTime == null) return;
-
-    // Store only hour & minute for daily repeat
-    setState(() {
-      alarmDateTime = DateTime(0, 1, 1, pickedTime.hour, pickedTime.minute);
-    });
+    if (pickedTime != null) {
+      setState(() {
+        alarmDateTime = DateTime(
+          DateTime.now().year,
+          DateTime.now().month,
+          DateTime.now().day,
+          pickedTime.hour,
+          pickedTime.minute,
+        );
+      });
+    }
   }
 
   @override
@@ -305,29 +307,43 @@ class _TaskFormModalState extends State<TaskFormModal> {
                     if (_formKey.currentState!.validate()) {
                       _formKey.currentState!.save();
 
-                      final task = TaskModel(
-                        id: widget.task?.id ??
-                            DateTime.now().millisecondsSinceEpoch.toString(),
-                        name: taskName,
-                        difficulty: difficulty,
-                        reward: reward,
-                        routine: routine,
-                        parentId: widget.parentId,
-                        childId: widget.childId,
-                        createdAt: widget.task?.createdAt ?? DateTime.now(),
-                        alarm: alarmDateTime,
-                      );
+                      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
                       if (widget.task == null) {
-                        taskProvider.addTask(task);
+                        // Creating a new task
+                        final newTask = TaskModel(
+                          id: DateTime.now().millisecondsSinceEpoch.toString(),
+                          name: taskName,
+                          difficulty: difficulty,
+                          reward: reward,
+                          routine: routine,
+                          parentId: widget.parentId,
+                          childId: widget.childId,
+                          createdAt: DateTime.now(),
+                          alarm: alarmDateTime,
+                        );
+                        taskProvider.addTask(newTask);
                       } else {
-                        taskProvider.updateTask(task);
+                        // Updating existing task — only send the changed fields
+                        final updatedFields = TaskModel(
+                          id: widget.task!.id,
+                          name: taskName,
+                          difficulty: difficulty,
+                          reward: reward,
+                          routine: routine,
+                          parentId: widget.parentId,
+                          childId: widget.childId,
+                          createdAt: widget.task!.createdAt,
+                          alarm: alarmDateTime,
+                        );
+
+                        taskProvider.updateTask(updatedFields);
                       }
 
                       Navigator.pop(context);
                     }
                   },
-                ),
+                )
               ],
             ),
           ],
