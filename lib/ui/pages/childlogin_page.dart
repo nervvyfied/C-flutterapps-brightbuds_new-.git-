@@ -27,6 +27,7 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
     try {
       final authProvider = context.read<AuthProvider>();
       await authProvider.loginChild(code); // ✅ Persist child session via Hive
+      await authProvider.saveFcmToken();
 
       final child = authProvider.currentUserModel as ChildUser;
 
@@ -37,6 +38,8 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
       // Set the new child and reload their data
       await fishProvider.setChild(child);
       await decorProvider.setChild(child);
+
+      
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Child login successful')),
