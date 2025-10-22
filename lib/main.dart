@@ -64,6 +64,31 @@ Future<void> _initFlutterLocalNotifications() async {
     debugPrint('🔔 Local notification tapped: ${response.payload}');
   });
 
+  // ✅ Request permission for notifications
+  final bool? granted = await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.requestNotificationsPermission();
+
+  if (granted ?? false) {
+    print("✅ Notification permission granted!");
+  } else {
+    print("❌ Notification permission denied!");
+  }
+
+  final dailyChannel = AndroidNotificationChannel(
+    'daily_reminder_channel',
+    'Daily Task Reminders',
+    description: 'Daily reminders for tasks',
+    importance: Importance.high,
+  );
+
+  await flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(dailyChannel);
+
+
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
@@ -79,13 +104,13 @@ void main() async {
   // ✅ Initialize Firebase first
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // ✅ Initialize timezone (important for alarms)
-  tz.initializeTimeZones();
-  tz.setLocalLocation(tz.getLocation('Asia/Manila'));
-
   // ✅ Initialize local notifications (for both alarm + FCM compatibility)
   await _initFlutterLocalNotifications();
   await NotificationService().init();
+
+  // ✅ Initialize timezone (important for alarms)
+  tz.initializeTimeZones();
+  tz.setLocalLocation(tz.getLocation('Asia/Manila'));
 
   // ✅ Enable Firestore offline caching (optional but good)
   try {
@@ -142,60 +167,65 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   Future<void> _initializeFCM() async {
-    final FirebaseMessaging messaging = FirebaseMessaging.instance;
+  final FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-    final settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    debugPrint('🔹 FCM permission status: ${settings.authorizationStatus}');
-
-    try {
-      final token = await messaging.getToken();
-      debugPrint('🔹 FCM token: $token');
-    } catch (e) {
-      debugPrint('⚠️ Failed to get FCM token: $e');
-    }
-
-    // Foreground message handler
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      debugPrint('🔹 Foreground FCM message: ${message.notification?.title}');
-
-      final notification = message.notification;
-      final android = message.notification?.android;
-
-      // ⚙️ FIXED: remove `const` — cannot use const with dynamic values
-      final androidDetails = AndroidNotificationDetails(
-        _androidChannel.id,
-        _androidChannel.name,
-        channelDescription: _androidChannel.description,
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: android?.smallIcon ?? '@mipmap/ic_launcher',
-      );
-
-      final platformDetails = NotificationDetails(android: androidDetails);
-
-      await flutterLocalNotificationsPlugin.show(
-        message.hashCode,
-        notification?.title ?? 'BrightBuds',
-        notification?.body ?? '',
-        platformDetails,
-        payload: message.data.isNotEmpty ? message.data.toString() : null,
-      );
-    });
-
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint('🔹 Notification opened app: ${message.notification?.title}');
-    });
-
-    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMessage != null) {
-      debugPrint(
-          '🔹 App opened from terminated state: ${initialMessage.notification?.title}');
-    }
+  // Request permission
+  final settings = await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+  if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+    debugPrint('❌ Notifications not authorized!');
   }
+
+  // Get FCM token
+  try {
+    final token = await messaging.getToken();
+    debugPrint('🔹 FCM token: $token');
+  } catch (e) {
+    debugPrint('⚠️ Failed to get FCM token: $e');
+  }
+
+  // Single listener for foreground messages
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+  debugPrint('📩 [FCM] Foreground message received!');
+  debugPrint('Title: ${message.notification?.title}');
+  debugPrint('Body: ${message.notification?.body}');
+  debugPrint('Data: ${message.data}');
+
+  final notification = message.notification;
+  final androidDetails = AndroidNotificationDetails(
+    _androidChannel.id,
+    _androidChannel.name,
+    channelDescription: _androidChannel.description,
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+
+  // 🔔 Show local notification to confirm reception
+  await flutterLocalNotificationsPlugin.show(
+    message.hashCode,
+    notification?.title ?? 'BrightBuds',
+    notification?.body ?? 'You have a new update!',
+    NotificationDetails(android: androidDetails),
+  );
+});
+
+
+  // When notification is tapped and app opens
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    debugPrint('🔹 Notification opened app: ${message.notification?.title}');
+  });
+
+  // Handle app launch from terminated state
+  final initialMessage = await messaging.getInitialMessage();
+  if (initialMessage != null) {
+    debugPrint(
+        '🔹 App opened from terminated state: ${initialMessage.notification?.title}');
+  }
+}
+
 
   @override
   Widget build(BuildContext context) {

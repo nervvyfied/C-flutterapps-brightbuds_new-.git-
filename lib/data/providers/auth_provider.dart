@@ -286,17 +286,38 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveFcmToken(String parentId, String parentrole, String childrole) async {
-    final token = await FirebaseMessaging.instance.getToken();
-    await FirebaseFirestore.instance
-    .collection('users')
-    .doc(parentId)
-    .update({
-      'fcmToken': token,
-      'parent': parentrole,
-      'child': childrole,
-    });
+  // ---------------- FCM TOKEN HANDLING ----------------
+Future<void> saveFcmToken() async {
+  final token = await FirebaseMessaging.instance.getToken();
+  if (token == null) return;
+
+  try {
+    if (currentUserModel is ParentUser) {
+      final parent = currentUserModel as ParentUser;
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parent.uid)
+          .update({'fcmToken': token});
+
+      debugPrint('✅ Parent FCM token saved: $token');
+
+    } else if (currentUserModel is ChildUser) {
+      final child = currentUserModel as ChildUser;
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(child.parentUid)
+          .collection('children')
+          .doc(child.cid)
+          .set({'fcmToken': token}, SetOptions(merge: true));
+
+      debugPrint('✅ Child FCM token saved: $token');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Failed to save FCM token: $e');
   }
+}
+
+
   // ---------------- HELPERS ----------------
   bool get isLoggedIn => currentUserModel != null;
   bool get isParent => currentUserModel is ParentUser;

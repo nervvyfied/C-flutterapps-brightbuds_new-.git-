@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/foundation.dart';
+import 'package:timezone/timezone.dart' as tz;
 import 'package:uuid/uuid.dart';
 import 'package:hive/hive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -56,11 +58,14 @@ class TaskProvider extends ChangeNotifier {
       _tasks = _taskBox?.values.toList() ?? [];
       notifyListeners(); // <-- UI updates immediately
 
-      // Schedule alarms asynchronously (non-blocking)
-      for (var task in _tasks) {
-        if (!kIsWeb) scheduleTaskAlarm(task); // only on mobile
-      }
+      if (kIsWeb) NotificationService().startWebAlarmSimulation(_tasks);
 
+      // Schedule alarms for all tasks that have alarms set
+      for (var task in _tasks) {
+        if (task.alarm != null) {
+          await scheduleTaskAlarm(task);
+        }
+      }
       // Check online and merge remote tasks
       final online = await NetworkHelper.isOnline();
       if (online && parentId != null && parentId.isNotEmpty) {
@@ -74,11 +79,25 @@ class TaskProvider extends ChangeNotifier {
           if (!kIsWeb) scheduleTaskAlarm(task); // only on mobile
         }
       }
+      if (kIsWeb) {
+        debugPrint('🌐 [WEB DEBUG] Child tasks loaded: ${_tasks.length}');
+        for (var t in _tasks) {
+          debugPrint(
+              '🧩 Task: ${t.name} | Done: ${t.isDone} | Alarm: ${t.alarm?.hour}:${t.alarm?.minute}');
+        }
+
+        // Start simulation
+        startWebDebugSimulation();
+        
+      }
+      debugPrint("❌ Error loading tasks: $e");
+
     } finally {
       await autoResetIfNeeded();
       _isLoading = false;
       notifyListeners();
     }
+    debugPrint('✅ Tasks fully loaded. Count: ${_tasks.length}');
   }
 
   /// Merge remote tasks over local (offline-first)
@@ -140,8 +159,8 @@ class TaskProvider extends ChangeNotifier {
   _tasks.add(newTask);
   notifyListeners();
 
-  // Schedule alarm
-  await scheduleTaskAlarm(newTask);
+  // Schedule alarm immediately
+  if (!kIsWeb) await scheduleTaskAlarm(newTask);
 
   if (await NetworkHelper.isOnline()) {
     try {
@@ -167,8 +186,6 @@ class TaskProvider extends ChangeNotifier {
   if (index == -1) return;
 
   final oldTask = _tasks[index];
-
-  // Merge updated fields while keeping everything else intact
   final mergedTask = oldTask.copyWith(
     name: updatedFields.name,
     difficulty: updatedFields.difficulty,
@@ -176,16 +193,23 @@ class TaskProvider extends ChangeNotifier {
     routine: updatedFields.routine,
     alarm: updatedFields.alarm,
     lastUpdated: DateTime.now(),
-    // Keep everything else from oldTask (isDone, doneAt, streaks, etc.)
   );
 
   _tasks[index] = mergedTask;
 
-  await _taskRepo.updateTask(mergedTask); // saves both locally + remotely
+  await _taskRepo.updateTask(mergedTask);
+  await _taskBox?.put(mergedTask.id, mergedTask);
   notifyListeners();
 
-  // Reschedule alarm
-  await scheduleTaskAlarm(mergedTask);
+  // Cancel old alarm and reschedule if needed
+  if (!kIsWeb) {
+    await cancelTaskAlarm(oldTask);
+    if (mergedTask.alarm != null) {
+      await scheduleTaskAlarm(mergedTask);
+    }
+  }
+
+  debugPrint('📝 Task updated: ${mergedTask.name}, Alarm: ${mergedTask.alarm}');
 }
   
 
@@ -207,10 +231,9 @@ class TaskProvider extends ChangeNotifier {
     _tasks.removeWhere((t) => t.id == taskId);
     notifyListeners();
 
-    // Cancel scheduled alarm
-    if (task != null) {
-      cancelTaskAlarm(task);
-    }
+    if (task != null && !kIsWeb) {
+    await cancelTaskAlarm(task);
+  }
 
     if (await NetworkHelper.isOnline()) {
       try {
@@ -280,8 +303,10 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
   // Sync changes via your existing service
   await pushPendingChanges();
 
-  // Cancel today's alarm
-  cancelTaskAlarm(task);
+  // After marking done
+if (!kIsWeb && task.alarm != null) {
+  await cancelTaskAlarm(task);
+}
 
   // Update Firestore streak for this task
   await _streakRepo.updateStreak(childId, task.parentId, taskId);
@@ -294,6 +319,15 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
       .doc(childId)
       .get();
 
+  final childName = childSnapshot.data()?['name'] ?? 'Your child';
+
+  // Send notification to parent
+await notifyParentCompletion(
+  parentId: task.parentId,
+  childName: childName,
+  itemName: task.name,
+  type: 'task_completed',
+);
 }
 
   Future<void> verifyTask(String taskId, String childId) async {
@@ -308,38 +342,68 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
 
   // ---------------- ALARMS ----------------
 Future<void> scheduleTaskAlarm(TaskModel task) async {
-  if (task.alarm == null) return;
-  if (kIsWeb) return;
+  if (task.alarm == null || kIsWeb) return;
 
-    final now = DateTime.now();
+  final alarmId = task.id.hashCode;
 
-  // Extract hour and minute from task.alarm
-  final int hour = task.alarm!.hour;
-  final int minute = task.alarm!.minute;
+  // Cancel any existing alarm
+  await NotificationService().cancelNotification(alarmId);
 
-  // For debugging: calculate the next occurrence of the alarm
-  DateTime nextSchedule = DateTime(now.year, now.month, now.day, hour, minute);
-  if (nextSchedule.isBefore(now)) {
-    nextSchedule = nextSchedule.add(const Duration(days: 1));
-  }
-
-  // Schedule the recurring daily notification
-  await NotificationService().scheduleDailyNotification(
-    id: task.hashCode,
-    title: "Time for your task!",
-    body: task.name,
-    hour: hour,
-    minute: minute,
+  final now = tz.TZDateTime.now(tz.local);
+  var scheduledDate = tz.TZDateTime(
+    tz.local,
+    now.year,
+    now.month,
+    now.day,
+    task.alarm!.hour,
+    task.alarm!.minute,
   );
 
-  debugPrint(
-      '✅ Daily reminder set for "${task.name}" at ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} (next schedule: $nextSchedule)');
+  if (scheduledDate.isBefore(now)) scheduledDate = scheduledDate.add(const Duration(days: 1));
+
+  // Schedule local daily notification
+  await NotificationService().scheduleDailyNotification(
+    id: alarmId,
+    title: '🧩 Task Reminder!',
+    body: task.name,
+    hour: task.alarm!.hour,
+    minute: task.alarm!.minute,
+    payload: task.id,
+  );
+
+  debugPrint('✅ Alarm scheduled for "${task.name}" at ${scheduledDate.hour}:${scheduledDate.minute}');
+
+  // FCM push to child (optional for mobile users)
+  try {
+    final childSnapshot = await _firestore
+        .collection('users')
+        .doc(task.parentId)
+        .collection('children')
+        .doc(task.childId)
+        .get();
+
+    final childToken = childSnapshot.data()?['fcmToken'];
+    if (childToken != null) {
+      await FCMService.sendNotification(
+        title: '🧩 Task Reminder!',
+        body: task.name,
+        token: childToken,
+        data: {'type': 'task_alarm', 'taskId': task.id, 'taskName': task.name},
+      );
+      debugPrint('📨 FCM alarm sent to child: ${task.name}');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Failed to send FCM alarm: $e');
+  }
 }
+
 
 
 Future<void> cancelTaskAlarm(TaskModel task) async {
-  await NotificationService().cancelNotification(task.hashCode);
+  final alarmId = task.id.hashCode;
+  await NotificationService().cancelNotification(alarmId);
 }
+
 
 
   // ---------------- SYNC ----------------
@@ -350,42 +414,43 @@ Future<void> cancelTaskAlarm(TaskModel task) async {
 
   // ---------------- DAILY RESET ----------------
   Future<void> resetDailyTasks() async {
-    final today = DateTime.now();
-    final todayDateOnly = DateTime(today.year, today.month, today.day);
+  final today = DateTime.now();
+  final todayDateOnly = DateTime(today.year, today.month, today.day);
 
-    for (var task in _tasks) {
-      final lastDate = task.lastCompletedDate != null
-          ? DateTime(
-              task.lastCompletedDate!.year,
-              task.lastCompletedDate!.month,
-              task.lastCompletedDate!.day,
-            )
-          : null;
+  for (var task in _tasks) {
+    final lastDate = task.lastCompletedDate != null
+        ? DateTime(
+            task.lastCompletedDate!.year,
+            task.lastCompletedDate!.month,
+            task.lastCompletedDate!.day,
+          )
+        : null;
 
-      int updatedActiveStreak = task.activeStreak;
-      if (lastDate != null &&
-          lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
-        updatedActiveStreak = 0;
-      }
+    int updatedActiveStreak = task.activeStreak;
 
-      if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
-        final updated = task.copyWith(
-          isDone: false,
-          verified: false,
-          activeStreak: updatedActiveStreak,
-          lastUpdated: DateTime.now(),
-        );
-
-        await updateTask(updated);
-
-        // Cancel old alarm and schedule today's alarm (mobile only)
-        cancelTaskAlarm(updated);
-        if (!kIsWeb) scheduleTaskAlarm(updated);
-      }
+    // Reset streak if last done was before yesterday
+    if (lastDate != null &&
+        lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
+      updatedActiveStreak = 0;
     }
 
-    await pushPendingChanges();
+    // Only reset if not done today
+    if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
+      final updated = task.copyWith(
+        isDone: false,
+        verified: false,
+        activeStreak: updatedActiveStreak,
+        lastUpdated: DateTime.now(),
+      );
+
+      // Update task (saves locally + remotely + reschedules alarm)
+      await updateTask(updated);
+    }
   }
+
+  // Sync any pending changes after reset
+  await pushPendingChanges();
+}
 
   void startDailyResetScheduler() {
     _midnightTimer?.cancel();
@@ -419,6 +484,68 @@ Future<void> cancelTaskAlarm(TaskModel task) async {
       _lastResetDate = todayDateOnly;
     }
   }
+
+  Future<void> notifyParentCompletion({
+  required String parentId,
+  required String childName,
+  required String itemName,
+  required String type, // "task_completed" or "cbt_completed"
+}) async {
+  try {
+    // Use the _firestore instance defined in TaskProvider
+    final parentSnapshot = await _firestore.collection('users').doc(parentId).get();
+    final parentToken = parentSnapshot.data()?['fcmToken'];
+    if (parentToken != null) {
+      await FCMService.sendNotification(
+        title: type == 'task_completed' ? '🎉 Task Completed' : '🧠 CBT Completed',
+        body: '$childName finished $itemName!',
+        token: parentToken,
+        data: {
+          'type': type,
+          'childName': childName,
+          'itemName': itemName,
+        },
+      );
+      debugPrint('📨 FCM sent to parent: $childName completed $itemName');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Failed to send FCM to parent: $e');
+  }
+}
+
+
+  void startWebDebugSimulation() {
+  if (!kIsWeb) return;
+
+  debugPrint('🌐 [WEB DEBUG] Starting task alarm simulation...');
+
+  // Run periodically
+  Future.doWhile(() async {
+    final now = DateTime.now();
+
+    for (final task in _tasks) {
+      if (task.alarm != null) {
+        final alarmTime = DateTime(
+          now.year,
+          now.month,
+          now.day,
+          task.alarm!.hour,
+          task.alarm!.minute,
+        );
+
+        // Trigger if within ±5 seconds of scheduled time
+        if (now.difference(alarmTime).inSeconds.abs() <= 5) {
+          debugPrint(
+              '🔔 [WEB SIM] Alarm triggered for "${task.name}" at ${now.hour}:${now.minute}:${now.second}');
+        }
+      }
+    }
+
+    await Future.delayed(const Duration(seconds: 1));
+    return true;
+  });
+}
+
 }
 
 extension TaskStats on TaskProvider {

@@ -44,6 +44,8 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
           _passwordController.text.trim(),
         );
 
+        await auth.saveFcmToken();
+
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Login successful')));
 

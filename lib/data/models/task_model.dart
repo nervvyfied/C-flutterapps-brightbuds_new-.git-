@@ -127,7 +127,7 @@ class TaskModel {
       'difficulty': difficulty,
       'reward': reward,
       'routine': routine,
-      'alarm': toTimestamp(alarm),
+      'alarm': alarm != null ? Timestamp.fromDate(alarm!) : null,
       'note': note,
       'lastUpdated': toTimestamp(lastUpdated ?? DateTime.now()),
     };
@@ -137,7 +137,7 @@ class TaskModel {
       'difficulty': difficulty,
       'reward': reward,
       'routine': routine,
-      'alarm': toTimestamp(alarm),
+      'alarm': alarm != null ? Timestamp.fromDate(alarm!) : null,
       'note': note,
       'isDone': isDone,
       'doneAt': toTimestamp(doneAt),
