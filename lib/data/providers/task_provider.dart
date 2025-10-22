@@ -155,24 +155,6 @@ class TaskProvider extends ChangeNotifier {
           .doc(newTask.id)
           .set(newTask.toMap());
 
-      // ✅ Send notification to child
-      final childSnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(newTask.parentId)
-          .collection('children')
-          .doc(newTask.childId)
-          .get();
-
-      final childToken = childSnapshot.data()?['fcmToken'];
-      final taskName = newTask.name; // Get task name
-      if (childToken != null) {
-        await FCMService.sendNotification(
-          title: '🧩 New Task Assigned!',
-          body: 'You have a new task: $taskName',
-          token: childToken,
-          data: {'type': 'new_task', 'taskName': taskName},
-        );
-      }
     } catch (e) {
       debugPrint('⚠️ Firestore addTask failed: $e');
     }
@@ -312,27 +294,6 @@ Future<void> markTaskAsDone(String taskId, String childId) async {
       .doc(childId)
       .get();
 
-  final childName = childSnapshot.data()?['name'] ?? 'Your child';
-
-  // Send notification to parent
-  final parentSnapshot = await FirebaseFirestore.instance
-      .collection('users')
-      .doc(task.parentId)
-      .get();
-
-  final parentToken = parentSnapshot.data()?['fcmToken'];
-  if (parentToken != null) {
-    await FCMService.sendNotification(
-      title: '🎉 Task Completed',
-      body: '$childName finished ${task.name}!',
-      token: parentToken,
-      data: {
-        'type': 'task_completed',
-        'childName': childName,
-        'taskName': task.name,
-      },
-    );
-  }
 }
 
   Future<void> verifyTask(String taskId, String childId) async {

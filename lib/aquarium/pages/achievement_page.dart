@@ -218,10 +218,14 @@ Widget build(BuildContext context) {
 }
 
 
-  double _calculateProgressPercent(FishDefinition fish) {
+    double _calculateProgressPercent(FishDefinition fish) {
+    final isOwned = context.read<FishProvider>().isOwned(fish.id);
+
+    if (isOwned) return 1.0; // ✅ Stop updating progress once unlocked
+
     switch (fish.unlockConditionId) {
       case 'first_aquarium_visit':
-        return child.firstVisitUnlocked ? 1.0 : 0.0;
+        return child.firstVisitUnlocked ? 1.0 : 1.0; // ✅ always full if cleared
 
       case 'task_milestone_50':
         int totalCompleted = tasks.fold(0, (sum, t) => sum + t.totalDaysCompleted);
@@ -230,11 +234,11 @@ Widget build(BuildContext context) {
 
       case 'place_5_decor':
         int placed = decors.where((d) => d.isPlaced).length;
-        return (placed / 5.0).clamp(0.0, 1.0);
+        return (placed >= 5 ? 1.0 : placed / 5.0).clamp(0.0, 1.0);
 
       case 'complete_10_hard_tasks':
         int hardDone = tasks.where((t) => t.difficulty.toLowerCase() == 'hard' && t.isDone).length;
-        return (hardDone / 10.0).clamp(0.0, 1.0);
+        return (hardDone >= 10 ? 1.0 : hardDone / 10.0).clamp(0.0, 1.0);
 
       default:
         return 0.0;
@@ -242,6 +246,10 @@ Widget build(BuildContext context) {
   }
 
   String _getProgressText(FishDefinition fish, double progress) {
+    final isOwned = context.read<FishProvider>().isOwned(fish.id);
+
+    if (isOwned) return 'Unlocked'; // ✅ show unlocked text
+
     switch (fish.unlockConditionId) {
       case 'first_aquarium_visit':
         return progress == 1.0 ? 'Visited aquarium' : 'Visit aquarium';

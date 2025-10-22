@@ -31,29 +31,39 @@ class FishProvider extends ChangeNotifier {
     if (authProvider.currentUserModel is ChildUser) {
       currentChild = authProvider.currentUserModel;
 
-      // Restore local session first
-      _restoreFromHive();
+      // ✅ FIX: Delay slightly to ensure Hive is fully ready before restore
+      Future.delayed(const Duration(milliseconds: 300), () async {
+        await _restoreFromHive();
 
-      // Then try fetching remote (optional)
-      _init();
+        // ✅ FIX: Add small delay before remote init to avoid race condition
+        await Future.delayed(const Duration(milliseconds: 300));
+        await _init();
 
-      // Hive listener: update balance only
-      _childBox.watch(key: currentChild.cid).listen((event) {
-        final updatedChild = _childBox.get(currentChild.cid);
-        if (updatedChild != null &&
-            updatedChild.balance != currentChild.balance) {
-          currentChild = currentChild.copyWith(balance: updatedChild.balance);
-          notifyListeners();
-          if (kDebugMode) {
-            print("🔄 Hive sync: balance updated to ${currentChild.balance}");
+        // ✅ FIX: Move listener inside async after restore
+        _childBox.watch(key: currentChild.cid).listen((event) {
+          final updatedChild = _childBox.get(currentChild.cid);
+          if (updatedChild != null &&
+              updatedChild.balance != currentChild.balance) {
+            currentChild = currentChild.copyWith(balance: updatedChild.balance);
+            notifyListeners();
+            if (kDebugMode) {
+              print("🔄 Hive sync: balance updated to ${currentChild.balance}");
+            }
           }
-        }
+        });
       });
     }
   }
 
   // ---------- Restore from Hive ----------
-  void _restoreFromHive() {
+  Future<void> _restoreFromHive() async {
+    // ✅ FIX: Ensure box is open and currentChild is valid
+    if (!_childBox.isOpen || !_childBox.containsKey(currentChild.cid)) {
+      if (kDebugMode) print("⚠️ No Hive data found for ${currentChild.cid}");
+      notifyListeners(); // still rebuild UI even if empty
+      return;
+    }
+
     final child = _childBox.get(currentChild.cid);
     if (child != null) {
       // Restore balance
@@ -67,8 +77,9 @@ class FishProvider extends ChangeNotifier {
       if (kDebugMode) {
         print("📦 Restored ${ownedFishes.length} fishes from Hive for ${currentChild.cid}");
       }
-      notifyListeners();
     }
+
+    notifyListeners(); // ✅ FIX: Always notify even if no fishes
   }
 
   // ---------- Initialization (remote sync) ----------
@@ -86,8 +97,12 @@ class FishProvider extends ChangeNotifier {
       }
 
       notifyListeners();
-    } catch (_) {
-      // Fail silently, rely on local
+
+      if (kDebugMode) {
+        print("🌐 Synced ${ownedFishes.length} fishes from Firestore");
+      }
+    } catch (e) {
+      if (kDebugMode) print("⚠️ Remote fetch failed, using local data: $e");
     }
   }
 
@@ -98,7 +113,7 @@ class FishProvider extends ChangeNotifier {
     isInEditMode = false;
     movingFishId = null;
 
-    _restoreFromHive();
+    await _restoreFromHive(); // ✅ FIX: Make sure awaited
     await _init();
   }
 
@@ -268,45 +283,24 @@ class FishProvider extends ChangeNotifier {
 
   // ---------- Neglected ----------
   Future<void> setNeglected(String fishId, bool neglected) async {
-  final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
-  if (idx == -1) return;
+    final idx = ownedFishes.indexWhere((f) => f.fishId == fishId);
+    if (idx == -1) return;
 
-  // Update local fish state
-  ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
+    ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
 
-  final child = _childBox.get(currentChild.cid);
-  if (child != null) {
-    final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
-    final updatedChild = child.copyWith(ownedFish: updatedFishes);
-    await _childBox.put(currentChild.cid, updatedChild);
+    final child = _childBox.get(currentChild.cid);
+    if (child != null) {
+      final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
+      final updatedChild = child.copyWith(ownedFish: updatedFishes);
+      await _childBox.put(currentChild.cid, updatedChild);
+    }
+
+    try {
+      await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
+    } catch (_) {}
+
+    notifyListeners();
   }
-
-  // Update Firestore
-  try {
-    await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
-  } catch (_) {}
-
-  // ✅ Fetch child token and send notification
-  final childSnapshot = await FirebaseFirestore.instance
-      .collection('users')
-      .doc(currentChild.parentUid)
-      .collection('children')
-      .doc(currentChild.cid)
-      .get();
-
-  final childToken = childSnapshot.data()?['fcmToken'];
-  if (childToken != null && neglected) { // Only notify if fish is neglected
-    await FCMService.sendNotification(
-      title: '🐟 Your Fish Needs Attention!',
-      body: 'You haven’t checked your aquarium lately!',
-      token: childToken,
-      data: {'type': 'fish_neglected'},
-    );
-  }
-
-  notifyListeners();
-}
-
 
   // ---------- Edit Mode ----------
   UnmodifiableListView<OwnedFish> get editingFishes =>

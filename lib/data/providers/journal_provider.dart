@@ -69,40 +69,6 @@ Future<void> addEntry(String parentId, String childId, JournalEntry entry) async
   _entries.putIfAbsent(childId, () => []);
   _entries[childId]!.insert(0, newEntry);
 
-  try {
-    // Fetch parent FCM token
-    final parentSnapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentId)
-        .get();
-    final parentToken = parentSnapshot.data()?['fcmToken'];
-
-    // Fetch child name via childId
-    final childSnapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentId)
-        .collection('children')
-        .doc(childId)
-        .get();
-    final childName = childSnapshot.data()?['name'] ?? 'Your child';
-    final mood = newEntry.mood ?? 'unknown';
-
-    if (parentToken != null) {
-      await FCMService.sendNotification(
-        title: '📔 New Journal Entry',
-        body: '$childName just added a new journal entry. Mood: $mood',
-        token: parentToken,
-        data: {
-          'type': 'journal_added',
-          'childName': childName,
-          'mood': mood,
-        },
-      );
-    }
-  } catch (e) {
-    debugPrint('⚠️ Failed to send journal notification: $e');
-  }
-
   notifyListeners();
 
   // Save remotely if online
@@ -111,9 +77,10 @@ Future<void> addEntry(String parentId, String childId, JournalEntry entry) async
       await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
     } catch (e) {
       debugPrint("⚠️ Firestore add failed: $e");
+      }
     }
   }
-}
+
 
 
   Future<void> updateEntry(String parentId, String childId, JournalEntry updated) async {

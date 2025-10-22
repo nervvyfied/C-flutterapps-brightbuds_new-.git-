@@ -139,6 +139,7 @@ void initState() {
     final fishProvider = Provider.of<FishProvider>(context, listen: false);
     final unlockNotifier = Provider.of<UnlockNotifier>(context, listen: false);
 
+
     final unlockManager = UnlockManager(
       fishProvider: fishProvider,
       unlockNotifier: unlockNotifier,
