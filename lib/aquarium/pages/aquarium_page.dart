@@ -16,6 +16,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:brightbuds_new/aquarium/pages/aquarium_tutorial_modal.dart';
+import 'package:brightbuds_new/aquarium/manager/tutorial_manager.dart';
+
 
 // ----- Bubble Class -----
 class Bubble {
@@ -194,6 +197,9 @@ void initState() {
 
       // --- OTHER UNLOCKABLES ---
       await unlockManager.checkUnlocks();
+      
+      final childId = child.cid; // already have child
+      await _maybeShowTutorial();
     }
 
     // Initialize aquarium visuals, bubbles, etc.
@@ -206,6 +212,55 @@ void initState() {
     _startTankDirtTimer();
   });
 }
+
+Future<void> _maybeShowTutorial() async {
+  final auth = Provider.of<AuthProvider>(context, listen: false);
+  final selectedChildProvider = Provider.of<SelectedChildProvider>(context, listen: false);
+
+  String? parentId;
+  String? childId;
+
+  // Determine which user we’re dealing with
+  if (auth.currentUserModel is ChildUser) {
+  final child = auth.currentUserModel as ChildUser;
+  parentId = child.parentUid;
+  childId = child.cid;
+} else if (selectedChildProvider.selectedChild != null) {
+  final child = selectedChildProvider.selectedChild!;
+  // since this is a Map<String, dynamic>
+  parentId = child['parentUid'];
+  childId = child['cid'];
+}
+
+  if (parentId == null || childId == null) return;
+
+  final seen = await AquariumTutorial.hasSeenTutorial(
+    parentId: parentId,
+    childId: childId,
+  );
+
+  if (seen || !mounted) return;
+
+  await Future.delayed(const Duration(milliseconds: 400));
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AquariumTutorialModal(
+      onComplete: () async {
+        await AquariumTutorial.markTutorialSeen(
+          parentId: parentId!,
+          childId: childId!,
+        );
+      },
+    ),
+  );
+}
+
+
+
+
+
 
   void _startNeglectTimer() {
   Future.delayed(const Duration(minutes: 1), () async {
@@ -859,7 +914,7 @@ Positioned(
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.account_balance_wallet,
+                const Icon(Icons.paid,
                     color: Colors.white, size: 18),
                 const SizedBox(width: 4),
                 Text(
@@ -909,13 +964,55 @@ Positioned(
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: const [
-              Icon(Icons.store, color: Colors.white),
+              Icon(Icons.storefront, color: Colors.white),
               SizedBox(width: 6),
               Text('Store', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
       ),
+      const SizedBox(height: 10),
+
+      GestureDetector(
+  onTap: () {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+
+    // Check if the logged-in user is a child
+    if (auth.currentUserModel is ChildUser) {
+      final child = auth.currentUserModel as ChildUser;
+      final childId = child.cid;
+      final parentId = child.parentUid; // ✅ also include parent ID
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AquariumTutorialModal(
+          onComplete: () async {
+            await AquariumTutorial.markTutorialSeen(
+              parentId: parentId,
+              childId: childId,
+            );
+          },
+        ),
+      );
+    }
+  },
+  child: Container(
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.8),
+      shape: BoxShape.circle,
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black26,
+          blurRadius: 4,
+          offset: Offset(2, 2),
+        ),
+      ],
+    ),
+    child: Icon(Icons.help_outline, color: Colors.blue[800], size: 28),
+  ),
+)
     ],
   ),
 ),

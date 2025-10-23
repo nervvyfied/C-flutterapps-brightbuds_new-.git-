@@ -61,6 +61,7 @@ dependencies:
   timezone: ^0.10.1
   android_alarm_manager_plus: ^5.0.0
   http: ^1.5.0
+  shared_preferences: ^2.5.3
   
 dev_dependencies:
   flutter_test:
@@ -165,6 +166,15 @@ flutter:
     - assets/decorations/decor12.png
     - assets/images/g-logo.png
     - assets/profile_placeholder.jpg
+    - assets/tutorial/tutorial1.png
+    - assets/tutorial/tutorial2.png
+    - assets/tutorial/tutorial3.png
+    - assets/tutorial/tutorial4.png
+    - assets/tutorial/tutorial5.png
+    - assets/tutorial/tutorial6.png
+    - assets/tutorial/tutorial7.png
+    - assets/tutorial/tutorial8.png
+    
 
     
 
