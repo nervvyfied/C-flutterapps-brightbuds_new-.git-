@@ -279,6 +279,7 @@ class MyApp extends StatelessWidget {
               routes: {
                 '/parentAuth': (context) => const ParentAuthPage(),
                 '/childAuth': (context) => const ChildAuthPage(),
+                '/achievements': (context) => const AchievementPage(),
               },
             ),
           );

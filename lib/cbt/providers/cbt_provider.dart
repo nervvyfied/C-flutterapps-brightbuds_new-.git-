@@ -223,24 +223,6 @@ Future<void> assignManualCBT(String parentId, String childId, CBTExercise exerci
   await _cbtBox?.put(assigned.id, assigned);
   await _repository.addAssignedCBT(parentId, assigned);
 
-  // ✅ Fetch child token and send notification
-  final childSnapshot = await FirebaseFirestore.instance
-      .collection('users')
-      .doc(parentId)
-      .collection('children')
-      .doc(childId)
-      .get();
-
-  final childToken = childSnapshot.data()?['fcmToken'];
-  if (childToken != null) {
-    await FCMService.sendNotification(
-      title: '🧠 New CBT Exercise',
-      body: 'Your parent assigned you new CBT exercises.',
-      token: childToken,
-      data: {'type': 'cbt_assigned'},
-    );
-  }
-
   notifyListeners();
 }
 
