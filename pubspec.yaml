@@ -165,6 +165,7 @@ flutter:
     - assets/decorations/decor11.png
     - assets/decorations/decor12.png
     - assets/images/g-logo.png
+    - assets/coin.png
     - assets/profile_placeholder.jpg
     - assets/tutorial/tutorial1.png
     - assets/tutorial/tutorial2.png

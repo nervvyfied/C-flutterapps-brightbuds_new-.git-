@@ -47,37 +47,37 @@ class _UnlockDialogState extends State<UnlockDialog> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          title: const Text("🎉 New Unlock!"),
+          title: const Text(
+            "🎉 New Unlock!",
+            textAlign: TextAlign.center,
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Image.asset(widget.fish.storeIconAsset, width: 100, height: 100),
               const SizedBox(height: 12),
-              Text("You unlocked ${widget.fish.name}!",
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center),
+              Text(
+                "You unlocked ${widget.fish.name}!",
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 8),
               Text(widget.fish.description, textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    unlockNotifier.clear();
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pushNamed("/achievements");
+                  },
+                  child: const Text("Go to Achievements"),
+                ),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                unlockNotifier.clear();
-                Navigator.of(context).pop();
-              },
-              child: const Text("OK"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                unlockNotifier.clear();
-                Navigator.of(context).pop();
-                Navigator.of(context).pushNamed("/achievements");
-              },
-              child: const Text("Go to Achievements"),
-            ),
-          ],
         ),
       ],
     );

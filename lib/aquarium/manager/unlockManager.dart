@@ -21,24 +21,24 @@ class UnlockManager {
   });
 
   /// Call after relevant actions (task completed, decor placed, aquarium visited)
-  Future<void> checkUnlocks() async {
-    final child = fishProvider.currentChild;
+ Future<List<FishDefinition>> checkUnlocks() async {
+  final child = fishProvider.currentChild;
 
-    // Fetch tasks
-    final tasksSnap = await firestore
-        .collection('users')
-        .doc(child.parentUid)
-        .collection('children')
-        .doc(child.cid)
-        .collection('tasks')
-        .get();
+  // Fetch tasks
+  final tasksSnap = await firestore
+      .collection('users')
+      .doc(child.parentUid)
+      .collection('children')
+      .doc(child.cid)
+      .collection('tasks')
+      .get();
 
-    List<TaskModel> tasks = tasksSnap.docs
-        .map((d) => TaskModel.fromFirestore(d.data(), d.id))
-        .toList();
+  List<TaskModel> tasks = tasksSnap.docs
+      .map((d) => TaskModel.fromFirestore(d.data(), d.id))
+      .toList();
 
-    // Fetch decors from correct Firestore path
-    final decorDoc = await firestore
+  // Fetch decors
+  final decorDoc = await firestore
       .collection('users')
       .doc(child.parentUid)
       .collection('children')
@@ -54,37 +54,31 @@ class UnlockManager {
         .toList();
   }
 
+  List<FishDefinition> newlyUnlocked = [];
 
-    for (var fishDef in FishCatalog.all) {
-      // Skip non-unlockable or already owned
-      if (fishDef.type != FishType.unlockable || fishProvider.isOwned(fishDef.id)) {
-        continue;
-      }
+  for (var fishDef in FishCatalog.all) {
+    if (fishDef.type != FishType.unlockable ||
+        fishProvider.isOwned(fishDef.id)) continue;
 
-      bool shouldUnlock = false;
+    bool shouldUnlock = false;
 
-      if (fishDef.unlockConditionId == 'first_aquarium_visit') {
-        final childDoc =
-            await firestore.collection("children").doc(child.cid).get();
-        bool firstVisit = childDoc.data()?['firstVisitUnlocked'] ?? false;
+    if (fishDef.unlockConditionId == 'first_aquarium_visit') {
+      // handled separately in AquariumPage, skip here
+      continue;
+    } else {
+      shouldUnlock =
+          _isConditionMet(fishDef.unlockConditionId, child, tasks, decors);
+    }
 
-        if (!firstVisit) {
-          // Mark first visit as unlocked
-          await childDoc.reference.update({'firstVisitUnlocked': true});
-          child.firstVisitUnlocked = true; // update local object
-          selectedChildProvider.updateSelectedChild({'firstVisitUnlocked': true});
-          shouldUnlock = true;
-        }
-      } else {
-        shouldUnlock = _isConditionMet(fishDef.unlockConditionId, child, tasks, decors);
-      }
-
-      if (shouldUnlock) {
-        await fishProvider.unlockFish(fishDef.id);
-        unlockNotifier.setUnlocked(fishDef);
-      }
+    if (shouldUnlock) {
+      await fishProvider.unlockFish(fishDef.id);
+      newlyUnlocked.add(fishDef);
     }
   }
+
+  return newlyUnlocked;
+}
+
 
   bool _isConditionMet(String conditionId, ChildUser child, List<TaskModel> tasks, List<PlacedDecor> decors) {
     switch (conditionId) {
