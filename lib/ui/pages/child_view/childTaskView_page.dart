@@ -46,10 +46,12 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
     await taskProvider.initHive();
+    await taskProvider.autoResetIfNeeded();
     await taskProvider.loadTasks(
       parentId: widget.parentId,
       childId: widget.childId,
     );
+    await taskProvider.autoResetIfNeeded();
 
     // Schedule alarms after tasks loaded
     final childTasks = taskProvider.tasks

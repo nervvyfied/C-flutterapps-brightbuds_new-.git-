@@ -92,10 +92,11 @@ class AquariumPage extends StatefulWidget {
 }
 
 class _AquariumPageState extends State<AquariumPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   double offsetX = 0.0;
   late AnimationController _controller;
   late Animation<double> _animation;
+  late AnimationController _animController;
   int _foodPelletCountDuringDrag = 0;
 
   final Map<String, double> parallax = {
@@ -134,6 +135,11 @@ void initState() {
     vsync: this,
     duration: const Duration(milliseconds: 500),
   );
+
+  _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
 
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -260,9 +266,6 @@ Future<void> _maybeShowTutorial() async {
 
 
 
-
-
-
   void _startNeglectTimer() {
   Future.delayed(const Duration(minutes: 1), () async {
     if (!mounted) return;
@@ -349,6 +352,11 @@ void didChangeDependencies() {
   setState(() {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+    final double maxY = screenHeight * 0.7;
+
+    for (var fish in fishes) {
+      fish.y = min(fish.y, maxY);
+    }
     fishes = fishProvider.activeFishes.map((owned) {
       final def = FishCatalog.byId(owned.fishId);
       return AquariumFish(
@@ -411,6 +419,9 @@ void didChangeDependencies() {
       if (!mounted) return;
       setState(() {
         final screenWidth = MediaQuery.of(context).size.width;
+        final screenHeight = MediaQuery.of(context).size.height;
+        final double maxY = screenHeight * 0.7;
+
 
         for (var fish in fishes) {
           // Check if there is a nearby food pellet
@@ -448,6 +459,7 @@ void didChangeDependencies() {
               fish.y += sin(fish.x * fish.sineFrequency) * 0.2;
             }
           }
+          fish.y = min(fish.y, maxY);
         }
       });
       _animateFishes();
@@ -490,40 +502,46 @@ void didChangeDependencies() {
   }
 
   // ----- Feed Fish -----
-  void _spawnFoodPellet(Offset globalPosition) {
-    final RenderBox box = context.findRenderObject() as RenderBox;
-    final localPosition = box.globalToLocal(globalPosition);
+void _spawnFoodPellet(Offset globalPosition) {
+  final RenderBox box = context.findRenderObject() as RenderBox;
+  final localPosition = box.globalToLocal(globalPosition);
 
-    foodPellets.add(FoodPellet(
-      x: localPosition.dx,
-      y: localPosition.dy,
-      speed: 2.5,
-    ));
+  final screenHeight = MediaQuery.of(context).size.height;
+  final double maxY = screenHeight * 0.7; // restrict to 70% of screen height
 
-    _foodPelletCountDuringDrag++;
-    if (_foodPelletCountDuringDrag >= fishes.length) {
-      _resetFishesHealth();
-    }
+  foodPellets.add(FoodPellet(
+    x: localPosition.dx,
+    y: min(localPosition.dy, maxY), // clamp Y position
+    speed: 2.5,
+  ));
 
-    setState(() {});
+  _foodPelletCountDuringDrag++;
+  if (_foodPelletCountDuringDrag >= fishes.length) {
+    _resetFishesHealth();
   }
+
+  setState(() {});
+}
+
 
   void _onFoodDragStarted(DragStartDetails details) {
-    _lastDragPosition = details.globalPosition;
-    _foodPelletCountDuringDrag = 0;
+  _lastDragPosition = details.globalPosition;
+  _foodPelletCountDuringDrag = 0;
 
-    _foodDragTimer?.cancel();
-    _foodDragTimer = Timer.periodic(
-      Duration(milliseconds: 500 + random.nextInt(500)),
-      (_) {
-        if (_lastDragPosition != null) _spawnFoodPellet(_lastDragPosition!);
-      },
-    );
-  }
+  _foodDragTimer?.cancel();
+  _foodDragTimer = Timer.periodic(
+    Duration(milliseconds: 500 + random.nextInt(500)),
+    (_) {
+      final position = _lastDragPosition; // get latest position
+      if (position != null) _spawnFoodPellet(position);
+    },
+  );
+}
 
-  void _onFoodDragUpdate(DragUpdateDetails details) {
-    _lastDragPosition = details.globalPosition;
-  }
+void _onFoodDragUpdate(DragUpdateDetails details) {
+  _lastDragPosition = details.globalPosition; // update last position on drag
+}
+
 
   void _onFoodDragEnd(DraggableDetails details) {
     _stopFoodDragTimer();
@@ -571,6 +589,7 @@ void didChangeDependencies() {
 
 void dispose() {
   decorProvider.saveEditMode(); // final sync in case some moves are unsaved
+  _animController.dispose();
   super.dispose();
 }
 
@@ -602,7 +621,7 @@ void dispose() {
         onHorizontalDragUpdate: _onDragUpdate,
         onHorizontalDragEnd: (_) => _onDragEnd(),
         child: Stack(
-          children: [
+          children: <Widget>[
             Positioned.fill(
               child: Image.asset(
                 'assets/tank/water_bg.png',
@@ -621,9 +640,9 @@ void dispose() {
 // ----- Placed Decors / Edit Mode -----
 Stack(
   children: [
+    _buildLayer(
+                'assets/tank/sand2.png', sand2Width, offsetX * parallax['sand2']!),
     // ----- Placed Decors -----
-    // ----- Placed Decors (decor layer) -----
-// Render draggables first
 ...itemsToRender.map((decor) {
   final decorDef = decorProvider.getDecorDefinition(decor.decorId);
   // ignore: dead_code, unnecessary_null_comparison
@@ -724,6 +743,30 @@ Stack(
     ),
   );
 }).toList(),
+// ----- Edit Mode Banner -----
+    if (decorProvider.isInEditMode)
+      Positioned(
+        top: 50,
+        left: 0,
+        right: 0,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.greenAccent.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              "You are in Edit Mode",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ),
+      ),
 
 // ----- Action Buttons Overlay (rendered after the decors so they are on top) -----
 // For every selected decor render the store/sell buttons positioned above it.
@@ -846,54 +889,56 @@ Stack(
                 ),
               ),
             ),
-            _buildLayer(
-                'assets/tank/sand2.png', sand2Width, offsetX * parallax['sand2']!),
+            
            // ----- Care Tools Top Left -----
-            Positioned(
-              top: 20,
-              left: 20,
-              child: Row(
-                children: [
-                  // Fish Food
-                  Draggable(
-                    feedback: Image.asset(
-                      'assets/tools/fishfood_drop.gif',
-                      width: 60,
-                      height: 60,
-                    ),
-                    childWhenDragging: const SizedBox(width: 60, height: 60),
-                    onDragStarted: () =>
-                        _onFoodDragStarted(DragStartDetails(globalPosition: Offset(50, 50))),
-                    onDragUpdate: _onFoodDragUpdate,
-                    onDragEnd: _onFoodDragEnd, // disappears while dragging
-                    child: Image.asset(
-                      'assets/tools/fishfood_icon.png',
-                      width: 60,
-                      height: 60,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  // Sponge
-                  Draggable(
-                    feedback: Image.asset(
-                      'assets/tools/sponge_icon.png',
-                      width: 60,
-                      height: 60,
-                    ),
-                    childWhenDragging: const SizedBox(width: 60, height: 60),
-                    child: Image.asset(
-                      'assets/tools/sponge_icon.png',
-                      width: 60,
-                      height: 60,
-                    ),
-                    onDragUpdate: (details) {
-                      _cleanDirt(details.globalPosition);
-                    },
-                  ),
-                ],
-              ),
-            ),
+if (!decorProvider.isInEditMode)
+  Positioned(
+    top: 20,
+    left: 20,
+    child: Row(
+      children: [
+        // Fish Food
+        Draggable(
+          feedback: Image.asset(
+            'assets/tools/fishfood_drop.gif',
+            width: 60,
+            height: 60,
+          ),
+          childWhenDragging: const SizedBox(width: 60, height: 60),
+          onDragStarted: () =>
+              _onFoodDragStarted(DragStartDetails(globalPosition: Offset(50, 50))),
+          onDragUpdate: _onFoodDragUpdate,
+          onDragEnd: _onFoodDragEnd,
+          child: Image.asset(
+            'assets/tools/fishfood_icon.png',
+            width: 60,
+            height: 60,
+          ),
+        ),
+        const SizedBox(width: 10),
+        // Sponge
+        Draggable(
+          feedback: Image.asset(
+            'assets/tools/sponge_icon.png',
+            width: 60,
+            height: 60,
+          ),
+          childWhenDragging: const SizedBox(width: 60, height: 60),
+          child: Image.asset(
+            'assets/tools/sponge_icon.png',
+            width: 60,
+            height: 60,
+          ),
+          onDragUpdate: (details) {
+            _cleanDirt(details.globalPosition);
+          },
+        ),
+      ],
+    ),
+  ),
+
             // ----- Child Info Top Right -----
+            if (!decorProvider.isInEditMode)
 Positioned(
   top: 20,
   right: 20,
@@ -1020,62 +1065,81 @@ Positioned(
 
 
 // Bottom-right stacked buttons
+// ----- Inline Bottom Menu in main Stack -----
 Positioned(
   bottom: 20,
   right: 20,
   child: Column(
     mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.end,
     children: [
-      // Inventory button
-      GestureDetector(
-        onTap: () async {
-          final selected = await showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            builder: (_) => const InventoryModal(),
-          );
+      // Dropdown buttons
+      SizeTransition(
+        sizeFactor: _animController,
+        axis: Axis.vertical,
+        axisAlignment: 1, // expand upwards
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            // Inventory only visible if NOT in edit mode
+            if (!decorProvider.isInEditMode)
+              GestureDetector(
+                onTap: () async {
+                  final selected = await showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => const InventoryModal(),
+                  );
+                  if (selected != null) {
+                    await decorProvider.placeFromInventory(selected.decorId, 100, 200);
+                  }
+                },
+                child: _menuButton(Icons.inventory_2, Colors.orangeAccent),
+              ),
+            if (!decorProvider.isInEditMode) const SizedBox(height: 12),
 
-          if (selected != null) {
-            final decorProvider = Provider.of<DecorProvider>(context, listen: false);
-            await decorProvider.placeFromInventory(selected.decorId, 100, 200);
-          }
-        },
-        child: Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: Colors.orangeAccent,
-            shape: BoxShape.circle,
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-          ),
-          child: const Icon(Icons.inventory_2, color: Colors.white, size: 30),
+            // Edit / Save button (always inside dropdown)
+            GestureDetector(
+              onTap: () async {
+                if (decorProvider.isInEditMode) {
+                  await decorProvider.saveEditMode();
+                  final unlockManager = context.read<UnlockManager>();
+                  await unlockManager.checkUnlocks();
+                } else {
+                  decorProvider.enterEditMode();
+                }
+              },
+              child: _menuButton(
+                decorProvider.isInEditMode ? Icons.save : Icons.edit,
+                Colors.greenAccent,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
         ),
       ),
-      const SizedBox(height: 12),
-      // Edit Tank button
+
+      // Main menu button (always visible)
       GestureDetector(
-        onTap: () async {
-          final decorProvider = Provider.of<DecorProvider>(context, listen: false);
-          if (decorProvider.isInEditMode) {
-            await decorProvider.saveEditMode();
-            final unlockManager = context.read<UnlockManager>();
-            await unlockManager.checkUnlocks();
-          } else {
-            decorProvider.enterEditMode();
-          }
+        onTap: () {
+          setState(() {
+            if (_animController.isCompleted) {
+              _animController.reverse();
+            } else {
+              _animController.forward();
+            }
+          });
         },
         child: Container(
           width: 60,
           height: 60,
           decoration: BoxDecoration(
-            color: Colors.greenAccent,
+            color: Colors.blueAccent,
             shape: BoxShape.circle,
             boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
           ),
           child: Icon(
-            Provider.of<DecorProvider>(context).isInEditMode
-                ? Icons.save
-                : Icons.edit,
+            _animController.isCompleted ? Icons.close : Icons.menu,
             color: Colors.white,
             size: 30,
           ),
@@ -1087,6 +1151,8 @@ Positioned(
 
 
 
+
+
           ],
         ),
       ),
@@ -1094,6 +1160,18 @@ Positioned(
     
   }
 
+Widget _menuButton(IconData icon, Color color) {
+  return Container(
+    width: 60,
+    height: 60,
+    decoration: BoxDecoration(
+      color: color,
+      shape: BoxShape.circle,
+      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+    ),
+    child: Icon(icon, color: Colors.white, size: 30),
+  );
+}
 
 
   Widget _buildLayer(String asset, double layerWidth, double offset) {

@@ -138,13 +138,16 @@ class FishProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<int> fetchBalance() async {
-    try {
-      return await _repo.fetchBalance(currentChild.parentUid, currentChild.cid);
-    } catch (_) {
-      return currentChild.balance;
-    }
+  Future<int> fetchBalance({bool updateLocal = true}) async {
+  try {
+    final remoteBalance = await _repo.fetchBalance(currentChild.parentUid, currentChild.cid);
+    if (updateLocal) _updateLocalBalance(remoteBalance);
+    return remoteBalance;
+  } catch (e) {
+    debugPrint('Failed to fetch remote balance, using local: $e');
+    return currentChild.balance;
   }
+}
 
   // ---------- Inventory ----------
   UnmodifiableListView<OwnedFish> get inventory =>

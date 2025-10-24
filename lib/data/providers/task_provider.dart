@@ -36,12 +36,19 @@ class TaskProvider extends ChangeNotifier {
   Box<TaskModel>? _taskBox;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  Box<DateTime>? _settingsBox;
+
   Future<void> initHive() async {
+    _settingsBox = await Hive.openBox('settingsBox');
+
     if (!Hive.isBoxOpen('tasksBox')) {
       _taskBox = await Hive.openBox<TaskModel>('tasksBox');
     } else {
       _taskBox = Hive.box<TaskModel>('tasksBox');
     }
+    
+    _lastResetDate = _settingsBox?.get('lastResetDate');
+    startDailyResetScheduler();
   }
 
   /// Load local tasks first, then merge remote tasks asynchronously
@@ -442,11 +449,12 @@ Future<void> cancelTaskAlarm(TaskModel task) async {
         activeStreak: updatedActiveStreak,
         lastUpdated: DateTime.now(),
       );
+       await _taskRepo.saveTask(updated);
 
-      // Update task (saves locally + remotely + reschedules alarm)
-      await updateTask(updated);
+        final idx = _tasks.indexWhere((t) => t.id == task.id);
+        if (idx != -1) _tasks[idx] = updated;
+      }
     }
-  }
 
   // Sync any pending changes after reset
   await pushPendingChanges();
@@ -481,7 +489,8 @@ Future<void> cancelTaskAlarm(TaskModel task) async {
 
     if (_lastResetDate == null || _lastResetDate!.isBefore(todayDateOnly)) {
       await resetDailyTasks();
-      _lastResetDate = todayDateOnly;
+      _lastResetDate = DateTime(today.year, today.month, today.day);
+      await _settingsBox?.put('lastResetDate', _lastResetDate!);
     }
   }
 
