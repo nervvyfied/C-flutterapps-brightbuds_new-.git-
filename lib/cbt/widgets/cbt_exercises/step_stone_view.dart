@@ -142,7 +142,7 @@ class _StepStoneViewState extends State<StepStoneView> with TickerProviderStateM
         children: [
           // River background
           Positioned.fill(
-            child: Image.asset('assets/cbt/confused/River_bg.png', fit: BoxFit.fill),
+            child: Image.asset('assets/cbt/confused/river_bg.png', fit: BoxFit.fill),
           ),
 
           // Stepping stones

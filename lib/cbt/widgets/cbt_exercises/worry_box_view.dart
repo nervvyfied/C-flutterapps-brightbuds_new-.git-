@@ -128,134 +128,153 @@ class _WorryBoxViewState extends State<WorryBoxView> with TickerProviderStateMix
     final screenHeight = MediaQuery.of(context).size.height;
 
     return Scaffold(
-      backgroundColor: Colors.lightBlue[50],
-      appBar: AppBar(title: Text(widget.exercise.title)),
-      body: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Box centered
-          Positioned(
-            top: screenHeight * 0.3,
-            child: Stack(
-              alignment: Alignment.center,
-              clipBehavior: Clip.none,
-              children: [
-                // Box body
-                Image.asset('assets/cbt/scared/box_body.png', width: screenWidth * 0.4),
+  backgroundColor: Colors.lightBlue[50],
+  appBar: AppBar(title: Text(widget.exercise.title)),
+  resizeToAvoidBottomInset: true, // ✅ adjust for keyboard
+  body: SafeArea(
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        // Box centered
+        Positioned(
+          top: screenHeight * 0.3,
+          child: Stack(
+            alignment: Alignment.center,
+            clipBehavior: Clip.none,
+            children: [
+              // Box body
+              Image.asset('assets/cbt/scared/box_body.png', width: screenWidth * 0.4),
 
-                // Note drop animation
-                if (_showNoteDrop)
-                  SlideTransition(
+              // Note drop animation
+              if (_showNoteDrop)
+                SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, -1),
+                    end: const Offset(0, 0),
+                  ).animate(CurvedAnimation(
+                    parent: _noteDropController,
+                    curve: Curves.easeOut,
+                  )),
+                  child: FadeTransition(
+                    opacity: Tween<double>(begin: 1.0, end: 0.0).animate(_noteFadeController),
+                    child: Image.asset(
+                      'assets/cbt/scared/paper_note.png',
+                      width: screenWidth * 0.28,
+                    ),
+                  ),
+                ),
+
+              // Lid animation
+              if (_showLid)
+                Positioned(
+                  top: -screenWidth * 0.03,
+                  child: SlideTransition(
                     position: Tween<Offset>(
-                      begin: const Offset(0, -1),
+                      begin: const Offset(0, -0.5),
                       end: const Offset(0, 0),
                     ).animate(CurvedAnimation(
-                      parent: _noteDropController,
+                      parent: _lidController,
                       curve: Curves.easeOut,
                     )),
                     child: FadeTransition(
-                      opacity: Tween<double>(begin: 1.0, end: 0.0).animate(_noteFadeController),
+                      opacity: _lidController,
                       child: Image.asset(
-                        'assets/cbt/scared/paper_note.png',
-                        width: screenWidth * 0.28,
+                        'assets/cbt/scared/box_lid.png',
+                        width: screenWidth * 0.42,
                       ),
                     ),
                   ),
+                ),
+            ],
+          ),
+        ),
 
-                // Lid animation (slightly overlaps downward)
-                if (_showLid)
-                  Positioned(
-                    top: -screenWidth * 0.03, // slightly above box center for downward overlap
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, -0.5),
-                        end: const Offset(0, 0),
-                      ).animate(CurvedAnimation(
-                        parent: _lidController,
-                        curve: Curves.easeOut,
-                      )),
-                      child: FadeTransition(
-                        opacity: _lidController,
-                        child: Image.asset(
-                          'assets/cbt/scared/box_lid.png',
-                          width: screenWidth * 0.42, // slightly wider than box
-                        ),
-                      ),
+        // Input modal
+        // Input modal
+if (_showInputModal)
+  Align(
+    alignment: Alignment.bottomCenter,
+    child: Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ), // adjust for keyboard height
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        elevation: 5,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: screenHeight * 0.4, // max modal height
+            ),
+            child: SingleChildScrollView(
+              reverse: true, // keep focus on bottom
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _worryController,
+                    keyboardType: TextInputType.multiline,
+                    minLines: 1,        // starts with 1 line
+                    maxLines: 10,       // grows up to 10 lines
+                    textInputAction: TextInputAction.newline,
+                    decoration: const InputDecoration(
+                      hintText: "Write your worry here...",
+                      border: OutlineInputBorder(),
                     ),
                   ),
-              ],
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: _submitWorry,
+                    child: const Text("Put in Box"),
+                  ),
+                ],
+              ),
             ),
           ),
-
-          // Input modal below box
-          if (_showInputModal)
-            Positioned(
-              top: screenHeight * 0.60,
-              left: screenWidth * 0.25,
-              child: SizedBox(
-                width: screenWidth * 0.5,
-                child: Material(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  elevation: 5,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextField(
-                          controller: _worryController,
-                          decoration: const InputDecoration(
-                            hintText: "Write your worry here...",
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ElevatedButton(
-                          onPressed: _submitWorry,
-                          child: const Text("Put in Box"),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-          // Heart lock modal overlay
-          if (_showLockModal)
-            Container(
-              color: Colors.black54,
-              alignment: Alignment.center,
-              child: Material(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Image.asset(
-                        'assets/cbt/scared/heart_lock.png',
-                        width: screenWidth * 0.25,
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        "Your worry is safely stored away.\nYou are safe, cared for, and can handle this.",
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: _onLockConfirmed,
-                        child: const Text("OK"),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
-    );
+    ),
+  ),
+
+        // Heart lock modal
+        if (_showLockModal)
+          Container(
+            color: Colors.black54,
+            alignment: Alignment.center,
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      'assets/cbt/scared/heart_lock.png',
+                      width: screenWidth * 0.25,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "Your worry is safely stored away.\nYou are safe, cared for, and can handle this.",
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: _onLockConfirmed,
+                      child: const Text("OK"),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  ),
+);
   }
 }

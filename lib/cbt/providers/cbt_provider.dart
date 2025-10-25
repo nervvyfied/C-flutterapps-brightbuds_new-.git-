@@ -60,43 +60,61 @@ class CBTProvider with ChangeNotifier {
 
   // ===== Load Local CBT =====
   Future<void> loadLocalCBT(String parentId, String childId) async {
-    await initHive();
-    _assigned = _cbtBox!.values.where((a) => a.childId == childId).toList();
-    await normalizeAssignedStatusesAndCleanup(parentId, childId);
-    notifyListeners();
+  await initHive();
+  _assigned = _cbtBox!.values.where((a) => a.childId == childId).toList();
+
+  // Deduplicate by exerciseId + childId + weekOfYear
+  final Map<String, AssignedCBT> dedupedMap = {};
+  for (var a in _assigned) {
+    final key = '${a.exerciseId}_${a.childId}_${a.weekOfYear}';
+    if (!dedupedMap.containsKey(key)) {
+      dedupedMap[key] = a;
+    }
   }
+  _assigned = dedupedMap.values.toList();
+
+  await normalizeAssignedStatusesAndCleanup(parentId, childId);
+  notifyListeners();
+}
+
 
   // ===== Load Remote CBT =====
   Future<void> loadRemoteCBT(String parentId, String childId) async {
-    await _repository.syncFromFirestore(parentId, childId);
-    final remote = _repository.getLocalCBTs(childId);
+  await _repository.syncFromFirestore(parentId, childId);
+  final remote = _repository.getLocalCBTs(childId);
 
-    // Merge remote + local intelligently
-    final Map<String, AssignedCBT> merged = {for (var a in _assigned) a.id: a};
-    for (var r in remote) {
-      if (merged.containsKey(r.id)) {
-        final local = merged[r.id]!;
-
-        // Preserve local completion if newer
-        if (local.lastCompleted != null &&
-            (r.lastCompleted == null || local.lastCompleted!.isAfter(r.lastCompleted!))) {
-          r.completed = local.completed;
-          r.lastCompleted = local.lastCompleted;
-        }
-      }
-      merged[r.id] = r;
-    }
-
-    _assigned = merged.values.toList();
-
-    // Save merged to Hive
-    for (var a in _assigned) {
-      await _cbtBox?.put(a.id, a);
-    }
-
-    await normalizeAssignedStatusesAndCleanup(parentId, childId);
-    notifyListeners();
+  // Merge remote + local intelligently
+  final Map<String, AssignedCBT> merged = {};
+  for (var a in _assigned) {
+    final key = '${a.exerciseId}_${a.childId}_${a.weekOfYear}';
+    merged[key] = a;
   }
+
+  for (var r in remote) {
+    final key = '${r.exerciseId}_${r.childId}_${r.weekOfYear}';
+    if (merged.containsKey(key)) {
+      final local = merged[key]!;
+      // Preserve local completion if newer
+      if (local.lastCompleted != null &&
+          (r.lastCompleted == null || local.lastCompleted!.isAfter(r.lastCompleted!))) {
+        r.completed = local.completed;
+        r.lastCompleted = local.lastCompleted;
+      }
+    }
+    merged[key] = r;
+  }
+
+  _assigned = merged.values.toList();
+
+  // Save merged to Hive
+  for (var a in _assigned) {
+    await _cbtBox?.put(a.id, a);
+  }
+
+  await normalizeAssignedStatusesAndCleanup(parentId, childId);
+  notifyListeners();
+}
+
 
   // ===== Normalize & Cleanup =====
   Future<void> normalizeAssignedStatusesAndCleanup(String parentId, String childId) async {
@@ -200,16 +218,22 @@ class CBTProvider with ChangeNotifier {
   }
 
   // ===== Assignment =====
-Future<void> assignManualCBT(String parentId, String childId, CBTExercise exercise) async {
+Future<void> assignManualCBT(
+    String parentId, String childId, CBTExercise exercise) async {
+
   final weekOfYear = getCurrentWeekNumber(DateTime.now());
-  await loadLocalCBT(parentId, childId);
 
+  // Prevent duplicates by stable key
   final alreadyAssigned = _assigned.any((a) =>
-      a.weekOfYear == weekOfYear && a.exerciseId == exercise.id && a.childId == childId);
-  if (alreadyAssigned) return;
+      a.exerciseId == exercise.id &&
+      a.childId == childId &&
+      a.weekOfYear == weekOfYear);
 
+  if (alreadyAssigned) return; // <-- now truly prevents duplicates
+
+  // Use a stable ID or Hive key
   final assigned = AssignedCBT.fromExercise(
-    id: UniqueKey().toString(),
+    id: '${childId}_${exercise.id}_$weekOfYear', // stable unique ID
     exercise: exercise,
     childId: childId,
     assignedDate: DateTime.now(),
@@ -226,6 +250,7 @@ Future<void> assignManualCBT(String parentId, String childId, CBTExercise exerci
   notifyListeners();
 }
 
+
   Future<void> unassignCBT(String parentId, String childId, String assignedId) async {
     try {
       await _repository.removeAssignedCBT(parentId, childId, assignedId);
@@ -239,9 +264,18 @@ Future<void> assignManualCBT(String parentId, String childId, CBTExercise exerci
 
   // ===== Getters =====
   List<AssignedCBT> getCurrentWeekAssignments() {
-    final week = getCurrentWeekNumber(DateTime.now());
-    return _assigned.where((a) => a.weekOfYear == week).toList();
+  final week = getCurrentWeekNumber(DateTime.now());
+  final weekAssignments = _assigned.where((a) => a.weekOfYear == week).toList();
+
+  // Deduplicate just in case
+  final Map<String, AssignedCBT> dedupedMap = {};
+  for (var a in weekAssignments) {
+    final key = '${a.exerciseId}_${a.childId}_${a.weekOfYear}';
+    if (!dedupedMap.containsKey(key)) dedupedMap[key] = a;
   }
+  return dedupedMap.values.toList();
+}
+
 
   bool isCompleted(String childId, String exerciseId) {
     final assigned = _assigned.where((a) => a.childId == childId && a.exerciseId == exerciseId).toList();

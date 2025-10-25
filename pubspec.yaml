@@ -62,6 +62,7 @@ dependencies:
   android_alarm_manager_plus: ^5.0.0
   http: ^1.5.0
   shared_preferences: ^2.5.3
+  collection: ^1.18.0
   
 dev_dependencies:
   flutter_test:
@@ -92,8 +93,13 @@ flutter:
     - assets/audios/calm/
     - assets/audios/happy/
     - assets/audios/angry/
+    - assets/moods/
     - assets/cbt/calm/
     - assets/cbt/happy/
+    - assets/cbt/happy/stretch_up.gif
+    - assets/cbt/happy/stretch_up.png
+    - assets/cbt/happy/wide_hug.gif
+    - assets/cbt/happy/wide_hug.png
     - assets/cbt/angry/
     - assets/cbt/sad/
     - assets/cbt/scared/
@@ -175,6 +181,8 @@ flutter:
     - assets/tutorial/tutorial6.png
     - assets/tutorial/tutorial7.png
     - assets/tutorial/tutorial8.png
+    - assets/store_bg.png
+    - assets/general_bg.png
     
 
     

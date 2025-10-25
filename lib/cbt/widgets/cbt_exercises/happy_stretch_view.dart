@@ -121,8 +121,8 @@ class _HappyStretchViewState extends State<HappyStretchView> {
                   // Stretch / Hug GIF
                   Image.asset(
                     _isStretchVisible
-                        ? 'assets/cbt/happy/Stretch_up.gif'
-                        : 'assets/cbt/happy/Wide_hug.gif',
+                        ? 'assets/cbt/happy/stretch_up.gif'
+                        : 'assets/cbt/happy/wide_hug.gif',
                     fit: BoxFit.contain,
                   ),
                   // Sparkles overlay

@@ -30,7 +30,6 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<CBTProvider>().loadLocalCBT(widget.parentId, widget.childId);
-      // Optional: attempt remote sync if online
       context.read<CBTProvider>().syncPendingCompletions(widget.parentId);
     });
   }
@@ -41,22 +40,28 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
     final assignedIds =
         cbtProvider.getCurrentWeekAssignments().map((a) => a.exerciseId).toSet();
     final exercises = CBTLibrary.all;
+    final currentWeekAssignments = cbtProvider.getCurrentWeekAssignments();
 
-    // 🔹 Filter by category (mood)
+    final Map<String, AssignedCBT> assignedMap = {
+      for (var a in currentWeekAssignments) a.exerciseId: a
+    };
+    final Set<String> assigningSet = {};
+
+    // Filter exercises by selected mood
     List<CBTExercise> filtered = _selectedCategory == 'All'
         ? exercises
         : exercises
             .where((e) => e.mood.toLowerCase() == _selectedCategory.toLowerCase())
             .toList();
 
-    // 🔹 Find suggested CBT based on passed mood
+    // Suggested CBT based on passed mood
     final moodToSuggest = widget.suggestedMood?.toLowerCase() ?? 'calm';
     CBTExercise suggested = exercises.firstWhere(
       (e) => e.mood.toLowerCase() == moodToSuggest,
       orElse: () => exercises.first,
     );
 
-    // 🔹 Reorder so suggested CBT appears first in "All"
+    // Put suggested CBT first if "All" is selected
     if (_selectedCategory == 'All') {
       filtered.sort((a, b) {
         if (a.id == suggested.id) return -1;
@@ -66,61 +71,168 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Assign CBT Exercises'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            child: _buildCategoryTabs(),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                // Header container with back icon
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8657F3),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: const Icon(Icons.arrow_back, color: Colors.white),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Assign CBT Exercises',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+
+                // Sorting buttons
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final gridHeight = 3 * 46 + 2 * 6; // 3 rows x 46 height + 2 gaps
+                      return Row(
+                        children: [
+                          // "All" button
+                          Expanded(
+                            flex: 3,
+                            child: SizedBox(
+                              height: gridHeight.toDouble(),
+                              child: _buildMoodButton('All', const Color.fromRGBO(255, 255, 255, 1), selected: _selectedCategory=='All'),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          // 2x3 grid for other moods
+                          Expanded(
+                            flex: 7,
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildMoodButton('Happy', const Color.fromRGBO(254, 207, 0, 1), selected: _selectedCategory=='Happy'),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: _buildMoodButton('Sad', const Color.fromARGB(255, 87, 160, 243), selected: _selectedCategory=='Sad'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildMoodButton('Angry', const Color.fromARGB(255, 253, 92, 103), selected: _selectedCategory=='Angry'),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: _buildMoodButton('Calm', const Color.fromARGB(255, 166, 194, 111), selected: _selectedCategory=='Calm'),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildMoodButton('Anxious', const Color.fromARGB(255, 134, 87, 243), selected: _selectedCategory=='Anxious'),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: _buildMoodButton('Confused', const Color.fromARGB(255, 252, 139, 52), selected: _selectedCategory=='Confused'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // List of CBT cards
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final exercise = filtered[index];
+                        final assignedEntry = assignedMap[exercise.id];
+                        final isAssigned = assignedEntry != null;
+                        final isCompleted = assignedEntry?.completed ?? false;
+                        final isSuggested = exercise.id == suggested.id;
+
+                        return CBTCard(
+                          exercise: exercise,
+                          isParentView: true,
+                          isAssigned: isAssigned,
+                          isCompleted: isCompleted,
+                          isSuggested: isSuggested,
+                          onAssign: () async {
+                            if (isAssigned || assigningSet.contains(exercise.id)) return;
+
+                            // Mark as assigning
+                            assigningSet.add(exercise.id);
+                            await cbtProvider.assignManualCBT(
+                              widget.parentId,
+                              widget.childId,
+                              exercise,
+                            );
+                            // Remove from assigning after done
+                            assigningSet.remove(exercise.id);
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('${exercise.title} assigned!')),
+                            );
+                          },
+                          onUnassign: () async {
+                            if (!isAssigned || assigningSet.contains(exercise.id)) return;
+
+                            assigningSet.add(exercise.id);
+                            await cbtProvider.unassignCBT(
+                              widget.parentId,
+                              widget.childId,
+                              assignedEntry!.id,
+                            );
+                            assigningSet.remove(exercise.id);
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('${exercise.title} unassigned.')),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                )
+              ],
+            ),
           ),
-        ),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: ListView.builder(
-          itemCount: filtered.length,
-          itemBuilder: (context, index) {
-            final exercise = filtered[index];
-            final isAssigned = assignedIds.contains(exercise.id);
-            final isSuggested = exercise.id == suggested.id;
-
-            return CBTCard(
-              exercise: exercise,
-              isParentView: true,
-              isAssigned: isAssigned,
-              isSuggested: isSuggested,
-              onAssign: () async {
-                if (isAssigned) return;
-                await cbtProvider.assignManualCBT(
-                    widget.parentId, widget.childId, exercise);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${exercise.title} assigned!')),
-                );
-              },
-              onUnassign: () async {
-                // ✅ Proper null-safe handling
-                AssignedCBT? assignedEntry;
-                try {
-                  assignedEntry = cbtProvider.assigned.firstWhere(
-                    (a) =>
-                        a.exerciseId == exercise.id &&
-                        a.childId == widget.childId,
-                  );
-                } catch (_) {
-                  assignedEntry = null;
-                }
-                if (assignedEntry == null) return;
-
-                await cbtProvider.unassignCBT(
-                    widget.parentId, widget.childId, assignedEntry.id);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${exercise.title} unassigned.')),
-                );
-              },
-            );
-          },
-        ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
@@ -140,28 +252,24 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
     );
   }
 
-  Widget _buildCategoryTabs() {
-    final moods = ['All', 'Happy', 'Sad', 'Angry', 'Calm', 'Anxious', 'Confused'];
-    return SizedBox(
-      height: 40,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: moods.length,
-        itemBuilder: (context, index) {
-          final cat = moods[index];
-          final isSelected = cat == _selectedCategory;
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: ChoiceChip(
-              label: Text(cat),
-              selected: isSelected,
-              selectedColor: Colors.blueAccent,
-              labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black87),
-              onSelected: (_) => setState(() => _selectedCategory = cat),
-            ),
-          );
-        },
+  Widget _buildMoodButton(String label, Color color, {bool selected = false}) {
+    return GestureDetector(
+      onTap: () => setState(() => _selectedCategory = label),
+      child: Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.85) : color.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(12),
+          border: selected ? Border.all(color: Colors.black, width: 2) : null,
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Color.fromARGB(255, 0, 0, 0),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

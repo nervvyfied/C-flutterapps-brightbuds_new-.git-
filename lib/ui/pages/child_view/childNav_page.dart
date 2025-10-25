@@ -21,7 +21,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     return [
       ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
       JournalListPage(parentId: parentId, childId: childId),
-      ChildCBTPage(childId:childId, parentId: parentId, childName: childName,),
+      ChildCBTPage(childId:childId, parentId: parentId,),
       AquariumPage(),
     ];
   }
@@ -48,10 +48,10 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
         onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.task), label: 'Quests'),
-          BottomNavigationBarItem(icon: Icon(Icons.book), label: 'Journal'),
-          BottomNavigationBarItem(icon: Icon(Icons.bolt), label: 'Power Pack'),
-          BottomNavigationBarItem(icon: Icon(Icons.water), label: 'Aquarium'),
+          BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Quests'),
+          BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Journal'),
+          BottomNavigationBarItem(icon: Icon(Icons.auto_awesome), label: 'Power Pack'),
+          BottomNavigationBarItem(icon: Icon(Icons.bubble_chart), label: 'Aquarium'),
         ],
       ),
     );

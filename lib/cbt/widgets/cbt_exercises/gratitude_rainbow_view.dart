@@ -90,24 +90,25 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
   }
 
   Future<void> _revealBand(int index) async {
-  if (_revealed[index]) return;
+  if (_revealed[index]) return; // already revealed
+  if (_allCompleted) return; // prevent further presses after completion
 
   _revealed[index] = true;
 
-  // Start both band + cloud animations at the same time
   _bandControllers[index].forward();
   _cloudControllers[index].forward();
 
-  // Show sparkles while clouds animate
+  // Sparkle animation
   setState(() => _sparkleVisible[index] = true);
-  await Future.delayed(const Duration(milliseconds: 1800)); // longer sparkle duration
+  await Future.delayed(const Duration(milliseconds: 1800));
+  if (!mounted) return;
   setState(() => _sparkleVisible[index] = false);
 
-  // Check if all completed
-  if (_revealed.every((r) => r)) {
+  // Check all completed (ensure called only once)
+  if (_revealed.every((r) => r) && !_allCompleted) {
     setState(() => _allCompleted = true);
     await Future.delayed(const Duration(seconds: 1));
-    _onCompleted();
+    if (mounted) _onCompleted();
   }
 }
 
@@ -132,6 +133,7 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
+                Navigator.pop(context);
               },
               child: const Text('OK'),
             ),
@@ -149,34 +151,37 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bandSpacing = 35.0;
-    final bandWidth = screenWidth * 1.25;
-    final double baseBottom = 120.0;
+Widget build(BuildContext context) {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final bandSpacing = 35.0;
+  final bandWidth = screenWidth * 1.25;
+  const double baseBottom = 120.0;
 
-    return Scaffold(
-      backgroundColor: Colors.blue[100],
-      appBar: AppBar(title: Text(widget.exercise.title)),
-      body: Stack(
+  return Scaffold(
+    backgroundColor: Colors.blue[100],
+    appBar: AppBar(title: Text(widget.exercise.title)),
+    body: SafeArea( // ✅ prevents overlap with status/navigation bars
+      child: Stack(
         children: [
+          // ☁️ Background
           Positioned.fill(
-            child: Image.asset('assets/cbt/sad/sky_bg.png', fit: BoxFit.cover),
+            child: Image.asset(
+              'assets/cbt/sad/sky_bg.png',
+              fit: BoxFit.cover,
+            ),
           ),
 
-          // 🌈 Bands + clouds + sparkles
+          // 🌈 Bands + Clouds + Sparkles
           for (int i = 0; i < _bands.length; i++)
             Positioned(
-              // reverse the vertical position so index 0 is highest
               bottom: baseBottom + (_bands.length - 1 - i) * bandSpacing,
               left: -(bandWidth - screenWidth) / 2,
               child: SizedBox(
                 width: bandWidth,
-                // each band is its own Stack: band, clouds (hidden initially), sparkles
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // band reveal (center -> edges)
+                    // Band reveal
                     AnimatedBuilder(
                       animation: _bandControllers[i],
                       builder: (_, child) {
@@ -188,106 +193,156 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
                       child: Image.asset(_bands[i], width: bandWidth, fit: BoxFit.fill),
                     ),
 
-                  // Clouds animation (start invisible, fade in + move + fade out)
-                  AnimatedBuilder(
-                    animation: _cloudControllers[i],
-                    builder: (_, __) {
-                      return Opacity(
-                        opacity: _cloudOpacity[i].value,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SlideTransition(
-                              position: _cloudLeftOffset[i],
-                              child: Image.asset(
-                                'assets/cbt/sad/cloud.png',
-                                width: bandWidth / 2,
-                                fit: BoxFit.fill,
-                              ),
-                            ),
-                            SlideTransition(
-                              position: _cloudRightOffset[i],
-                              child: Align(
-                                alignment: Alignment.centerRight,
+                    // Cloud animation
+                    AnimatedBuilder(
+                      animation: _cloudControllers[i],
+                      builder: (_, __) {
+                        return Opacity(
+                          opacity: _cloudOpacity[i].value,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SlideTransition(
+                                position: _cloudLeftOffset[i],
                                 child: Image.asset(
                                   'assets/cbt/sad/cloud.png',
                                   width: bandWidth / 2,
                                   fit: BoxFit.fill,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                              SlideTransition(
+                                position: _cloudRightOffset[i],
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Image.asset(
+                                    'assets/cbt/sad/cloud.png',
+                                    width: bandWidth / 2,
+                                    fit: BoxFit.fill,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
 
-                  // ✨ Sparkles (both sides)
-                  if (_sparkleVisible[i]) ...[
-                    Positioned(
-                      left: 20,
-                      child: Lottie.asset(
-                        'assets/cbt/sparkle.json',
-                        width: 240,
-                        repeat: false,
+                    // ✨ Sparkles
+                    if (_sparkleVisible[i]) ...[
+                      Positioned(
+                        left: 20,
+                        child: Lottie.asset(
+                          'assets/cbt/sparkle.json',
+                          width: 240,
+                          repeat: false,
+                        ),
                       ),
-                    ),
-                    Positioned(
-                      right: 20,
-                      child: Lottie.asset(
-                        'assets/cbt/sparkle.json',
-                        width: 240,
-                        repeat: false,
+                      Positioned(
+                        right: 20,
+                        child: Lottie.asset(
+                          'assets/cbt/sparkle.json',
+                          width: 240,
+                          repeat: false,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-          // 🎇 Final sparkle overlay when all completed
+
+          // 🌟 Final sparkle overlay
           if (_allCompleted)
             Center(
               child: SizedBox(
                 width: 220,
-                child: Lottie.asset('assets/cbt/sparkle.json', repeat: false),
+                child: Lottie.asset(
+                  'assets/cbt/sparkle.json',
+                  repeat: false,
+                ),
               ),
             ),
 
-          // Buttons
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Wrap(
+          // 🧘 Instruction text + buttons
+          // 🩵 Bottom section
+// 🧘 Instruction text + rainbow buttons
+Align(
+  alignment: Alignment.bottomCenter,
+  child: SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Instruction text (slightly higher)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 50.0),
+            child: Text(
+              'For each color, think or say aloud\none thing you are thankful for 🌈',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color.fromARGB(255, 0, 0, 0),
+                fontSize: 24,
+                fontWeight: FontWeight.w500,
+                height: 1.4,
+              ),
+            ),
+          ),
+
+          // Rainbow buttons
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final buttonWidth = (constraints.maxWidth - 8 * 6) / 7;
+              final rainbowColors = [
+                Colors.red,
+                Colors.orange,
+                Colors.yellow,
+                Colors.green,
+                Colors.blue,
+                Colors.indigo,
+                Colors.purple,
+              ];
+
+              return Wrap(
+                alignment: WrapAlignment.center,
                 spacing: 8,
                 runSpacing: 8,
                 children: List.generate(
                   _bands.length,
-                  (index) => ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        side: const BorderSide(color: Colors.white),
+                  (index) => SizedBox(
+                    width: buttonWidth.clamp(40, 70),
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: rainbowColors[index],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: const BorderSide(color: Colors.white),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 8),
-                    ),
-                    onPressed: () => _revealBand(index),
-                    child: Text(
-                      '${index + 1}',
-                      style: const TextStyle(color: Colors.white),
+                      onPressed: () => _revealBand(index),
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
-    );
-  }
+    ),
+  ),
+),
+
+
+        ],
+      ),
+    ),
+  );
+}
 }
 
 class _CenterRevealClipper extends CustomClipper<Rect> {

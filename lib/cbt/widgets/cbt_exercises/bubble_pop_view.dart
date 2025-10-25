@@ -227,28 +227,29 @@ class _BubblePopViewState extends State<BubblePopView>
           if (_showSparkle)
             Lottie.asset('assets/cbt/sparkle.json', width: 300, repeat: false),
 
-          Positioned(
-            bottom: 80,
-            left: 16,
-            right: 16,
-            child: AnimatedOpacity(
-              opacity: _completed ? 0 : 1,
-              duration: const Duration(milliseconds: 500),
-              child: Column(
-                children: [
-                  Text(
-                    _currentTrack == 1
-                        ? "Look at the red bubble... wait... now breathe in slowly."
-                        : _currentTrack == 2
-                            ? "In... and out... follow the bubble’s rhythm."
-                            : "One last deep breath... and let it go.",
-                    style: const TextStyle(fontSize: 16),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // Move instructions to top
+Positioned(
+  top: 100, // distance from top
+  left: 16,
+  right: 16,
+  child: AnimatedOpacity(
+    opacity: _completed ? 0 : 1,
+    duration: const Duration(milliseconds: 500),
+    child: Column(
+      children: [
+        Text(
+          _currentTrack == 1
+              ? "Look at the red bubble... wait... now breathe in slowly."
+              : _currentTrack == 2
+                  ? "In... and out... follow the bubble’s rhythm."
+                  : "One last deep breath... and let it go.",
+          style: const TextStyle(fontSize: 16),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    ),
+  ),
+),
         ],
       ),
     );

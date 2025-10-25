@@ -116,11 +116,11 @@ class _GardenMeditationViewState extends State<GardenMeditationView>
           Image.asset('assets/cbt/calm/garden_bg.png', fit: BoxFit.cover),
           // ☀️ Sun animation
           Align(
-            alignment: const Alignment(0.8, -0.8),
+            alignment: const Alignment(0.8, 0),
             child: AnimatedBuilder(
               animation: _sunGlowController,
               builder: (_, child) {
-                final scale = Tween<double>(begin: 0.5, end: 1.5).animate(
+                final scale = Tween<double>(begin: 1.0, end: 1.2).animate(
                     CurvedAnimation(parent: _sunGlowController, curve: Curves.easeInOut));
                 return Transform.scale(scale: scale.value, child: child);
               },
@@ -145,7 +145,7 @@ class _GardenMeditationViewState extends State<GardenMeditationView>
               },
               child: Container(
                 width: MediaQuery.of(context).size.width * 0.9,
-                margin: const EdgeInsets.only(bottom: 16),
+                margin: const EdgeInsets.only(bottom: 50),
                 child: Image.asset('assets/cbt/calm/flower_field.png', fit: BoxFit.contain),
               ),
             ),
