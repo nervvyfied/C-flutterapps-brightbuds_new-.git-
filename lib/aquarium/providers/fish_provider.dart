@@ -386,4 +386,8 @@ class FishProvider extends ChangeNotifier {
     movingFishId = null;
     notifyListeners();
   }
+
+  void refresh() {
+    notifyListeners(); // safe internal call
+  }
 }

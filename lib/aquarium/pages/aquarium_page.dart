@@ -127,6 +127,10 @@ class _AquariumPageState extends State<AquariumPage>
   double childBalance = 0;
   List<bool> fishAchievements = [true, false, false]; // true = unlocked
 
+  bool _isDraggingFood = false;
+  bool _isDraggingSponge = false;
+
+
 @override
 void initState() {
   super.initState();
@@ -203,7 +207,21 @@ void initState() {
       }
 
       // --- OTHER UNLOCKABLES ---
-      await unlockManager.checkUnlocks();
+      final unlockedFish = await unlockManager.checkUnlocks();
+
+      if (unlockedFish.isNotEmpty && mounted) {
+        for (var fish in unlockedFish) {
+          unlockNotifier.setUnlocked(fish);
+          await Future.delayed(const Duration(milliseconds: 400));
+          if (!mounted) break;
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => UnlockDialog(fish: fish),
+          );
+        }
+      }
+
       
       final childId = child.cid; // already have child
       await _maybeShowTutorial();
@@ -352,11 +370,6 @@ void didChangeDependencies() {
   setState(() {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    final double maxY = screenHeight * 0.7;
-
-    for (var fish in fishes) {
-      fish.y = min(fish.y, maxY);
-    }
     fishes = fishProvider.activeFishes.map((owned) {
       final def = FishCatalog.byId(owned.fishId);
       return AquariumFish(
@@ -420,7 +433,7 @@ void didChangeDependencies() {
       setState(() {
         final screenWidth = MediaQuery.of(context).size.width;
         final screenHeight = MediaQuery.of(context).size.height;
-        final double maxY = screenHeight * 0.7;
+        final double maxY = screenHeight * 0.6;
 
 
         for (var fish in fishes) {
@@ -507,7 +520,7 @@ void _spawnFoodPellet(Offset globalPosition) {
   final localPosition = box.globalToLocal(globalPosition);
 
   final screenHeight = MediaQuery.of(context).size.height;
-  final double maxY = screenHeight * 0.7; // restrict to 70% of screen height
+  final double maxY = screenHeight * 0.6; // only allow top 60% of screen
 
   foodPellets.add(FoodPellet(
     x: localPosition.dx,
@@ -523,8 +536,7 @@ void _spawnFoodPellet(Offset globalPosition) {
   setState(() {});
 }
 
-
-  void _onFoodDragStarted(DragStartDetails details) {
+void _onFoodDragStarted(DragStartDetails details) {
   _lastDragPosition = details.globalPosition;
   _foodPelletCountDuringDrag = 0;
 
@@ -532,24 +544,22 @@ void _spawnFoodPellet(Offset globalPosition) {
   _foodDragTimer = Timer.periodic(
     Duration(milliseconds: 500 + random.nextInt(500)),
     (_) {
-      final position = _lastDragPosition; // get latest position
-      if (position != null) _spawnFoodPellet(position);
+      if (_lastDragPosition != null) _spawnFoodPellet(_lastDragPosition!);
     },
   );
 }
 
 void _onFoodDragUpdate(DragUpdateDetails details) {
-  _lastDragPosition = details.globalPosition; // update last position on drag
+  _lastDragPosition = details.globalPosition;
 }
 
+void _onFoodDragEnd(DraggableDetails details) {
+  _stopFoodDragTimer();
+  _lastDragPosition = null;
+  _foodPelletCountDuringDrag = 0;
+}
 
-  void _onFoodDragEnd(DraggableDetails details) {
-    _stopFoodDragTimer();
-    _lastDragPosition = null;
-    _foodPelletCountDuringDrag = 0;
-  }
-
-  void _resetFishesHealth() {
+void _resetFishesHealth() {
   final fishProvider = Provider.of<FishProvider>(context, listen: false);
   final previouslyNeglected = fishes.where((f) => f.neglected).toList();
   if (previouslyNeglected.isEmpty) return;
@@ -563,11 +573,11 @@ void _onFoodDragUpdate(DragUpdateDetails details) {
   }
 }
 
+void _stopFoodDragTimer() {
+  _foodDragTimer?.cancel();
+  _foodDragTimer = null;
+}
 
-  void _stopFoodDragTimer() {
-    _foodDragTimer?.cancel();
-    _foodDragTimer = null;
-  }
 
   // ----- Clean Dirt -----
   void _cleanDirt(Offset globalPosition) {
@@ -617,7 +627,8 @@ void dispose() {
 
 
     return Scaffold(
-      body: GestureDetector(
+      body: SafeArea(
+      child: GestureDetector(
         onHorizontalDragUpdate: _onDragUpdate,
         onHorizontalDragEnd: (_) => _onDragEnd(),
         child: Stack(
@@ -640,8 +651,6 @@ void dispose() {
 // ----- Placed Decors / Edit Mode -----
 Stack(
   children: [
-    _buildLayer(
-                'assets/tank/sand2.png', sand2Width, offsetX * parallax['sand2']!),
     // ----- Placed Decors -----
 ...itemsToRender.map((decor) {
   final decorDef = decorProvider.getDecorDefinition(decor.decorId);
@@ -862,8 +871,6 @@ Stack(
         ),
     );
 }),
-
-
             ...dirts.map(
               (dirt) => Positioned(
                 left: dirt.x,
@@ -889,7 +896,8 @@ Stack(
                 ),
               ),
             ),
-            
+            _buildLayer(
+                'assets/tank/sand2.png', sand2Width, offsetX * parallax['sand2']!),
            // ----- Care Tools Top Left -----
 if (!decorProvider.isInEditMode)
   Positioned(
@@ -897,41 +905,101 @@ if (!decorProvider.isInEditMode)
     left: 20,
     child: Row(
       children: [
-        // Fish Food
-        Draggable(
-          feedback: Image.asset(
-            'assets/tools/fishfood_drop.gif',
-            width: 60,
-            height: 60,
-          ),
-          childWhenDragging: const SizedBox(width: 60, height: 60),
-          onDragStarted: () =>
-              _onFoodDragStarted(DragStartDetails(globalPosition: Offset(50, 50))),
-          onDragUpdate: _onFoodDragUpdate,
-          onDragEnd: _onFoodDragEnd,
-          child: Image.asset(
-            'assets/tools/fishfood_icon.png',
-            width: 60,
-            height: 60,
-          ),
+        // Fish Food Column
+        Column(
+          children: [
+            Draggable(
+              feedback: Image.asset(
+                'assets/tools/fishfood_drop.gif',
+                width: 60,
+                height: 60,
+              ),
+              childWhenDragging: const SizedBox(width: 60, height: 60),
+              onDragStarted: () {
+                setState(() {
+                  _isDraggingFood = true;
+                });
+                _onFoodDragStarted(
+                  DragStartDetails(globalPosition: Offset(50, 50)),
+                );
+              },
+              onDragUpdate: _onFoodDragUpdate,
+              onDragEnd: (details) {
+                setState(() {
+                  _isDraggingFood = false;
+                });
+                _onFoodDragEnd(details);
+              },
+              child: Image.asset(
+                'assets/tools/fishfood_icon.png',
+                width: 60,
+                height: 60,
+              ),
+            ),
+            const SizedBox(height: 4),
+            // Label wrapped in Container
+            Visibility(
+              visible: !_isDraggingFood,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color.fromARGB(255, 255, 255, 255).withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Feed',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(width: 10),
-        // Sponge
-        Draggable(
-          feedback: Image.asset(
-            'assets/tools/sponge_icon.png',
-            width: 60,
-            height: 60,
-          ),
-          childWhenDragging: const SizedBox(width: 60, height: 60),
-          child: Image.asset(
-            'assets/tools/sponge_icon.png',
-            width: 60,
-            height: 60,
-          ),
-          onDragUpdate: (details) {
-            _cleanDirt(details.globalPosition);
-          },
+        // Sponge Column
+        Column(
+          children: [
+            Draggable(
+              feedback: Image.asset(
+                'assets/tools/sponge_icon.png',
+                width: 60,
+                height: 60,
+              ),
+              childWhenDragging: const SizedBox(width: 60, height: 60),
+              onDragStarted: () {
+                setState(() {
+                  _isDraggingSponge = true;
+                });
+              },
+              onDragUpdate: (details) {
+                _cleanDirt(details.globalPosition);
+              },
+              onDragEnd: (details) {
+                setState(() {
+                  _isDraggingSponge = false;
+                });
+              },
+              child: Image.asset(
+                'assets/tools/sponge_icon.png',
+                width: 60,
+                height: 60,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Visibility(
+              visible: !_isDraggingSponge,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color.fromARGB(255, 255, 255, 255).withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Clean',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     ),
@@ -960,12 +1028,15 @@ Positioned(
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.paid,
-                    color: Colors.white, size: 18),
-                const SizedBox(width: 4),
                 Text(
-                  '\$$balance',
+                  '$balance',
                   style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            const SizedBox(width: 4),
+            Image.asset(
+              'assets/coin.png',
+              width: 18,
+              height: 18,
             ),
           ],
         ),
@@ -979,15 +1050,15 @@ Positioned(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.purpleAccent.withOpacity(0.8),
+            color: Color.fromRGBO(254, 206, 0, 0.8),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: const [
-              Icon(Icons.emoji_events, color: Colors.white),
-              SizedBox(width: 6),
               Text('Achievements', style: TextStyle(color: Colors.white)),
+              SizedBox(width: 6),
+              Icon(Icons.emoji_events, color: Colors.white),
             ],
           ),
         ),
@@ -1004,15 +1075,15 @@ Positioned(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.greenAccent.withOpacity(0.7),
+            color: const Color.fromRGBO(134, 87, 243, 100).withOpacity(0.7),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: const [
-              Icon(Icons.storefront, color: Colors.white),
-              SizedBox(width: 6),
               Text('Store', style: TextStyle(color: Colors.white)),
+              SizedBox(width: 6),
+              Icon(Icons.storefront, color: Colors.white),
             ],
           ),
         ),
@@ -1081,7 +1152,7 @@ Positioned(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Inventory only visible if NOT in edit mode
+            // Inventory button
             if (!decorProvider.isInEditMode)
               GestureDetector(
                 onTap: () async {
@@ -1094,11 +1165,11 @@ Positioned(
                     await decorProvider.placeFromInventory(selected.decorId, 100, 200);
                   }
                 },
-                child: _menuButton(Icons.inventory_2, Colors.orangeAccent),
+                child: _menuButton('Open Inventory', Icons.inventory_2, Colors.orangeAccent),
               ),
-            if (!decorProvider.isInEditMode) const SizedBox(height: 12),
+            if (!decorProvider.isInEditMode) const SizedBox(height: 8),
 
-            // Edit / Save button (always inside dropdown)
+            // Edit / Save button
             GestureDetector(
               onTap: () async {
                 if (decorProvider.isInEditMode) {
@@ -1110,6 +1181,7 @@ Positioned(
                 }
               },
               child: _menuButton(
+                decorProvider.isInEditMode ? 'Save Changes' : 'Edit Aquarium',
                 decorProvider.isInEditMode ? Icons.save : Icons.edit,
                 Colors.greenAccent,
               ),
@@ -1148,30 +1220,48 @@ Positioned(
     ],
   ),
 ),
-
-
-
-
-
           ],
         ),
       ),
+    ),
     );
     
   }
 
-Widget _menuButton(IconData icon, Color color) {
+Widget _menuButton(String label, IconData icon, Color color) {
   return Container(
-    width: 60,
-    height: 60,
+    padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
     decoration: BoxDecoration(
-      color: color,
-      shape: BoxShape.circle,
-      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+      color: color.withOpacity(0.85),
+      borderRadius: BorderRadius.circular(10),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black26,
+          blurRadius: 4,
+          offset: const Offset(2, 2),
+        ),
+      ],
     ),
-    child: Icon(icon, color: Colors.white, size: 30),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14, // slightly smaller font
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Icon(icon, size: 30, color: Colors.white), // slightly smaller icon
+        const SizedBox(width: 6),
+      ],
+    ),
   );
 }
+
+
 
 
   Widget _buildLayer(String asset, double layerWidth, double offset) {
