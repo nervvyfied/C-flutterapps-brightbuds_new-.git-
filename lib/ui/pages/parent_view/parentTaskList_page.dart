@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
@@ -21,7 +20,6 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(_loadTasksForSelectedChild);
 
     // Auto-reset every 5 minutes
     _autoResetTimer = Timer.periodic(const Duration(minutes: 5), (_) {
@@ -31,33 +29,51 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Listen for changes in selected child
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+    selectedChildProv.addListener(_loadTasksForSelectedChild);
+
+    // Load tasks for initial child
+    _loadTasksForSelectedChild();
+  }
+
+  @override
   void dispose() {
     _autoResetTimer?.cancel();
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+    selectedChildProv.removeListener(_loadTasksForSelectedChild);
     super.dispose();
   }
 
   void _loadTasksForSelectedChild() {
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    final selectedChildProv =
-        Provider.of<SelectedChildProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
 
     final childId = selectedChildProv.selectedChild?['cid'];
 
     if (childId != null && childId.isNotEmpty) {
-      taskProvider.loadTasks(
-        parentId: widget.parentId,
-        childId: childId,
-      );
+      taskProvider.loadTasks(parentId: widget.parentId, childId: childId);
     } else {
-      taskProvider.loadTasks(
-        parentId: widget.parentId,
-      );
+      taskProvider.loadTasks(parentId: widget.parentId);
     }
   }
 
   void _openTaskModal(BuildContext context, {TaskModel? task}) {
-    final selectedChildProv =
-        Provider.of<SelectedChildProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
     final childId = selectedChildProv.selectedChild?['cid'];
     if (childId == null) return;
 
@@ -68,7 +84,9 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: TaskFormModal(
           parentId: widget.parentId,
           childId: childId,
@@ -80,67 +98,76 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final taskProvider = Provider.of<TaskProvider>(context);
     final selectedChildProv = Provider.of<SelectedChildProvider>(context);
     final childId = selectedChildProv.selectedChild?['cid'];
     final childName = selectedChildProv.selectedChild?['name'] ?? 'No Child';
 
-    // Filter tasks for selected child
-    final childTasks = taskProvider.tasks
-        .where((t) => t.childId == childId)
-        .toList();
-
     return Scaffold(
-      appBar: AppBar(title: Text("Quests for $childName"),
-      automaticallyImplyLeading: false,),
-      body: taskProvider.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : childTasks.isEmpty
-              ? Center(child: Text("No quests assigned to $childName. Add some!"))
-              : ListView.builder(
-                  itemCount: childTasks.length,
-                  itemBuilder: (context, index) {
-                    final task = childTasks[index];
-                    return ListTile(
-                      title: Text(task.name),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                              "Difficulty: ${task.difficulty} • Reward: ${task.reward} tokens"),
-                          const SizedBox(height: 4),
-                          task.verified
-                              ? const Text(
-                                  "✅ Verified",
-                                  style: TextStyle(color: Colors.green),
-                                )
-                              : task.isDone
-                                  ? ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 12, vertical: 6),
-                                        textStyle:
-                                            const TextStyle(fontSize: 14),
-                                      ),
-                                      child: const Text("Verify"),
-                                      onPressed: () {
-                                        taskProvider.verifyTask(
-                                            task.id, task.childId);
-                                      },
-                                    )
-                                  : const Text(
-                                      "⏳ Pending",
-                                      style: TextStyle(color: Colors.orange),
-                                    ),
-                        ],
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.edit),
-                        onPressed: () => _openTaskModal(context, task: task),
-                      ),
-                    );
-                  },
+      appBar: AppBar(
+        title: Text("Quests for $childName"),
+        automaticallyImplyLeading: false,
+      ),
+      body: Consumer<TaskProvider>(
+        builder: (context, taskProvider, _) {
+          final childTasks = childId != null
+              ? taskProvider.tasks.where((t) => t.childId == childId).toList()
+              : [];
+
+          if (taskProvider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          } else if (childTasks.isEmpty) {
+            return Center(
+              child: Text("No quests assigned to $childName. Add some!"),
+            );
+          }
+
+          return ListView.builder(
+            itemCount: childTasks.length,
+            itemBuilder: (context, index) {
+              final task = childTasks[index];
+              return ListTile(
+                title: Text(task.name),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Difficulty: ${task.difficulty} • Reward: ${task.reward} tokens",
+                    ),
+                    const SizedBox(height: 4),
+                    task.verified
+                        ? const Text(
+                            "✅ Verified",
+                            style: TextStyle(color: Colors.green),
+                          )
+                        : task.isDone
+                        ? ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              textStyle: const TextStyle(fontSize: 14),
+                            ),
+                            child: const Text("Verify"),
+                            onPressed: () {
+                              taskProvider.verifyTask(task.id, task.childId);
+                            },
+                          )
+                        : const Text(
+                            "⏳ Pending",
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                  ],
                 ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: () => _openTaskModal(context, task: task),
+                ),
+              );
+            },
+          );
+        },
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _openTaskModal(context),
         child: const Icon(Icons.add),
@@ -148,7 +175,6 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     );
   }
 }
-
 // ---------------- Task Modal ----------------
 
 class TaskFormModal extends StatefulWidget {
@@ -190,8 +216,8 @@ class _TaskFormModalState extends State<TaskFormModal> {
     final now = DateTime.now();
 
     final pickedTime = await showTimePicker(
-  context: context,
-  initialTime: TimeOfDay.fromDateTime(alarmDateTime ?? DateTime.now()),
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(alarmDateTime ?? DateTime.now()),
     );
     if (pickedTime != null) {
       setState(() {
@@ -226,14 +252,15 @@ class _TaskFormModalState extends State<TaskFormModal> {
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: "Difficulty"),
               value: difficulty,
-              items: ['Easy', 'Medium', 'Hard']
-                  .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                  .toList(),
+              items: [
+                'Easy',
+                'Medium',
+                'Hard',
+              ].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
               onChanged: (val) => setState(() => difficulty = val!),
             ),
             TextFormField(
-              decoration:
-                  const InputDecoration(labelText: "Reward (tokens)"),
+              decoration: const InputDecoration(labelText: "Reward (tokens)"),
               keyboardType: TextInputType.number,
               initialValue: reward.toString(),
               onSaved: (val) => reward = int.tryParse(val ?? '10') ?? 10,
@@ -241,9 +268,12 @@ class _TaskFormModalState extends State<TaskFormModal> {
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: "Routine"),
               value: routine,
-              items: ['Morning', 'Afternoon', 'Evening', 'Anytime']
-                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
-                  .toList(),
+              items: [
+                'Morning',
+                'Afternoon',
+                'Evening',
+                'Anytime',
+              ].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
               onChanged: (val) => setState(() => routine = val!),
             ),
             ListTile(
@@ -251,7 +281,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
               title: const Text("Alarm Reminder"),
               subtitle: Text(
                 alarmDateTime != null
-                    ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2,'0')}:${alarmDateTime!.minute.toString().padLeft(2,'0')}"
+                    ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2, '0')}:${alarmDateTime!.minute.toString().padLeft(2, '0')}"
                     : "No alarm set",
               ),
               trailing: IconButton(
@@ -278,7 +308,8 @@ class _TaskFormModalState extends State<TaskFormModal> {
                         builder: (ctx) => AlertDialog(
                           title: const Text("Delete Task"),
                           content: const Text(
-                              "Are you sure you want to delete this task?"),
+                            "Are you sure you want to delete this task?",
+                          ),
                           actions: [
                             TextButton(
                               child: const Text("Cancel"),
@@ -286,7 +317,8 @@ class _TaskFormModalState extends State<TaskFormModal> {
                             ),
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red),
+                                backgroundColor: Colors.red,
+                              ),
                               child: const Text("Delete"),
                               onPressed: () => Navigator.pop(ctx, true),
                             ),
@@ -295,19 +327,27 @@ class _TaskFormModalState extends State<TaskFormModal> {
                       );
                       if (confirm == true) {
                         await taskProvider.deleteTask(
-                            widget.task!.id, widget.parentId, widget.childId);
+                          widget.task!.id,
+                          widget.parentId,
+                          widget.childId,
+                        );
                         Navigator.pop(context);
                       }
                     },
                   ),
                 const Spacer(),
                 ElevatedButton(
-                  child: Text(widget.task == null ? "Add Task" : "Save Changes"),
+                  child: Text(
+                    widget.task == null ? "Add Task" : "Save Changes",
+                  ),
                   onPressed: () {
                     if (_formKey.currentState!.validate()) {
                       _formKey.currentState!.save();
 
-                      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+                      final taskProvider = Provider.of<TaskProvider>(
+                        context,
+                        listen: false,
+                      );
 
                       if (widget.task == null) {
                         // Creating a new task
@@ -343,7 +383,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                       Navigator.pop(context);
                     }
                   },
-                )
+                ),
               ],
             ),
           ],
