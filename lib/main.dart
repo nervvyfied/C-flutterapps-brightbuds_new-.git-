@@ -261,7 +261,10 @@ class MyApp extends StatelessWidget {
             child: MaterialApp(
               navigatorKey: navigatorKey,
               title: 'BrightBuds',
-              theme: ThemeData(primarySwatch: Colors.blue),
+              theme: ThemeData(
+                fontFamily: 'Fredoka', // <- applies Fredoka globally
+                primarySwatch: Colors.blue,
+              ),
               home: Builder(
                 builder: (context) {
                   if (auth.isLoading) {
