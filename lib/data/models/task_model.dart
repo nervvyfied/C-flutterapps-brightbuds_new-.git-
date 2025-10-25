@@ -200,5 +200,10 @@ class TaskModel {
       createdAt: createdAt ?? this.createdAt,
     );
   }
+    // ---------------- MAP -> MODEL (for local Hive/offline use) ----------------
+  factory TaskModel.fromMap(Map<String, dynamic> map) {
+    return TaskModel.fromFirestore(map, map['id'] ?? '');
+  }
+
   
 }
