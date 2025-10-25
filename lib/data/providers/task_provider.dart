@@ -31,140 +31,165 @@ class TaskProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   Timer? _midnightTimer;
-  DateTime? _lastResetDate;
-
   Box<TaskModel>? _taskBox;
-  Box<DateTime>? _settingsBox;
-
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  StreamSubscription<QuerySnapshot>? _firestoreSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _taskSubscription;
 
-  /// Initialize Hive and start scheduler + Firestore listener
-  Future<void> initHive() async {
-    _settingsBox = await Hive.openBox('settingsBox');
+  // ---------------- FIRESTORE ----------------
+  void startFirestoreSubscription({
+    required String parentId,
+    required String childId,
+    bool isParentView = false,
+  }) {
+    // Cancel previous subscription if exists
+    _taskSubscription?.cancel();
 
-    if (!Hive.isBoxOpen('tasksBox')) {
-      _taskBox = await Hive.openBox<TaskModel>('tasksBox');
-    } else {
-      _taskBox = Hive.box<TaskModel>('tasksBox');
-    }
+    final query = _firestore
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('tasks');
 
-    _lastResetDate = _settingsBox?.get('lastResetDate');
-    startDailyResetScheduler();
+    _taskSubscription = query.snapshots().listen(
+      (snapshot) async {
+        bool updated = false;
+
+        for (var change in snapshot.docChanges) {
+          final data = change.doc.data();
+          if (data == null) continue;
+
+          final task = TaskModel.fromMap(data).copyWith(id: change.doc.id);
+          final index = _tasks.indexWhere((t) => t.id == task.id);
+
+          switch (change.type) {
+            case DocumentChangeType.added:
+              if (index == -1) {
+                _tasks.add(task);
+                await _taskBox?.put(task.id, task);
+                updated = true;
+              } else {
+                // Update in-memory task instead of adding duplicate
+                _tasks[index] = task;
+                await _taskBox?.put(task.id, task);
+                updated = true;
+              }
+              break;
+
+            case DocumentChangeType.modified:
+              if (index != -1) {
+                // Only update if the incoming task is newer
+                final localTask = _tasks[index];
+                if (task.lastUpdated != null &&
+                    (localTask.lastUpdated == null ||
+                        task.lastUpdated!.isAfter(localTask.lastUpdated!))) {
+                  _tasks[index] = task;
+                  await _taskBox?.put(task.id, task);
+                  updated = true;
+                }
+              } else {
+                // New task from Firestore
+                _tasks.add(task);
+                await _taskBox?.put(task.id, task);
+                updated = true;
+              }
+              break;
+
+            case DocumentChangeType.removed:
+              if (index != -1) {
+                _tasks.removeAt(index);
+                await _taskBox?.delete(task.id);
+                updated = true;
+              }
+              break;
+          }
+        }
+
+        if (updated) {
+          _tasks.sort(
+            (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
+              a.lastUpdated ?? DateTime(0),
+            ),
+          );
+          notifyListeners();
+          debugPrint(
+            '🔄 Tasks updated from Firestore. Count: ${_tasks.length}',
+          );
+        }
+      },
+      onError: (e) {
+        debugPrint('⚠️ Firestore subscription error: $e');
+      },
+    );
   }
 
-  /// Load local tasks first, then merge remote tasks asynchronously
+  // ---------------- HIVE ----------------
+  Future<void> initHive() async {
+    _taskBox = Hive.isBoxOpen('tasksBox')
+        ? Hive.box<TaskModel>('tasksBox')
+        : await Hive.openBox<TaskModel>('tasksBox');
+  }
+
   Future<void> loadTasks({
-    String? parentId,
+    required String parentId,
     String? childId,
     bool isParent = false,
   }) async {
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
 
     try {
-      // Load local tasks immediately, prevent duplicates
-      final localTasks = _taskBox?.values.toList() ?? [];
-      final Map<String, TaskModel> taskMap = {
-        for (var t in localTasks) t.id: t,
-      };
-      _tasks = taskMap.values.toList();
+      // 1️⃣ Open Hive first
+      await initHive();
 
-      notifyListeners(); // <-- UI updates immediately
+      // 2️⃣ Load tasks from local Hive
+      _tasks = _taskBox?.values.toList() ?? [];
+      notifyListeners();
 
-      if (kIsWeb) NotificationService().startWebAlarmSimulation(_tasks);
-
-      // Schedule alarms for all tasks that have alarms set
-      for (var task in _tasks) {
-        if (task.alarm != null) await scheduleTaskAlarm(task);
+      // 3️⃣ Start Firestore subscription early for real-time updates
+      if (childId != null && childId.isNotEmpty) {
+        startFirestoreSubscription(parentId: parentId, childId: childId);
       }
 
-      // Real-time sync: listen to Firestore changes
-      if (parentId != null && parentId.isNotEmpty) {
-        _startFirestoreListener(parentId, childId, isParent);
-      }
-      for (var task in _tasks) {
-        if (!kIsWeb) await scheduleTaskAlarm(task); // only on mobile
+      // 4️⃣ Auto-reset if needed (this will trigger Firestore writes if tasks need reset)
+      await autoResetIfNeeded();
+
+      // 5️⃣ Merge remote tasks if online
+      if (await NetworkHelper.isOnline()) {
+        await mergeRemoteTasks(
+          parentId: parentId,
+          childId: childId,
+          isParent: isParent,
+        );
       }
 
+      // 6️⃣ Reload tasks from local Hive after merge/reset
+      _tasks = _taskBox?.values.toList() ?? [];
+      notifyListeners();
+
+      // 7️⃣ Schedule alarms for tasks (skip web)
+      if (!kIsWeb) await _scheduleAllAlarms(_tasks);
+
+      // 8️⃣ Start web simulation if needed
       if (kIsWeb) startWebDebugSimulation();
     } finally {
-      await autoResetIfNeeded();
-      _isLoading = false;
-      notifyListeners();
-      final uniqueMap = {for (var t in _tasks) t.id: t};
-      _tasks = uniqueMap.values.toList();
-      debugPrint('✅ Tasks fully loaded. Count: ${_tasks.length}');
+      _setLoading(false);
     }
   }
 
-  /// Firestore real-time listener for tasks
-  void _startFirestoreListener(
-    String parentId,
-    String? childId,
-    bool isParent,
-  ) {
-    _firestoreSubscription?.cancel();
-    CollectionReference tasksRef;
-
-    if (isParent) {
-      tasksRef = _firestore
-          .collection('users')
-          .doc(parentId)
-          .collection('tasks');
-    } else if (childId != null && childId.isNotEmpty) {
-      tasksRef = _firestore
-          .collection('users')
-          .doc(parentId)
-          .collection('children')
-          .doc(childId)
-          .collection('tasks');
-    } else {
-      return;
-    }
-
-    _firestoreSubscription = tasksRef.snapshots().listen((snapshot) async {
-      bool updated = false;
-
-      for (var docChange in snapshot.docChanges) {
-        final doc = docChange.doc;
-        final data = doc.data() as Map<String, dynamic>?;
-        if (data == null) continue;
-
-        final task = TaskModel.fromMap(data);
-        final index = _tasks.indexWhere((t) => t.id == task.id);
-
-        if (docChange.type == DocumentChangeType.removed) {
-          if (index != -1) {
-            _tasks.removeAt(index);
-            await _taskBox?.delete(task.id);
-            updated = true;
-          }
-        } else {
-          // Handle added or modified
-          if (index != -1) {
-            // Replace existing task with the new version
-            _tasks[index] = task;
-            await _taskBox?.put(task.id, task);
-          } else {
-            // Add new task
-            _tasks.add(task);
-            await _taskBox?.put(task.id, task);
-          }
-          updated = true;
-        }
-      }
-
-      if (updated) {
-        // Remove duplicates based on ID
-        final unique = {for (var t in _tasks) t.id: t};
-        _tasks = unique.values.toList();
-
-        notifyListeners();
-      }
-    });
+  void _setLoading(bool value) {
+    _isLoading = value;
+    notifyListeners();
   }
 
+  Future<void> _scheduleAllAlarms(List<TaskModel> tasks) async {
+    for (var task in tasks) {
+      if (task.alarm != null && !kIsWeb) {
+        await scheduleTaskAlarm(task);
+      }
+    }
+  }
+
+  // ---------------- MERGE REMOTE ----------------
   Future<void> mergeRemoteTasks({
     required String parentId,
     String? childId,
@@ -187,60 +212,68 @@ class TaskProvider extends ChangeNotifier {
             .toList();
       }
 
-      // Upsert into map to prevent duplicates
+      bool updated = false;
       final Map<String, TaskModel> merged = {for (var t in _tasks) t.id: t};
-      for (var t in remoteTasks) merged[t.id] = t;
 
-      _tasks = merged.values.toList()
-        ..sort((a, b) {
-          final aTime = a.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bTime = b.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return bTime.compareTo(aTime);
-        });
-
-      // Save merged tasks locally
-      for (var t in _tasks) {
-        await _taskBox?.put(t.id, t);
+      for (var t in remoteTasks) {
+        final existing = merged[t.id];
+        if (existing == null ||
+            (t.lastUpdated != null &&
+                (existing.lastUpdated == null ||
+                    t.lastUpdated!.isAfter(existing.lastUpdated!)))) {
+          merged[t.id] = t;
+          updated = true;
+          await _taskBox?.put(t.id, t);
+        }
       }
 
-      notifyListeners();
+      _tasks = merged.values.toList();
+      if (updated) notifyListeners();
+
       debugPrint('✅ Remote tasks merged: ${remoteTasks.length}');
     } catch (e) {
       debugPrint('⚠️ Firestore fetch failed: $e');
     }
   }
 
+  Future<void> _syncToFirestore(TaskModel task) async {
+    try {
+      if (await NetworkHelper.isOnline()) {
+        final docRef = _firestore
+            .collection('users')
+            .doc(task.parentId)
+            .collection('children')
+            .doc(task.childId)
+            .collection('tasks')
+            .doc(task.id);
+
+        // Merge ensures partial updates are handled without duplicating
+        await docRef.set(task.toMap(), SetOptions(merge: true));
+
+        debugPrint('✅ Task synced to Firestore (merge only): ${task.name}');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to sync task to Firestore: $e');
+    }
+  }
+
+  // ---------------- CRUD ----------------
   Future<void> addTask(TaskModel task) async {
     final newTask = task.copyWith(
       id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
       lastUpdated: DateTime.now(),
     );
 
-    // Remove duplicate if exists
-    _tasks.removeWhere((t) => t.id == newTask.id);
     _tasks.add(newTask);
-
-    await _taskRepo.saveTask(newTask);
     await _taskBox?.put(newTask.id, newTask);
-
     notifyListeners();
 
-    if (!kIsWeb) await scheduleTaskAlarm(newTask);
+    await _taskRepo.saveTask(newTask);
 
-    if (await NetworkHelper.isOnline()) {
-      try {
-        await _firestore
-            .collection('users')
-            .doc(newTask.parentId)
-            .collection('children')
-            .doc(newTask.childId)
-            .collection('tasks')
-            .doc(newTask.id)
-            .set(newTask.toMap());
-      } catch (e) {
-        debugPrint('⚠️ Firestore addTask failed: $e');
-      }
-    }
+    // Sync to Firestore
+    await _syncToFirestore(newTask);
+
+    if (!kIsWeb) await scheduleTaskAlarm(newTask);
   }
 
   Future<void> updateTask(TaskModel updatedFields) async {
@@ -258,34 +291,18 @@ class TaskProvider extends ChangeNotifier {
     );
 
     _tasks[index] = mergedTask;
-
-    await _taskRepo.updateTask(mergedTask);
     await _taskBox?.put(mergedTask.id, mergedTask);
     notifyListeners();
+
+    await _taskRepo.updateTask(mergedTask);
+    await _syncToFirestore(mergedTask);
 
     if (!kIsWeb) {
       await cancelTaskAlarm(oldTask);
       if (mergedTask.alarm != null) await scheduleTaskAlarm(mergedTask);
     }
 
-    if (await NetworkHelper.isOnline()) {
-      try {
-        await _firestore
-            .collection('users')
-            .doc(mergedTask.parentId)
-            .collection('children')
-            .doc(mergedTask.childId)
-            .collection('tasks')
-            .doc(mergedTask.id)
-            .set(mergedTask.toMap(), SetOptions(merge: true));
-      } catch (e) {
-        debugPrint('⚠️ Firestore updateTask failed: $e');
-      }
-    }
-
-    debugPrint(
-      '📝 Task updated: ${mergedTask.name}, Alarm: ${mergedTask.alarm}',
-    );
+    debugPrint('📝 Task updated: ${mergedTask.name}');
   }
 
   Future<void> deleteTask(
@@ -293,21 +310,25 @@ class TaskProvider extends ChangeNotifier {
     String parentId,
     String childId,
   ) async {
-    TaskModel? task;
-    try {
-      task = _tasks.firstWhere((t) => t.id == taskId);
-    } catch (_) {
-      task = null;
-    }
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
 
+    final task = _tasks[index];
+
+    // Remove locally (Hive + Repo)
     await _taskRepo.deleteTask(taskId, parentId, childId);
     await _taskBox?.delete(taskId);
 
-    _tasks.removeWhere((t) => t.id == taskId);
+    // Cancel alarm if exists
+    if (!kIsWeb && task.alarm != null) {
+      await cancelTaskAlarm(task);
+    }
+
+    // Remove from in-memory list and notify
+    _tasks.removeAt(index);
     notifyListeners();
 
-    if (task != null && !kIsWeb) await cancelTaskAlarm(task);
-
+    // Firestore delete for real-time
     if (await NetworkHelper.isOnline()) {
       try {
         await _firestore
@@ -324,18 +345,21 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------- MARK DONE ----------------
+  // ---------------- TASK COMPLETION ----------------
   Future<void> markTaskAsDone(String taskId, String childId) async {
-    final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index == -1) return;
+    final task = _taskRepo.getTaskLocal(taskId);
+    if (task == null) return;
 
-    final task = _tasks[index];
-    if (task.isDone) return; // Already done
+    final updatedTask = _computeTaskCompletion(task);
 
+    await _saveTaskCompletion(updatedTask);
+    await _notifyParentCompletion(updatedTask, childId);
+  }
+
+  TaskModel _computeTaskCompletion(TaskModel task) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // Calculate new streak
     final lastDone = task.lastCompletedDate != null
         ? DateTime(
             task.lastCompletedDate!.year,
@@ -346,56 +370,59 @@ class TaskProvider extends ChangeNotifier {
 
     int newActiveStreak = 1;
     if (lastDone != null) {
-      if (lastDone.add(const Duration(days: 1)).isAtSameMomentAs(today)) {
+      if (lastDone.add(const Duration(days: 1)) == today) {
         newActiveStreak = task.activeStreak + 1;
-      } else if (lastDone.isAtSameMomentAs(today)) {
+      } else if (lastDone == today) {
         newActiveStreak = task.activeStreak;
       }
     }
 
-    final updatedTask = task.copyWith(
+    return task.copyWith(
       isDone: true,
       doneAt: now,
       lastCompletedDate: today,
       activeStreak: newActiveStreak,
-      longestStreak: max(newActiveStreak, task.longestStreak),
+      longestStreak: newActiveStreak > task.longestStreak
+          ? newActiveStreak
+          : task.longestStreak,
       totalDaysCompleted: task.totalDaysCompleted + 1,
       lastUpdated: now,
     );
+  }
 
-    // 1️⃣ Update local memory
-    _tasks[index] = updatedTask;
+  Future<void> _saveTaskCompletion(TaskModel updatedTask) async {
+    final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
+    if (index != -1)
+      _tasks[index] = updatedTask;
+    else
+      _tasks.add(updatedTask);
+
+    await _taskBox?.put(updatedTask.id, updatedTask);
     notifyListeners();
 
-    // 2️⃣ Update Hive and local repo
-    await _taskBox?.put(updatedTask.id, updatedTask);
-    await _taskRepo.saveTaskLocal(updatedTask);
+    if (!kIsWeb && updatedTask.alarm != null)
+      await cancelTaskAlarm(updatedTask);
 
-    // 3️⃣ Update Firestore
-    try {
+    await _streakRepo.updateStreak(
+      updatedTask.childId,
+      updatedTask.parentId,
+      updatedTask.id,
+    );
+
+    // Firestore sync
+    if (await NetworkHelper.isOnline()) {
       await _firestore
           .collection('users')
-          .doc(task.parentId)
+          .doc(updatedTask.parentId)
           .collection('children')
-          .doc(childId)
+          .doc(updatedTask.childId)
           .collection('tasks')
-          .doc(task.id)
+          .doc(updatedTask.id)
           .set(updatedTask.toMap(), SetOptions(merge: true));
-
-      debugPrint('✅ Task marked done in Firestore: ${task.name}');
-    } catch (e) {
-      debugPrint('⚠️ Failed to update Firestore: $e');
     }
+  }
 
-    // 4️⃣ Cancel alarm if exists
-    if (!kIsWeb && task.alarm != null) {
-      await cancelTaskAlarm(task);
-    }
-
-    // 5️⃣ Update streak repository
-    await _streakRepo.updateStreak(childId, task.parentId, task.id);
-
-    // 6️⃣ Notify parent
+  Future<void> _notifyParentCompletion(TaskModel task, String childId) async {
     try {
       final childSnapshot = await _firestore
           .collection('users')
@@ -413,18 +440,46 @@ class TaskProvider extends ChangeNotifier {
         type: 'task_completed',
       );
     } catch (e) {
-      debugPrint('⚠️ Failed to send notification to parent: $e');
+      debugPrint('⚠️ Failed to notify parent: $e');
     }
   }
 
   Future<void> verifyTask(String taskId, String childId) async {
-    final task = _taskRepo.getTaskLocal(taskId);
-    if (task == null || task.verified) return;
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
 
+    final task = _tasks[index];
+    if (task.verified) return;
+
+    final now = DateTime.now();
+
+    // Update locally (Hive & in-memory)
+    final updatedTask = task.copyWith(verified: true, lastUpdated: now);
+    _tasks[index] = updatedTask;
+    await _taskBox?.put(updatedTask.id, updatedTask);
+    notifyListeners();
+
+    // Update in local repository
     await _taskRepo.verifyTask(taskId, childId);
 
-    final updatedTask = _taskRepo.getTaskLocal(taskId);
-    if (updatedTask != null) await updateTask(updatedTask);
+    // Only sync to Firestore if online, but don’t manually add to _tasks
+    if (await NetworkHelper.isOnline()) {
+      try {
+        final docRef = _firestore
+            .collection('users')
+            .doc(task.parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('tasks')
+            .doc(taskId);
+
+        // Merge with Firestore; subscription will automatically update in-memory list
+        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
+        debugPrint('✅ Task verified and synced to Firestore: ${task.name}');
+      } catch (e) {
+        debugPrint('⚠️ Failed to sync verified task: $e');
+      }
+    }
   }
 
   // ---------------- ALARMS ----------------
@@ -460,6 +515,10 @@ class TaskProvider extends ChangeNotifier {
       '✅ Alarm scheduled for "${task.name}" at ${scheduledDate.hour}:${scheduledDate.minute}',
     );
 
+    await _sendFcmAlarm(task);
+  }
+
+  Future<void> _sendFcmAlarm(TaskModel task) async {
     try {
       final childSnapshot = await _firestore
           .collection('users')
@@ -488,8 +547,124 @@ class TaskProvider extends ChangeNotifier {
   }
 
   Future<void> cancelTaskAlarm(TaskModel task) async {
-    final alarmId = task.id.hashCode;
-    await NotificationService().cancelNotification(alarmId);
+    await NotificationService().cancelNotification(task.id.hashCode);
+  }
+
+  // ---------------- REAL-TIME SAFE DAILY RESET ----------------
+  Future<void> resetDailyTasks() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    bool updated = false;
+
+    for (var i = 0; i < _tasks.length; i++) {
+      final task = _tasks[i];
+
+      final lastDone = task.lastCompletedDate != null
+          ? DateTime(
+              task.lastCompletedDate!.year,
+              task.lastCompletedDate!.month,
+              task.lastCompletedDate!.day,
+            )
+          : null;
+
+      // Compute new active streak
+      int updatedActiveStreak =
+          lastDone != null &&
+              lastDone.isBefore(today.subtract(const Duration(days: 1)))
+          ? 0
+          : task.activeStreak;
+
+      // Only reset if it wasn’t already reset today
+      if (lastDone == null || lastDone.isBefore(today)) {
+        final updatedTask = task.copyWith(
+          isDone: false,
+          verified: false,
+          activeStreak: updatedActiveStreak,
+          lastUpdated: now,
+          // keep lastCompletedDate intact if needed
+        );
+
+        // --- UPDATE LOCAL STORAGE ---
+        await _taskBox?.put(updatedTask.id, updatedTask);
+        await _taskRepo.saveTask(updatedTask);
+
+        // --- UPDATE IN-MEMORY LIST ---
+        _tasks[i] = updatedTask;
+        updated = true;
+
+        // --- FIRESTORE REAL-TIME SYNC ---
+        if (await NetworkHelper.isOnline()) {
+          try {
+            await _firestore
+                .collection('users')
+                .doc(updatedTask.parentId)
+                .collection('children')
+                .doc(updatedTask.childId)
+                .collection('tasks')
+                .doc(updatedTask.id)
+                .set(updatedTask.toMap(), SetOptions(merge: true));
+          } catch (e) {
+            debugPrint(
+              '⚠️ Firestore sync failed for task ${updatedTask.name}: $e',
+            );
+          }
+        }
+      }
+    }
+
+    if (updated) {
+      notifyListeners(); // update UI immediately
+      debugPrint('✅ Daily tasks reset and synced in real-time at $now');
+    }
+  }
+
+  // ---------------- AUTO RESET CHECK ----------------
+  Future<void> autoResetIfNeeded() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    final lastReset = await getLastResetDate();
+
+    // Only reset if last reset was before today
+    if (lastReset == null ||
+        DateTime(
+          lastReset.year,
+          lastReset.month,
+          lastReset.day,
+        ).isBefore(today)) {
+      debugPrint('🔄 Auto-resetting daily tasks...');
+      await resetDailyTasks();
+      await setLastResetDate(today);
+    } else {
+      debugPrint('⏳ Daily tasks already reset today.');
+    }
+  }
+
+  // ---------------- DAILY RESET SCHEDULER ----------------
+  void startDailyResetScheduler() {
+    _midnightTimer?.cancel();
+
+    final now = DateTime.now();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+
+    final durationUntilMidnight = nextMidnight.difference(now);
+
+    _midnightTimer = Timer(durationUntilMidnight, () async {
+      await resetDailyTasks();
+      await setLastResetDate(DateTime.now());
+
+      // Schedule again for the next day
+      startDailyResetScheduler();
+    });
+
+    debugPrint('⏰ Daily reset scheduled for ${nextMidnight.toLocal()}');
+  }
+
+  void stopDailyResetScheduler() {
+    _midnightTimer?.cancel();
+    _midnightTimer = null;
+    debugPrint('⏹ Daily reset scheduler stopped');
   }
 
   // ---------------- SYNC ----------------
@@ -498,101 +673,18 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------------- DAILY RESET ----------------
-  Future<void> resetDailyTasks() async {
-    final today = DateTime.now();
-    final todayDateOnly = DateTime(today.year, today.month, today.day);
-
-    for (var task in _tasks) {
-      final lastDate = task.lastCompletedDate != null
-          ? DateTime(
-              task.lastCompletedDate!.year,
-              task.lastCompletedDate!.month,
-              task.lastCompletedDate!.day,
-            )
-          : null;
-
-      int updatedActiveStreak = task.activeStreak;
-
-      if (lastDate != null &&
-          lastDate.isBefore(todayDateOnly.subtract(const Duration(days: 1)))) {
-        updatedActiveStreak = 0;
-      }
-
-      if (lastDate == null || lastDate.isBefore(todayDateOnly)) {
-        final updated = task.copyWith(
-          isDone: false,
-          verified: false,
-          activeStreak: updatedActiveStreak,
-          lastUpdated: DateTime.now(),
-        );
-        await _taskRepo.saveTask(updated);
-
-        final idx = _tasks.indexWhere((t) => t.id == task.id);
-        if (idx != -1) _tasks[idx] = updated;
-        if (await NetworkHelper.isOnline()) {
-          try {
-            await _firestore
-                .collection('users')
-                .doc(task.parentId)
-                .collection('children')
-                .doc(task.childId)
-                .collection('tasks')
-                .doc(task.id)
-                .set(updated.toMap(), SetOptions(merge: true));
-          } catch (e) {
-            debugPrint('⚠️ Firestore resetDailyTasks failed: $e');
-          }
-        }
-      }
-    }
-
-    await pushPendingChanges();
-    _lastResetDate = todayDateOnly;
-    await _settingsBox?.put('lastResetDate', _lastResetDate!);
-    notifyListeners();
+  Future<DateTime?> getLastResetDate() async {
+    final box = await Hive.openBox('appSettings');
+    final millis = box.get('lastResetDate') as int?;
+    return millis != null ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
   }
 
-  void startDailyResetScheduler() {
-    _midnightTimer?.cancel();
-    final now = DateTime.now();
-    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
-    final duration = nextMidnight.difference(now);
-
-    _midnightTimer = Timer(duration, () async {
-      await resetDailyTasks();
-      startDailyResetScheduler();
-    });
+  Future<void> setLastResetDate(DateTime date) async {
+    final box = await Hive.openBox('appSettings');
+    await box.put('lastResetDate', date.millisecondsSinceEpoch);
   }
 
-  void stopDailyResetScheduler() {
-    _midnightTimer?.cancel();
-    _midnightTimer = null;
-  }
-
-  bool _isSameTask(TaskModel a, TaskModel b) {
-    return a.id == b.id &&
-        a.lastUpdated == b.lastUpdated &&
-        a.isDone == b.isDone &&
-        a.verified == b.verified;
-  }
-
-  @override
-  void dispose() {
-    stopDailyResetScheduler();
-    _firestoreSubscription?.cancel();
-    super.dispose();
-  }
-
-  Future<void> autoResetIfNeeded() async {
-    final today = DateTime.now();
-    final todayDateOnly = DateTime(today.year, today.month, today.day);
-
-    if (_lastResetDate == null || _lastResetDate!.isBefore(todayDateOnly)) {
-      await resetDailyTasks();
-    }
-  }
-
+  // ---------------- FCM PARENT ----------------
   Future<void> notifyParentCompletion({
     required String parentId,
     required String childName,
@@ -625,10 +717,8 @@ class TaskProvider extends ChangeNotifier {
     if (!kIsWeb) return;
 
     debugPrint('🌐 [WEB DEBUG] Starting task alarm simulation...');
-
     Future.doWhile(() async {
       final now = DateTime.now();
-
       for (final task in _tasks) {
         if (task.alarm != null) {
           final alarmTime = DateTime(
@@ -638,22 +728,31 @@ class TaskProvider extends ChangeNotifier {
             task.alarm!.hour,
             task.alarm!.minute,
           );
-
-          if (now.difference(alarmTime).inSeconds.abs() <= 5) {
+          if ((now.difference(alarmTime).inSeconds).abs() <= 5) {
             debugPrint(
               '🔔 [WEB SIM] Alarm triggered for "${task.name}" at ${now.hour}:${now.minute}:${now.second}',
             );
           }
         }
       }
-
       await Future.delayed(const Duration(seconds: 1));
       return true;
     });
   }
 }
 
+// ---------------- EXTENSIONS ----------------
 extension TaskStats on TaskProvider {
   int get doneCount => _tasks.where((t) => t.isDone).length;
   int get notDoneCount => _tasks.where((t) => !t.isDone).length;
+}
+
+// ---------------- HELPERS ----------------
+extension IterableHelper<E> on Iterable<E> {
+  E? firstWhereOrNull(bool Function(E element) test) {
+    for (var e in this) {
+      if (test(e)) return e;
+    }
+    return null;
+  }
 }

@@ -91,81 +91,79 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     return grouped;
   }
 
-Widget _buildTaskGroupCard(
-  String title,
-  List<TaskModel> tasks,
-  UnlockManager unlockManager,
-  bool isOffline,
-) {
-  if (tasks.isEmpty) return const SizedBox.shrink();
+  Widget _buildTaskGroupCard(
+    String title,
+    List<TaskModel> tasks,
+    UnlockManager unlockManager,
+    bool isOffline,
+  ) {
+    if (tasks.isEmpty) return const SizedBox.shrink();
 
-  return Card(
-    margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
-          ...tasks.map((task) {
-            return Card(
-              margin: const EdgeInsets.symmetric(vertical: 6),
-              color: Colors.grey[100],
-              child: ListTile(
-                title: Text(task.name),
-                subtitle: Text(
-                  "Routine: ${task.routine} • Reward: ${task.reward} tokens",
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            ...tasks.map((task) {
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                color: Colors.grey[100],
+                child: ListTile(
+                  title: Text(task.name),
+                  subtitle: Text(
+                    "Routine: ${task.routine} • Reward: ${task.reward} tokens",
+                  ),
+                  trailing: task.isDone
+                      ? (task.verified
+                            ? const Icon(Icons.verified, color: Colors.blue)
+                            : const Icon(Icons.check, color: Colors.green))
+                      : ElevatedButton(
+                          onPressed: () async {
+                            final taskProvider = Provider.of<TaskProvider>(
+                              context,
+                              listen: false,
+                            );
+
+                            // ✅ Create an optimistic local copy
+                            final optimisticTask = task.copyWith(isDone: true);
+
+                            // ✅ Temporarily rebuild the UI with updated task
+                            setState(() {
+                              final index = tasks.indexOf(task);
+                              tasks[index] = optimisticTask;
+                            });
+
+                            // ✅ Apply the real change to local Hive
+                            await taskProvider.markTaskAsDone(
+                              task.id,
+                              task.childId,
+                            );
+
+                            // ✅ Unlock checks
+                            unlockManager.checkUnlocks();
+
+                            // ✅ Sync only if online
+                            if (!isOffline) {
+                              await taskProvider.pushPendingChanges();
+                            }
+                          },
+                          child: const Text("Done"),
+                        ),
                 ),
-                trailing: task.isDone
-                    ? (task.verified
-                        ? const Icon(Icons.verified, color: Colors.blue)
-                        : const Icon(Icons.check, color: Colors.green))
-                    : ElevatedButton(
-                        onPressed: () async {
-                          final taskProvider = Provider.of<TaskProvider>(
-                            context,
-                            listen: false,
-                          );
-
-                          // ✅ Create an optimistic local copy
-                          final optimisticTask = task.copyWith(isDone: true);
-
-                          // ✅ Temporarily rebuild the UI with updated task
-                          setState(() {
-                            final index = tasks.indexOf(task);
-                            tasks[index] = optimisticTask;
-                          });
-
-                          // ✅ Apply the real change to local Hive
-                          await taskProvider.markTaskAsDone(
-                            task.id,
-                            task.childId,
-                          );
-
-                          // ✅ Unlock checks
-                          unlockManager.checkUnlocks();
-
-                          // ✅ Sync only if online
-                          if (!isOffline) {
-                            await taskProvider.pushPendingChanges();
-                          }
-                        },
-                        child: const Text("Done"),
-                      ),
-              ),
-            );
-          }).toList(),
-        ],
+              );
+            }).toList(),
+          ],
+        ),
       ),
-    ),
-  );
-}
-
-
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,8 +178,14 @@ Widget _buildTaskGroupCard(
           ElevatedButton(
             onPressed: () async {
               final auth = Provider.of<AuthProvider>(context, listen: false);
-              final fishProvider = Provider.of<FishProvider>(context, listen: false);
-              final decorProvider = Provider.of<DecorProvider>(context, listen: false);
+              final fishProvider = Provider.of<FishProvider>(
+                context,
+                listen: false,
+              );
+              final decorProvider = Provider.of<DecorProvider>(
+                context,
+                listen: false,
+              );
 
               await auth.logoutChild();
 
@@ -217,8 +221,11 @@ Widget _buildTaskGroupCard(
             child: Consumer<TaskProvider>(
               builder: (context, taskProvider, _) {
                 final childTasks = taskProvider.tasks
-                    .where((task) =>
-                        task.childId == widget.childId && task.name.isNotEmpty)
+                    .where(
+                      (task) =>
+                          task.childId == widget.childId &&
+                          task.name.isNotEmpty,
+                    )
                     .toList();
 
                 if (childTasks.isEmpty) {
@@ -232,14 +239,30 @@ Widget _buildTaskGroupCard(
                   child: ListView(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     children: [
-                      _buildTaskGroupCard('Morning', groupedTasks['Morning']!,
-                          unlockManager, _isOffline),
-                      _buildTaskGroupCard('Afternoon', groupedTasks['Afternoon']!,
-                          unlockManager, _isOffline),
-                      _buildTaskGroupCard('Evening', groupedTasks['Evening']!,
-                          unlockManager, _isOffline),
-                      _buildTaskGroupCard('Anytime', groupedTasks['Anytime']!,
-                          unlockManager, _isOffline),
+                      _buildTaskGroupCard(
+                        'Morning',
+                        groupedTasks['Morning']!,
+                        unlockManager,
+                        _isOffline,
+                      ),
+                      _buildTaskGroupCard(
+                        'Afternoon',
+                        groupedTasks['Afternoon']!,
+                        unlockManager,
+                        _isOffline,
+                      ),
+                      _buildTaskGroupCard(
+                        'Evening',
+                        groupedTasks['Evening']!,
+                        unlockManager,
+                        _isOffline,
+                      ),
+                      _buildTaskGroupCard(
+                        'Anytime',
+                        groupedTasks['Anytime']!,
+                        unlockManager,
+                        _isOffline,
+                      ),
                     ],
                   ),
                 );
