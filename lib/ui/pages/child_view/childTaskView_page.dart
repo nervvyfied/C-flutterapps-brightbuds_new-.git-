@@ -60,8 +60,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 }
 
 
-
-
 /// ✅ REAL-TIME BALANCE LISTENER
   void _listenToBalance() {
     _balanceStream = FirebaseFirestore.instance

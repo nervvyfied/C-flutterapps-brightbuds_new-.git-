@@ -18,7 +18,6 @@ class _ParentNavigationShellState extends State<ParentNavigationShell> {
 
   List<Widget> _buildPages(String parentId) {
     return [
-      ParentAccountPage(parentId: parentId),
       ParentDashboardPage(parentId: parentId),
       ParentTaskListScreen(parentId: parentId),
     ];
@@ -41,7 +40,6 @@ class _ParentNavigationShellState extends State<ParentNavigationShell> {
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Account'),
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
           BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Manage Quests'),
         ],
