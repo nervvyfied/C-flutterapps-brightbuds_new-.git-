@@ -44,12 +44,20 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Future<void> _initPage() async {
-    _settingsBox = await Hive.openBox('settings');
-    await _loadTasksOnce();
-    await _fetchBalance();
-    await _checkNewTokens();
-    await _checkConnectivity();
-  }
+  _settingsBox = await Hive.openBox('settings');
+  
+  await _checkConnectivity();
+  
+  // Make sure auto-reset runs *before* loading tasks
+  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+  await taskProvider.initHive();
+  await taskProvider.autoResetIfNeeded();  // ✅ run reset early
+
+  await _loadTasksOnce();                  // reload fresh data
+  await _fetchBalance();
+  await _checkNewTokens();                 // now check AFTER reset
+}
+
 
   Future<void> _checkNewTokens() async {
   final taskProvider = Provider.of<TaskProvider>(context, listen: false);
@@ -277,7 +285,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                   ? Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF4CAF50),
+                        color: Colors.blue,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Text(

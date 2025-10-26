@@ -22,6 +22,7 @@ import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
 import 'package:brightbuds_new/ui/pages/childlogin_page.dart';
+import 'package:brightbuds_new/ui/widgets/splash_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -266,19 +267,18 @@ class MyApp extends StatelessWidget {
                 primarySwatch: Colors.blue,
               ),
               home: Builder(
-                builder: (context) {
-                  if (auth.isLoading) {
-                    return const Scaffold(
-                      body: Center(child: CircularProgressIndicator()),
-                    );
-                  }
+  builder: (context) {
+    if (auth.isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
-                  if (auth.isParent) return const ParentNavigationShell();
-                  if (auth.isChild) return const ChildNavigationShell();
+    // Show splash screen first
+    return const SplashScreen(); 
+  },
+),
 
-                  return const ChooseRolePage();
-                },
-              ),
               routes: {
                 '/parentAuth': (context) => const ParentAuthPage(),
                 '/childAuth': (context) => const ChildAuthPage(),

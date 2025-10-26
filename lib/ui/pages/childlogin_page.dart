@@ -17,35 +17,33 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
   final _codeController = TextEditingController();
   bool _loading = false;
 
-  // ---------------- CHILD LOGIN ----------------
   Future<void> _loginChild() async {
     final code = _codeController.text.trim();
-    if (code.isEmpty) return;
+    if (code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter your access code")),
+      );
+      return;
+    }
 
     setState(() => _loading = true);
 
     try {
       final authProvider = context.read<AuthProvider>();
-      await authProvider.loginChild(code); // ✅ Persist child session via Hive
+      await authProvider.loginChild(code);
       await authProvider.saveFcmToken();
 
       final child = authProvider.currentUserModel as ChildUser;
 
-      // ✅ Update providers to use the new child
       final fishProvider = context.read<FishProvider>();
       final decorProvider = context.read<DecorProvider>();
-
-      // Set the new child and reload their data
       await fishProvider.setChild(child);
       await decorProvider.setChild(child);
 
-      
-
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Child login successful')),
+        const SnackBar(content: Text('Login successful!')),
       );
 
-      // Navigate to child home
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const ChildNavigationShell()),
@@ -62,40 +60,125 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Child Login")),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _codeController,
-              decoration: const InputDecoration(
-                labelText: "Enter Access Code",
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 20),
-            _loading
-                ? const CircularProgressIndicator()
-                : SizedBox(
-                    width: double.infinity,
-                    height: 45,
-                    child: ElevatedButton(
-                      onPressed: _loginChild,
-                      child: const Text(
-                        "Login",
-                        style: TextStyle(fontSize: 16),
+      backgroundColor: const Color(0xFFF6F4FE),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo
+                  Image.asset(
+                    'assets/bb2.png',
+                    width: 150,
+                    height: 150,
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Title
+                  const Text(
+                    "Enter Access Code",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Fredoka',
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF8657F3),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Subtitle
+                  const Text(
+                    "Enter the code your parent gave you to start using BrightBuds.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Fredoka',
+                      fontSize: 14,
+                      color: Colors.black54,
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // Input Field
+                  TextField(
+                    controller: _codeController,
+                    textAlign: TextAlign.center,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: Colors.white,
+                      hintText: "Access Code",
+                      hintStyle: const TextStyle(
+                        fontFamily: 'Fredoka',
+                        color: Colors.black38,
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 16,
+                        horizontal: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Colors.deepPurple),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF8657F3),
+                          width: 1.5,
                         ),
                       ),
                     ),
+                    style: const TextStyle(
+                      fontFamily: 'Fredoka',
+                      fontSize: 16,
+                    ),
                   ),
-          ],
+
+                  const SizedBox(height: 30),
+
+                  // Login Button
+                  _loading
+                      ? const CircularProgressIndicator()
+                      : SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _loginChild,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF8657F3),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              textStyle: const TextStyle(
+                                fontFamily: 'Fredoka',
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              elevation: 2,
+                            ),
+                            child: const Text("Login"),
+                          ),
+                        ),
+                  const SizedBox(height: 20),
+
+                  // Tip
+                  const Text(
+                    "Ask your parent to share your code if you don’t have one yet.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Fredoka',
+                      fontSize: 13,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
