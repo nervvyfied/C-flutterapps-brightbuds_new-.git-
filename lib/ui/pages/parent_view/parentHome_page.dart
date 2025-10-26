@@ -34,7 +34,28 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadParentData());
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadParentData();
+
+      // 🔹 Watch for child selection change
+      final selectedChildProv = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
+      selectedChildProv.addListener(_listenToJournalEntries);
+    });
+  }
+
+  @override
+  void dispose() {
+    // 🔹 Clean up listener when leaving page
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+    selectedChildProv.removeListener(_listenToJournalEntries);
+    super.dispose();
   }
 
   Future<void> _loadParentData() async {
@@ -53,6 +74,28 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       _parent = parent;
       _loading = false;
     });
+
+    // 🔹 Start listening to journals for current child
+    _listenToJournalEntries();
+  }
+
+  void _listenToJournalEntries() {
+    final journalProv = Provider.of<JournalProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    final child = selectedChildProv.selectedChild;
+    if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
+
+    final parentId = _parent?.uid ?? widget.parentId;
+    final childId = child['cid'];
+
+    if (parentId.isEmpty || childId.isEmpty) return;
+
+    // 🔁 Attach Firestore listener for this child's journal entries
+    journalProv.loadEntries(parentId: parentId, childId: childId);
   }
 
   Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
@@ -72,18 +115,28 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text("Child ID: $cid",
-                  style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                "Child ID: $cid",
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
               pw.SizedBox(height: 10),
               pw.Text("Child Name: $name"),
               pw.Text("Balance: $balance"),
               pw.Text("Streak: $streak"),
               pw.SizedBox(height: 20),
-              pw.Text("Mood Counts This Week:",
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                "Mood Counts This Week:",
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
               ...moodCounts.entries.map((e) => pw.Text("${e.key}: ${e.value}")),
               pw.SizedBox(height: 20),
-              pw.Text("Task Status:", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                "Task Status:",
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
               pw.Text("Done: $done"),
               pw.Text("Not Done: $notDone"),
             ],
@@ -104,7 +157,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     'happy',
     'angry',
     'confused',
-    'scared'
+    'scared',
   ];
   static const Map<String, Color> _moodColors = {
     'calm': Color(0xFF6FA8DC),
@@ -123,16 +176,23 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     'scared': '😨',
   };
 
-  Map<String, int> _moodCountsThisWeek(JournalProvider journalProv, String childId) {
+  Map<String, int> _moodCountsThisWeek(
+    JournalProvider journalProv,
+    String childId,
+  ) {
     final entries = journalProv.getEntries(childId);
     final now = DateTime.now();
-    final startOfWeek =
-        DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    final startOfWeek = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
     final counts = {for (var m in _moodOrder) m: 0};
 
     for (final e in entries) {
       final d = e.createdAt;
-      if (!d.isBefore(startOfWeek) && !d.isAfter(startOfWeek.add(const Duration(days: 6)))) {
+      if (!d.isBefore(startOfWeek) &&
+          !d.isAfter(startOfWeek.add(const Duration(days: 6)))) {
         final moodKey = e.mood.toLowerCase();
         if (counts.containsKey(moodKey)) counts[moodKey] = counts[moodKey]! + 1;
       }
@@ -149,7 +209,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     return sorted.first.key;
   }
 
-  List<PieChartSectionData> _buildGaugeSections(JournalProvider journalProv, String childId) {
+  List<PieChartSectionData> _buildGaugeSections(
+    JournalProvider journalProv,
+    String childId,
+  ) {
     final counts = _moodCountsThisWeek(journalProv, childId);
     final total = counts.values.fold<int>(0, (a, b) => a + b);
     if (total == 0) return [];
@@ -163,48 +226,65 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       );
     }).toList();
 
-    sections.add(PieChartSectionData(
-      value: total.toDouble(),
-      color: Colors.transparent,
-      radius: 50,
-      showTitle: false,
-    ));
+    sections.add(
+      PieChartSectionData(
+        value: total.toDouble(),
+        color: Colors.transparent,
+        radius: 50,
+        showTitle: false,
+      ),
+    );
 
     return sections;
   }
 
-  List<Widget> _buildChildCharts(JournalProvider journalProv,
-      TaskProvider taskProv, Map<String, dynamic> activeChild, SelectedChildProvider selectedChildProv) {
-    final childTasks =
-        taskProv.tasks.where((t) => t.childId == activeChild['cid']).toList();
+  List<Widget> _buildChildCharts(
+    JournalProvider journalProv,
+    TaskProvider taskProv,
+    Map<String, dynamic> activeChild,
+    SelectedChildProvider selectedChildProv,
+  ) {
+    final childTasks = taskProv.tasks
+        .where((t) => t.childId == activeChild['cid'])
+        .toList();
     final done = childTasks.where((t) => t.isDone).length;
     final notDone = childTasks.where((t) => !t.isDone).length;
     final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
     return [
       const SizedBox(height: 12),
-      // Child ID Card
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         elevation: 3,
         child: ListTile(
           title: const Text('Child ID'),
-          subtitle: Text(activeChild['cid'],
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          subtitle: Text(
+            activeChild['cid'],
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
           trailing: IconButton(
             icon: const Icon(Icons.download),
             tooltip: "Export to PDF",
             onPressed: () {
-              final journalProv = Provider.of<JournalProvider>(context, listen: false);
-              final taskProv = Provider.of<TaskProvider>(context, listen: false);
+              final journalProv = Provider.of<JournalProvider>(
+                context,
+                listen: false,
+              );
+              final taskProv = Provider.of<TaskProvider>(
+                context,
+                listen: false,
+              );
 
               final moodCounts = <String, int>{};
               final childId = activeChild['cid'] ?? '';
               if (childId.isNotEmpty) {
                 final entries = journalProv.getEntries(childId);
                 final now = DateTime.now();
-                final startOfWeek = DateTime(now.year, now.month, now.day)
-                    .subtract(Duration(days: now.weekday - 1));
+                final startOfWeek = DateTime(
+                  now.year,
+                  now.month,
+                  now.day,
+                ).subtract(Duration(days: now.weekday - 1));
 
                 for (var mood in _moodOrder) {
                   moodCounts[mood] = 0;
@@ -212,14 +292,18 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
                 for (final e in entries) {
                   final d = e.createdAt;
-                  if (!d.isBefore(startOfWeek) && !d.isAfter(startOfWeek.add(Duration(days: 6)))) {
+                  if (!d.isBefore(startOfWeek) &&
+                      !d.isAfter(startOfWeek.add(Duration(days: 6)))) {
                     final key = e.mood.toLowerCase();
-                    if (moodCounts.containsKey(key)) moodCounts[key] = moodCounts[key]! + 1;
+                    if (moodCounts.containsKey(key))
+                      moodCounts[key] = moodCounts[key]! + 1;
                   }
                 }
               }
 
-              final childTasks = taskProv.tasks.where((t) => t.childId == childId).toList();
+              final childTasks = taskProv.tasks
+                  .where((t) => t.childId == childId)
+                  .toList();
               final done = childTasks.where((t) => t.isDone).length;
               final notDone = childTasks.where((t) => !t.isDone).length;
 
@@ -236,13 +320,14 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         ),
       ),
       const SizedBox(height: 12),
-      // Mood & Task Charts
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               elevation: 3,
               margin: const EdgeInsets.only(right: 6),
               child: Padding(
@@ -262,7 +347,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                             width: 200,
                             child: PieChart(
                               PieChartData(
-                                sections: _buildGaugeSections(journalProv, activeChild['cid']),
+                                sections: _buildGaugeSections(
+                                  journalProv,
+                                  activeChild['cid'],
+                                ),
                                 centerSpaceRadius: 20,
                                 startDegreeOffset: 180,
                                 sectionsSpace: 2,
@@ -278,11 +366,17 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: _moodOrder.map((mood) {
                         final count =
-                            _moodCountsThisWeek(journalProv, activeChild['cid'])[mood] ?? 0;
+                            _moodCountsThisWeek(
+                              journalProv,
+                              activeChild['cid'],
+                            )[mood] ??
+                            0;
                         return Column(
                           children: [
-                            Text(_moodEmojis[mood] ?? '•',
-                                style: const TextStyle(fontSize: 14)),
+                            Text(
+                              _moodEmojis[mood] ?? '•',
+                              style: const TextStyle(fontSize: 14),
+                            ),
                             Container(
                               width: 12,
                               height: 5,
@@ -292,8 +386,13 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text('$count',
-                                style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                            Text(
+                              '$count',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.black54,
+                              ),
+                            ),
                           ],
                         );
                       }).toList(),
@@ -311,7 +410,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
                         if (childId == null || childId.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('No active child selected!')),
+                            const SnackBar(
+                              content: Text('No active child selected!'),
+                            ),
                           );
                           return;
                         }
@@ -333,7 +434,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                         style: TextStyle(fontSize: 12),
                       ),
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         textStyle: const TextStyle(fontSize: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -347,7 +451,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           ),
           Expanded(
             child: Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               elevation: 3,
               margin: const EdgeInsets.only(left: 6),
               child: Padding(
@@ -382,7 +488,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text('$notDone Not Done', style: const TextStyle(fontSize: 12)),
+                    Text(
+                      '$notDone Not Done',
+                      style: const TextStyle(fontSize: 12),
+                    ),
                     Text('$done Done', style: const TextStyle(fontSize: 12)),
                   ],
                 ),
@@ -402,13 +511,15 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     if (_loading) return const Center(child: CircularProgressIndicator());
 
-    final activeChild = selectedChildProv.selectedChild ?? {
-      "cid": "",
-      "name": "No Child",
-      "balance": 0,
-      "streak": 0,
-      "parentUid": widget.parentId,
-    };
+    final activeChild =
+        selectedChildProv.selectedChild ??
+        {
+          "cid": "",
+          "name": "No Child",
+          "balance": 0,
+          "streak": 0,
+          "parentUid": widget.parentId,
+        };
 
     final parentName = _parent?.name ?? "Parent";
     final parentEmail = _parent?.email ?? "";
@@ -426,28 +537,40 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Parent Info Card
               Card(
-                shape:
-                    RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 elevation: 3,
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Row(
                     children: [
-                      const Icon(Icons.account_circle, size: 40, color: Colors.blue),
+                      const Icon(
+                        Icons.account_circle,
+                        size: 40,
+                        color: Colors.blue,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text("Hello Parent, $parentName!",
-                                style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold)),
+                            Text(
+                              "Hello Parent, $parentName!",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Text(parentEmail,
-                                style: const TextStyle(
-                                    fontSize: 14, color: Colors.black54)),
+                            Text(
+                              parentEmail,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.black54,
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -456,11 +579,19 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Child Charts
-              Text('Dashboard for ${activeChild['name']}',
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold)),
-              ..._buildChildCharts(journalProv, taskProv, activeChild, selectedChildProv),
+              Text(
+                'Dashboard for ${activeChild['name']}',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              ..._buildChildCharts(
+                journalProv,
+                taskProv,
+                activeChild,
+                selectedChildProv,
+              ),
             ],
           ),
         ),

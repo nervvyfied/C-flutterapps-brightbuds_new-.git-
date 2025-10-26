@@ -35,6 +35,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   int _balance = 0;
   late Box _settingsBox;
   late ConfettiController _confettiController;
+  Stream<DocumentSnapshot>? _balanceStream;
 
   @override
   void initState() {
@@ -53,10 +54,34 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   await taskProvider.initHive();
   await taskProvider.autoResetIfNeeded();  // ✅ run reset early
 
-  await _loadTasksOnce();                  // reload fresh data
-  await _fetchBalance();
+  await _loadTasksOnce();
+  _listenToBalance();      
   await _checkNewTokens();                 // now check AFTER reset
 }
+
+
+
+
+/// ✅ REAL-TIME BALANCE LISTENER
+  void _listenToBalance() {
+    _balanceStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(widget.childId)
+        .snapshots();
+
+    _balanceStream!.listen((snapshot) {
+      if (!snapshot.exists) return;
+      final data = snapshot.data() as Map<String, dynamic>?;
+      if (data == null) return;
+
+      final newBalance = data['balance'] ?? 0;
+      if (mounted) {
+        setState(() => _balance = newBalance);
+      }
+    });
+  }
 
 
   Future<void> _checkNewTokens() async {

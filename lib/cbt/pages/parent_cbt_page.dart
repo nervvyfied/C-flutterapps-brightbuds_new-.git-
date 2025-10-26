@@ -37,13 +37,15 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
   @override
   Widget build(BuildContext context) {
     final cbtProvider = context.watch<CBTProvider>();
-    final assignedIds =
-        cbtProvider.getCurrentWeekAssignments().map((a) => a.exerciseId).toSet();
+    final assignedIds = cbtProvider
+        .getCurrentWeekAssignments()
+        .map((a) => a.exerciseId)
+        .toSet();
     final exercises = CBTLibrary.all;
     final currentWeekAssignments = cbtProvider.getCurrentWeekAssignments();
 
     final Map<String, AssignedCBT> assignedMap = {
-      for (var a in currentWeekAssignments) a.exerciseId: a
+      for (var a in currentWeekAssignments) a.exerciseId: a,
     };
     final Set<String> assigningSet = {};
 
@@ -51,8 +53,10 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
     List<CBTExercise> filtered = _selectedCategory == 'All'
         ? exercises
         : exercises
-            .where((e) => e.mood.toLowerCase() == _selectedCategory.toLowerCase())
-            .toList();
+              .where(
+                (e) => e.mood.toLowerCase() == _selectedCategory.toLowerCase(),
+              )
+              .toList();
 
     // Suggested CBT based on passed mood
     final moodToSuggest = widget.suggestedMood?.toLowerCase() ?? 'calm';
@@ -80,7 +84,10 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF8657F3),
                       borderRadius: BorderRadius.circular(20),
@@ -89,7 +96,10 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                       children: [
                         GestureDetector(
                           onTap: () => Navigator.pop(context),
-                          child: const Icon(Icons.arrow_back, color: Colors.white),
+                          child: const Icon(
+                            Icons.arrow_back,
+                            color: Colors.white,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         const Text(
@@ -111,7 +121,8 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final gridHeight = 3 * 46 + 2 * 6; // 3 rows x 46 height + 2 gaps
+                      final gridHeight =
+                          3 * 46 + 2 * 6; // 3 rows x 46 height + 2 gaps
                       return Row(
                         children: [
                           // "All" button
@@ -119,7 +130,11 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                             flex: 3,
                             child: SizedBox(
                               height: gridHeight.toDouble(),
-                              child: _buildMoodButton('All', const Color.fromRGBO(255, 255, 255, 1), selected: _selectedCategory=='All'),
+                              child: _buildMoodButton(
+                                'All',
+                                const Color.fromRGBO(255, 255, 255, 1),
+                                selected: _selectedCategory == 'All',
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -131,11 +146,19 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _buildMoodButton('Happy', const Color.fromRGBO(254, 207, 0, 1), selected: _selectedCategory=='Happy'),
+                                      child: _buildMoodButton(
+                                        'Happy',
+                                        const Color.fromRGBO(254, 207, 0, 1),
+                                        selected: _selectedCategory == 'Happy',
+                                      ),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
-                                      child: _buildMoodButton('Sad', const Color.fromARGB(255, 87, 160, 243), selected: _selectedCategory=='Sad'),
+                                      child: _buildMoodButton(
+                                        'Sad',
+                                        const Color.fromARGB(255, 87, 160, 243),
+                                        selected: _selectedCategory == 'Sad',
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -143,11 +166,24 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _buildMoodButton('Angry', const Color.fromARGB(255, 253, 92, 103), selected: _selectedCategory=='Angry'),
+                                      child: _buildMoodButton(
+                                        'Angry',
+                                        const Color.fromARGB(255, 253, 92, 103),
+                                        selected: _selectedCategory == 'Angry',
+                                      ),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
-                                      child: _buildMoodButton('Calm', const Color.fromARGB(255, 166, 194, 111), selected: _selectedCategory=='Calm'),
+                                      child: _buildMoodButton(
+                                        'Calm',
+                                        const Color.fromARGB(
+                                          255,
+                                          166,
+                                          194,
+                                          111,
+                                        ),
+                                        selected: _selectedCategory == 'Calm',
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -155,11 +191,20 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                                 Row(
                                   children: [
                                     Expanded(
-                                      child: _buildMoodButton('Anxious', const Color.fromARGB(255, 134, 87, 243), selected: _selectedCategory=='Anxious'),
+                                      child: _buildMoodButton(
+                                        'Scared',
+                                        const Color.fromARGB(255, 134, 87, 243),
+                                        selected: _selectedCategory == 'Scared',
+                                      ),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
-                                      child: _buildMoodButton('Confused', const Color.fromARGB(255, 252, 139, 52), selected: _selectedCategory=='Confused'),
+                                      child: _buildMoodButton(
+                                        'Confused',
+                                        const Color.fromARGB(255, 252, 139, 52),
+                                        selected:
+                                            _selectedCategory == 'Confused',
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -193,7 +238,9 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                           isCompleted: isCompleted,
                           isSuggested: isSuggested,
                           onAssign: () async {
-                            if (isAssigned || assigningSet.contains(exercise.id)) return;
+                            if (isAssigned ||
+                                assigningSet.contains(exercise.id))
+                              return;
 
                             // Mark as assigning
                             assigningSet.add(exercise.id);
@@ -206,11 +253,15 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                             assigningSet.remove(exercise.id);
 
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('${exercise.title} assigned!')),
+                              SnackBar(
+                                content: Text('${exercise.title} assigned!'),
+                              ),
                             );
                           },
                           onUnassign: () async {
-                            if (!isAssigned || assigningSet.contains(exercise.id)) return;
+                            if (!isAssigned ||
+                                assigningSet.contains(exercise.id))
+                              return;
 
                             assigningSet.add(exercise.id);
                             await cbtProvider.unassignCBT(
@@ -221,14 +272,16 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                             assigningSet.remove(exercise.id);
 
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('${exercise.title} unassigned.')),
+                              SnackBar(
+                                content: Text('${exercise.title} unassigned.'),
+                              ),
                             );
                           },
                         );
                       },
                     ),
                   ),
-                )
+                ),
               ],
             ),
           ),
@@ -240,7 +293,8 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
           if (!hasSuggestedAssigned) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                  content: Text('Please assign the suggested CBT first!')),
+                content: Text('Please assign the suggested CBT first!'),
+              ),
             );
           } else {
             Navigator.pop(context);
