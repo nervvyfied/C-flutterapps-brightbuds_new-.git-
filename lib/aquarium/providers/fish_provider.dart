@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:flutter/foundation.dart';
@@ -23,41 +24,154 @@ class FishProvider extends ChangeNotifier {
   bool isInEditMode = false;
   String? movingFishId;
 
+  StreamSubscription<DocumentSnapshot>? _balanceListener;
+  StreamSubscription<BoxEvent>? _hiveWatchSub;
+
   Function(int newBalance)? onBalanceChanged;
 
   FishProvider({required this.authProvider}) {
     _childBox = Hive.box<ChildUser>('childBox');
 
     if (authProvider.currentUserModel is ChildUser) {
-      currentChild = authProvider.currentUserModel;
+      currentChild = authProvider.currentUserModel as ChildUser;
 
-      // ✅ FIX: Delay slightly to ensure Hive is fully ready before restore
+      final child = authProvider.currentUserModel;
+      if (child is ChildUser) {
+        // start listening to firestore balance changes
+        listenToChildBalance(child.parentUid, child.cid);
+      }
+
+      // Delay slightly to ensure Hive is fully ready before restore
       Future.delayed(const Duration(milliseconds: 300), () async {
         await _restoreFromHive();
 
-        // ✅ FIX: Add small delay before remote init to avoid race condition
+        // small delay before remote init to avoid race conditions
         await Future.delayed(const Duration(milliseconds: 300));
         await _init();
 
-        // ✅ FIX: Move listener inside async after restore
-        _childBox.watch(key: currentChild.cid).listen((event) {
-          final updatedChild = _childBox.get(currentChild.cid);
-          if (updatedChild != null &&
-              updatedChild.balance != currentChild.balance) {
-            currentChild = currentChild.copyWith(balance: updatedChild.balance);
-            notifyListeners();
-            if (kDebugMode) {
-              print("🔄 Hive sync: balance updated to ${currentChild.balance}");
+        // Hive watch — unsubscribe previous if any, then watch for updates to this child key
+        await _hiveWatchSub?.cancel();
+        _hiveWatchSub = _childBox.watch(key: currentChild.cid).listen((event) {
+          try {
+            // event.value may be null when deleted - guard it
+            final dynamic val = event.value;
+            if (val == null) return;
+            if (val is ChildUser) {
+              final updatedChild = val;
+              if (updatedChild.balance != currentChild.balance) {
+                currentChild = currentChild.copyWith(
+                  balance: updatedChild.balance,
+                );
+                notifyListeners();
+                if (kDebugMode) {
+                  print(
+                    "🔄 Hive sync: balance updated to ${currentChild.balance}",
+                  );
+                }
+              }
+            } else if (val is Map) {
+              // If your Hive stores maps, convert
+              final updatedChild = ChildUser.fromMap(
+                Map<String, dynamic>.from(val),
+                currentChild.cid,
+              );
+              if (updatedChild.balance != currentChild.balance) {
+                currentChild = currentChild.copyWith(
+                  balance: updatedChild.balance,
+                );
+                notifyListeners();
+                if (kDebugMode) {
+                  print(
+                    "🔄 Hive sync (map): balance updated to ${currentChild.balance}",
+                  );
+                }
+              }
             }
+          } catch (e) {
+            debugPrint('⚠️ Hive watch handler error: $e');
           }
         });
       });
     }
   }
 
+  /// Listen for realtime balance updates from Firestore and update currentChild.balance
+  void listenToChildBalance(String parentId, String childId) {
+    // cancel previous listener if any
+    _balanceListener?.cancel();
+
+    try {
+      final docRef = _firestore
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId);
+
+      _balanceListener = docRef.snapshots().listen(
+        (snapshot) async {
+          try {
+            if (!snapshot.exists) return;
+            final data = snapshot.data();
+            if (data == null) return;
+
+            // Robust parse of balance -> int
+            final dynamic rawBalance = data['balance'];
+            final int newBalance = _parseBalance(rawBalance);
+
+            if (newBalance != currentChild.balance) {
+              // Update provider state from authoritative Firestore value
+              if (kDebugMode)
+                debugPrint('🔁 Balance updated in Firestore: $newBalance');
+
+              currentChild = currentChild.copyWith(balance: newBalance);
+
+              // persist to Hive (if child exists)
+              try {
+                final child = _childBox.get(currentChild.cid);
+                if (child != null) {
+                  final updatedChild = child.copyWith(balance: newBalance);
+                  await _childBox.put(currentChild.cid, updatedChild);
+                }
+              } catch (e) {
+                debugPrint('⚠️ Failed to persist balance to Hive: $e');
+              }
+
+              notifyListeners();
+              onBalanceChanged?.call(newBalance);
+            }
+          } catch (e) {
+            debugPrint('⚠️ Balance listener handler error: $e');
+          }
+        },
+        onError: (e) {
+          debugPrint('⚠️ Balance listener error: $e');
+        },
+      );
+    } catch (e) {
+      debugPrint('⚠️ Failed to start balance listener: $e');
+    }
+  }
+
+  int _parseBalance(dynamic raw) {
+    if (raw == null) return 0;
+    if (raw is int) return raw;
+    if (raw is double) return raw.toInt();
+    if (raw is String) {
+      return int.tryParse(raw) ?? (double.tryParse(raw)?.toInt() ?? 0);
+    }
+    return 0;
+  }
+
+  @override
+  void dispose() {
+    _balanceListener?.cancel();
+    _hiveWatchSub?.cancel();
+    super.dispose();
+  }
+
   // ---------- Restore from Hive ----------
   Future<void> _restoreFromHive() async {
-    // ✅ FIX: Ensure box is open and currentChild is valid
+    // Ensure box is open and currentChild is valid
     if (!_childBox.isOpen || !_childBox.containsKey(currentChild.cid)) {
       if (kDebugMode) print("⚠️ No Hive data found for ${currentChild.cid}");
       notifyListeners(); // still rebuild UI even if empty
@@ -70,23 +184,32 @@ class FishProvider extends ChangeNotifier {
       currentChild = currentChild.copyWith(balance: child.balance);
 
       // Restore owned fishes
-      ownedFishes = child.ownedFish
-          .map((map) => OwnedFish.fromMap(Map<String, dynamic>.from(map)))
-          .toList();
+      try {
+        ownedFishes = child.ownedFish
+            .map((map) => OwnedFish.fromMap(Map<String, dynamic>.from(map)))
+            .toList();
+      } catch (e) {
+        ownedFishes = [];
+        debugPrint('⚠️ Failed to restore ownedFishes from Hive: $e');
+      }
 
       if (kDebugMode) {
-        print("📦 Restored ${ownedFishes.length} fishes from Hive for ${currentChild.cid}");
+        print(
+          "📦 Restored ${ownedFishes.length} fishes from Hive for ${currentChild.cid}",
+        );
       }
     }
 
-    notifyListeners(); // ✅ FIX: Always notify even if no fishes
+    notifyListeners(); // Always notify even if no fishes
   }
 
   // ---------- Initialization (remote sync) ----------
   Future<void> _init() async {
     try {
-      final remoteFishes =
-          await _repo.getOwnedFishes(currentChild.parentUid, currentChild.cid);
+      final remoteFishes = await _repo.getOwnedFishes(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
 
       // Merge remote with local (avoid duplicates)
       final localIds = ownedFishes.map((f) => f.id).toSet();
@@ -113,41 +236,117 @@ class FishProvider extends ChangeNotifier {
     isInEditMode = false;
     movingFishId = null;
 
-    await _restoreFromHive(); // ✅ FIX: Make sure awaited
+    await _restoreFromHive();
     await _init();
+
+    // restart firestore listener for the new child
+    listenToChildBalance(currentChild.parentUid, currentChild.cid);
   }
 
   // ---------- Balance ----------
-  void _updateLocalBalance(int newBalance) {
+  /// Update local balance, persist to Hive, and sync to remote.
+  Future<void> _updateLocalBalance(int newBalance) async {
     if (currentChild.balance == newBalance) return;
 
+    // --- Local Memory ---
     currentChild = currentChild.copyWith(balance: newBalance);
 
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      final updatedChild = child.copyWith(balance: newBalance);
-      _childBox.put(currentChild.cid, updatedChild);
+    // --- Hive Update ---
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        await _childBox.put(
+          currentChild.cid,
+          child.copyWith(balance: newBalance),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to update balance in Hive: $e');
     }
 
     notifyListeners();
     onBalanceChanged?.call(newBalance);
 
-    // Try remote sync silently
+    // --- Firestore Update (Primary) ---
     try {
-      _repo.updateBalance(currentChild.parentUid, currentChild.cid, newBalance);
-    } catch (_) {}
+      await _firestore
+          .collection('users')
+          .doc(currentChild.parentUid)
+          .collection('children')
+          .doc(currentChild.cid)
+          .set({'balance': newBalance}, SetOptions(merge: true));
+
+      debugPrint('✅ Firestore balance updated directly: $newBalance');
+    } catch (e) {
+      debugPrint('❌ Firestore direct balance update failed: $e');
+    }
+
+    // --- Repo Backup (Ensures both Hive + Firestore match) ---
+    try {
+      await _repo.updateBalance(
+        currentChild.parentUid,
+        currentChild.cid,
+        newBalance,
+      );
+      debugPrint('✅ Repo balance synced');
+    } catch (e) {
+      debugPrint('⚠️ Repo.updateBalance failed: $e');
+    }
+
+    // --- Verify & Reconcile ---
+    try {
+      final serverBalance = await fetchBalance(updateLocal: true);
+      debugPrint(
+        '🔄 Reconciled: local=${currentChild.balance}, server=$serverBalance',
+      );
+    } catch (e) {
+      debugPrint('⚠️ Balance reconciliation failed: $e');
+    }
   }
 
-  Future<int> fetchBalance({bool updateLocal = true}) async {
-  try {
-    final remoteBalance = await _repo.fetchBalance(currentChild.parentUid, currentChild.cid);
-    if (updateLocal) _updateLocalBalance(remoteBalance);
-    return remoteBalance;
-  } catch (e) {
-    debugPrint('Failed to fetch remote balance, using local: $e');
-    return currentChild.balance;
+  Future<void> updateBalance(
+    String parentId,
+    String childId,
+    int balance,
+  ) async {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .update({'balance': balance});
   }
-}
+
+  /// Fetch balance from repo (remote) and optionally update local state.
+  Future<int> fetchBalance({bool updateLocal = true}) async {
+    try {
+      final remoteBalance = await _repo.fetchBalance(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
+      if (updateLocal) {
+        // ensure we use provider's update flow so Hive + listeners are consistent
+        if (remoteBalance != currentChild.balance) {
+          currentChild = currentChild.copyWith(balance: remoteBalance);
+          try {
+            final child = _childBox.get(currentChild.cid);
+            if (child != null) {
+              final updatedChild = child.copyWith(balance: remoteBalance);
+              await _childBox.put(currentChild.cid, updatedChild);
+            }
+          } catch (e) {
+            debugPrint('⚠️ Failed to persist fetched balance to Hive: $e');
+          }
+          notifyListeners();
+          onBalanceChanged?.call(remoteBalance);
+        }
+      }
+      return remoteBalance;
+    } catch (e) {
+      debugPrint('Failed to fetch remote balance, using local: $e');
+      return currentChild.balance;
+    }
+  }
 
   // ---------- Inventory ----------
   UnmodifiableListView<OwnedFish> get inventory =>
@@ -159,16 +358,15 @@ class FishProvider extends ChangeNotifier {
   bool isOwned(String fishId) => ownedFishes.any((f) => f.fishId == fishId);
 
   bool canPurchase(FishDefinition fish) =>
-      fish.type == FishType.purchasable &&
-      currentChild.balance >= fish.price;
+      fish.type == FishType.purchasable && currentChild.balance >= fish.price;
 
-  FishDefinition getFishDefinition(String fishId) =>
-      FishCatalog.byId(fishId);
+  FishDefinition getFishDefinition(String fishId) => FishCatalog.byId(fishId);
 
   // ---------- Purchase ----------
   Future<bool> purchaseFish(FishDefinition fish) async {
     if (!canPurchase(fish)) return false;
-    if (ownedFishes.where((f) => f.fishId == fish.id).length >= 15) return false;
+    if (ownedFishes.where((f) => f.fishId == fish.id).length >= 15)
+      return false;
 
     final newFish = OwnedFish(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -181,26 +379,57 @@ class FishProvider extends ChangeNotifier {
 
     final newBalance = currentChild.balance - fish.price;
 
-    _updateLocalBalance(newBalance);
+    // update local & remote balance (awaited)
+    await _updateLocalBalance(newBalance);
 
     ownedFishes.add(newFish);
 
     // Persist to Hive
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      child.ownedFish.add(newFish.toMap());
-      await _childBox.put(currentChild.cid, child);
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        child.ownedFish.add(newFish.toMap());
+        await _childBox.put(currentChild.cid, child);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to persist new fish to Hive: $e');
     }
 
     notifyListeners();
 
-    // Remote sync
+    // Remote sync of owned fish (use addOwnedFish which should merge)
     try {
-      await _repo.addOwnedFish(currentChild.parentUid, currentChild.cid, newFish);
-    } catch (_) {}
+      await _repo.addOwnedFish(
+        currentChild.parentUid,
+        currentChild.cid,
+        newFish,
+      );
+    } catch (e) {
+      debugPrint('⚠️ addOwnedFish failed: $e');
+    }
+    try {
+      // Add owned fish to Firestore directly (always merge)
+      final docRef = _firestore
+          .collection('users')
+          .doc(currentChild.parentUid)
+          .collection('children')
+          .doc(currentChild.cid)
+          .collection('aquarium')
+          .doc('fishes');
+
+      await docRef.set({
+        'ownedFishes': FieldValue.arrayUnion([newFish.toMap()]),
+      }, SetOptions(merge: true));
+
+      debugPrint('✅ Firestore sync success (purchaseFish)');
+    } catch (e) {
+      debugPrint('⚠️ Firestore sync failed (purchaseFish): $e');
+    }
 
     if (kDebugMode) {
-      print("🟢 Purchased fish ${fish.name} (offline-ready, balance $newBalance)");
+      print(
+        "🟢 Purchased fish ${fish.name} (offline-ready, balance $newBalance)",
+      );
     }
 
     return true;
@@ -219,20 +448,33 @@ class FishProvider extends ChangeNotifier {
 
     ownedFishes[idx] = ownedFishes[idx].copyWith(isActive: isActive);
 
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
-      final updatedChild = child.copyWith(ownedFish: updatedFishes);
-      await _childBox.put(currentChild.cid, updatedChild);
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
+        final updatedChild = child.copyWith(ownedFish: updatedFishes);
+        await _childBox.put(currentChild.cid, updatedChild);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to persist fish state change to Hive: $e');
     }
 
     notifyListeners();
 
     try {
-      await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
-    } catch (_) {}
+      await _repo.updateOwnedFish(
+        currentChild.parentUid,
+        currentChild.cid,
+        ownedFishes[idx],
+      );
+    } catch (e) {
+      debugPrint('⚠️ updateOwnedFish failed: $e');
+    }
 
-    if (kDebugMode) print("🟢 Fish ${fishId} state updated: isActive=$isActive (offline-ready)");
+    if (kDebugMode)
+      print(
+        "🟢 Fish ${fishId} state updated: isActive=$isActive (offline-ready)",
+      );
   }
 
   // ---------- Sell ----------
@@ -245,41 +487,107 @@ class FishProvider extends ChangeNotifier {
 
     final soldFish = ownedFishes.removeAt(idx);
 
-    if (price > 0) _updateLocalBalance(currentChild.balance + price);
-
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      child.ownedFish.removeWhere((f) => f['id'] == soldFish.id);
-      await _childBox.put(currentChild.cid, child);
+    if (price > 0) {
+      // update local & remote balance (awaited)
+      await _updateLocalBalance(currentChild.balance + price);
     }
 
     try {
-      await _repo.removeOwnedFish(currentChild.parentUid, currentChild.cid, soldFish.id);
-    } catch (_) {}
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        child.ownedFish.removeWhere((f) => f['id'] == soldFish.id);
+        await _childBox.put(currentChild.cid, child);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to remove sold fish from Hive: $e');
+    }
+
+    try {
+      await _repo.removeOwnedFish(
+        currentChild.parentUid,
+        currentChild.cid,
+        soldFish.id,
+      );
+    } catch (e) {
+      debugPrint('⚠️ removeOwnedFish failed: $e');
+    }
+    try {
+      final docRef = _firestore
+          .collection('users')
+          .doc(currentChild.parentUid)
+          .collection('children')
+          .doc(currentChild.cid)
+          .collection('aquarium')
+          .doc('fishes');
+
+      await docRef.set({
+        'ownedFishes': FieldValue.arrayRemove([soldFish.toMap()]),
+      }, SetOptions(merge: true));
+
+      debugPrint('✅ Firestore sync success (sellFish)');
+    } catch (e) {
+      debugPrint('⚠️ Firestore sync failed (sellFish): $e');
+    }
 
     notifyListeners();
 
     if (kDebugMode) {
-      print("🟢 Sold fish ${soldFish.fishId} for $price tokens. New balance: ${currentChild.balance}");
+      print(
+        "🟢 Sold fish ${soldFish.fishId} for $price tokens. New balance: ${currentChild.balance}",
+      );
     }
   }
 
   // ---------- Unlock ----------
   Future<void> unlockFish(String fishId) async {
+    // if exists by id, do nothing
     if (ownedFishes.any((f) => f.id == fishId)) return;
 
-    final newFish = OwnedFish(id: fishId, fishId: fishId, isUnlocked: true, isActive: false);
+    final newFish = OwnedFish(
+      id: fishId,
+      fishId: fishId,
+      isUnlocked: true,
+      isActive: false,
+    );
     ownedFishes.add(newFish);
 
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      child.ownedFish.add(newFish.toMap());
-      await _childBox.put(currentChild.cid, child);
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        child.ownedFish.add(newFish.toMap());
+        await _childBox.put(currentChild.cid, child);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to persist unlocked fish to Hive: $e');
     }
 
+    // Use addOwnedFish (merge-aware) to avoid overwriting remote arrays
     try {
-      await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, newFish);
-    } catch (_) {}
+      await _repo.addOwnedFish(
+        currentChild.parentUid,
+        currentChild.cid,
+        newFish,
+      );
+    } catch (e) {
+      debugPrint('⚠️ addOwnedFish (unlock) failed: $e');
+    }
+    try {
+      final docRef = _firestore
+          .collection('users')
+          .doc(currentChild.parentUid)
+          .collection('children')
+          .doc(currentChild.cid)
+          .collection('aquarium')
+          .doc('fishes');
+
+      await docRef.set({
+        'ownedFishes': FieldValue.arrayUnion([newFish.toMap()]),
+      }, SetOptions(merge: true));
+
+      debugPrint('✅ Firestore sync success (unlockFish)');
+    } catch (e) {
+      debugPrint('⚠️ Firestore sync failed (unlockFish): $e');
+    }
 
     notifyListeners();
   }
@@ -291,16 +599,26 @@ class FishProvider extends ChangeNotifier {
 
     ownedFishes[idx] = ownedFishes[idx].copyWith(isNeglected: neglected);
 
-    final child = _childBox.get(currentChild.cid);
-    if (child != null) {
-      final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
-      final updatedChild = child.copyWith(ownedFish: updatedFishes);
-      await _childBox.put(currentChild.cid, updatedChild);
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        final updatedFishes = ownedFishes.map((f) => f.toMap()).toList();
+        final updatedChild = child.copyWith(ownedFish: updatedFishes);
+        await _childBox.put(currentChild.cid, updatedChild);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to persist neglected change to Hive: $e');
     }
 
     try {
-      await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, ownedFishes[idx]);
-    } catch (_) {}
+      await _repo.updateOwnedFish(
+        currentChild.parentUid,
+        currentChild.cid,
+        ownedFishes[idx],
+      );
+    } catch (e) {
+      debugPrint('⚠️ updateOwnedFish (neglected) failed: $e');
+    }
 
     notifyListeners();
   }
@@ -335,8 +653,14 @@ class FishProvider extends ChangeNotifier {
 
     for (var fish in _editingBuffer) {
       try {
-        await _repo.updateOwnedFish(currentChild.parentUid, currentChild.cid, fish);
-      } catch (_) {}
+        await _repo.updateOwnedFish(
+          currentChild.parentUid,
+          currentChild.cid,
+          fish,
+        );
+      } catch (e) {
+        debugPrint('⚠️ updateOwnedFish in saveEditMode failed: $e');
+      }
     }
 
     ownedFishes = List.from(_editingBuffer);
@@ -345,7 +669,8 @@ class FishProvider extends ChangeNotifier {
     movingFishId = null;
     notifyListeners();
 
-    if (kDebugMode) print("✅ Edit mode saved. ${ownedFishes.length} fishes synced.");
+    if (kDebugMode)
+      print("✅ Edit mode saved. ${ownedFishes.length} fishes synced.");
   }
 
   void toggleFishSelection(String fishId) {
