@@ -5,8 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import '/data/models/parent_model.dart';
-import '/data/providers/auth_provider.dart'
-    as app_auth; // alias to avoid conflict
+import '/data/providers/auth_provider.dart' as app_auth;
 
 class VerifyEmailScreen extends StatefulWidget {
   final String email;
@@ -18,16 +17,14 @@ class VerifyEmailScreen extends StatefulWidget {
 
 class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   bool isEmailVerified = false;
-  bool canResendEmail = true; // start true, only disables after sending
+  bool canResendEmail = true;
   Timer? timer;
 
   @override
   void initState() {
     super.initState();
-
     isEmailVerified = FirebaseAuth.instance.currentUser?.emailVerified ?? false;
 
-    // Start periodic verification check
     if (!isEmailVerified) {
       timer = Timer.periodic(
         const Duration(seconds: 3),
@@ -62,7 +59,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         await authProvider.updateCurrentUserModel(parent);
       }
 
-      // Navigate to dashboard
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -77,89 +73,110 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     if (user == null) return;
 
     try {
-      // Disable resend button immediately
       setState(() => canResendEmail = false);
-
       await user.sendEmailVerification();
 
-      // Enable button after cooldown
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verification email sent again!')),
+      );
+
       await Future.delayed(const Duration(seconds: 30));
       if (mounted) setState(() => canResendEmail = true);
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'too-many-requests') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Too many requests. Please wait a few minutes before trying again.',
-            ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send verification email: ${e.message}')),
-        );
-      }
+      String message = e.code == 'too-many-requests'
+          ? 'Too many requests. Please wait a few minutes before trying again.'
+          : 'Failed to send verification email: ${e.message}';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
       if (mounted) setState(() => canResendEmail = true);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send verification email: $e')),
-        );
-        setState(() => canResendEmail = true);
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sending email: $e')),
+      );
+      if (mounted) setState(() => canResendEmail = true);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Verify Your Email')),
-        body: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Center(
-            child: isEmailVerified
-                ? const CircularProgressIndicator()
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
-                        "A verification email has been sent to:",
-                        style: TextStyle(fontSize: 16),
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Verify Your Email"),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: isEmailVerified
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.mark_email_read,
+                        size: 90, color: Colors.deepPurple),
+                    const SizedBox(height: 20),
+                    const Text(
+                      "A verification link has been sent to:",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      widget.email,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.deepPurple,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.email,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        "Please check your email inbox or spam.\nOnce verified, this screen will automatically continue.",
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 30),
-                      ElevatedButton.icon(
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      "Please check your inbox or spam folder.\nOnce verified, you’ll be redirected automatically.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15),
+                    ),
+                    const SizedBox(height: 30),
+                    SizedBox(
+                      width: 220,
+                      height: 45,
+                      child: ElevatedButton.icon(
                         onPressed: canResendEmail ? sendVerificationEmail : null,
-                        icon: const Icon(Icons.email),
+                        icon: const Icon(Icons.refresh),
                         label: const Text("Resend Email"),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.deepPurple,
                           foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          textStyle: const TextStyle(
+                            fontFamily: 'Fredoka',
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      TextButton(
-                        onPressed: () async {
-                          await FirebaseAuth.instance.signOut();
-                          if (mounted) Navigator.pop(context);
-                        },
-                        child: const Text("Back to Login"),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: () async {
+                        await FirebaseAuth.instance.signOut();
+                        if (mounted) Navigator.pop(context);
+                      },
+                      child: const Text(
+                        "Back to Login",
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Colors.deepPurple,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ],
-                  ),
-          ),
+                    ),
+                  ],
+                ),
         ),
-      );
-
+      ),
+    );
+  }
 }

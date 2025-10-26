@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
+import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:pdf/pdf.dart';
@@ -527,8 +528,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Parent Dashboard'),
-        automaticallyImplyLeading: false,
+        automaticallyImplyLeading: true,
       ),
+      drawer: ParentAccountSidebar(parentId: widget.parentId),
       body: RefreshIndicator(
         onRefresh: _loadParentData,
         child: SingleChildScrollView(
