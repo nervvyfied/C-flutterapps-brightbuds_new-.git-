@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -10,8 +9,6 @@ import '../repositories/user_repository.dart';
 import '../repositories/task_repository.dart';
 import '../repositories/streak_repository.dart';
 import '../services/sync_service.dart';
-import '../models/child_model.dart';
-import '../models/parent_model.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 
 class JournalProvider extends ChangeNotifier {
@@ -40,7 +37,7 @@ class JournalProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Get initial merged data (local + remote)
+      // Merge offline + online on first load
       final mergedEntries = await _journalRepo.getMergedEntries(
         parentId,
         childId,
@@ -48,10 +45,10 @@ class JournalProvider extends ChangeNotifier {
       _entries[childId] = mergedEntries;
       notifyListeners();
 
-      // Cancel old listener if any
+      // Cancel any old listeners
       await _journalSubscription?.cancel();
 
-      // Attach Firestore listener for real-time updates
+      // Attach Firestore listener for real-time changes
       _journalSubscription = FirebaseFirestore.instance
           .collection('users')
           .doc(parentId)
@@ -68,17 +65,20 @@ class JournalProvider extends ChangeNotifier {
                 )
                 .toList();
 
-            _entries[childId] = remoteEntries;
-            notifyListeners();
+            // Only update if different
+            if (!listEquals(_entries[childId], remoteEntries)) {
+              _entries[childId] = remoteEntries;
 
-            // Sync with Hive for offline persistence
-            for (var entry in remoteEntries) {
-              await _journalRepo.saveEntryLocal(entry);
+              // Persist to Hive for offline sync
+              for (var entry in remoteEntries) {
+                await _journalRepo.saveEntryLocal(entry);
+              }
+
+              debugPrint(
+                "📡 Realtime sync: ${remoteEntries.length} journal entries",
+              );
+              notifyListeners();
             }
-
-            debugPrint(
-              "📡 Realtime update: ${remoteEntries.length} journal entries synced.",
-            );
           });
     } catch (e) {
       debugPrint("❌ Error loading entries: $e");
@@ -88,7 +88,7 @@ class JournalProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------- LEGACY MERGED FETCH (NON-REALTIME) ----------------
+  // ---------------- MANUAL FETCH (LEGACY FALLBACK) ----------------
   Future<List<JournalEntry>> getMergedEntries({
     required String parentId,
     required String childId,
@@ -99,12 +99,12 @@ class JournalProvider extends ChangeNotifier {
       notifyListeners();
       return merged;
     } catch (e) {
-      debugPrint("Error fetching merged journal entries: $e");
+      debugPrint("⚠️ Error fetching merged journal entries: $e");
       return [];
     }
   }
 
-  // ---------------- CRUD ----------------
+  // ---------------- ADD ENTRY ----------------
   Future<void> addEntry(
     String parentId,
     String childId,
@@ -117,30 +117,35 @@ class JournalProvider extends ChangeNotifier {
       createdAt: DateTime.now(),
     );
 
-    // Save locally
+    // Save locally first
     await _journalRepo.saveEntryLocal(newEntry);
 
     _entries.putIfAbsent(childId, () => []);
     _entries[childId]!.insert(0, newEntry);
     notifyListeners();
 
-    // Save remotely
+    // Save remotely if online
     if (await NetworkHelper.isOnline()) {
       try {
         await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
+        // Use your sync service’s global sync
+        await _syncService.syncAllPendingChanges(
+          parentId: parentId,
+          childId: childId,
+        );
       } catch (e) {
         debugPrint("⚠️ Firestore add failed: $e");
       }
     }
   }
 
+  // ---------------- UPDATE ENTRY ----------------
   Future<void> updateEntry(
     String parentId,
     String childId,
     JournalEntry updated,
   ) async {
     final updatedEntry = updated.copyWith(createdAt: DateTime.now());
-
     await _journalRepo.saveEntryLocal(updatedEntry);
 
     _entries.putIfAbsent(childId, () => []);
@@ -156,12 +161,17 @@ class JournalProvider extends ChangeNotifier {
     if (await NetworkHelper.isOnline()) {
       try {
         await _journalRepo.saveEntryRemote(parentId, childId, updatedEntry);
+        await _syncService.syncAllPendingChanges(
+          parentId: parentId,
+          childId: childId,
+        );
       } catch (e) {
         debugPrint("⚠️ Firestore update failed: $e");
       }
     }
   }
 
+  // ---------------- DELETE ENTRY ----------------
   Future<void> deleteEntry(String parentId, String childId, String jid) async {
     await _journalRepo.deleteEntryLocal(jid);
     _entries[childId]?.removeWhere((e) => e.jid == jid);
@@ -170,6 +180,10 @@ class JournalProvider extends ChangeNotifier {
     if (await NetworkHelper.isOnline()) {
       try {
         await _journalRepo.deleteEntryRemote(parentId, childId, jid);
+        await _syncService.syncAllPendingChanges(
+          parentId: parentId,
+          childId: childId,
+        );
       } catch (e) {
         debugPrint("⚠️ Firestore delete failed: $e");
       }
@@ -181,6 +195,10 @@ class JournalProvider extends ChangeNotifier {
 
   Future<void> pushPendingChanges(String parentId, String childId) async {
     await _journalRepo.pushPendingLocalChanges(parentId, childId);
+    await _syncService.syncAllPendingChanges(
+      parentId: parentId,
+      childId: childId,
+    );
     notifyListeners();
   }
 

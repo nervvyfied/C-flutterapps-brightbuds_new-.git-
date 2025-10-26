@@ -34,7 +34,28 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadParentData());
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadParentData();
+
+      // 🔹 Watch for child selection change
+      final selectedChildProv = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
+      selectedChildProv.addListener(_listenToJournalEntries);
+    });
+  }
+
+  @override
+  void dispose() {
+    // 🔹 Clean up listener when leaving page
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+    selectedChildProv.removeListener(_listenToJournalEntries);
+    super.dispose();
   }
 
   Future<void> _loadParentData() async {
@@ -53,6 +74,28 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       _parent = parent;
       _loading = false;
     });
+
+    // 🔹 Start listening to journals for current child
+    _listenToJournalEntries();
+  }
+
+  void _listenToJournalEntries() {
+    final journalProv = Provider.of<JournalProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    final child = selectedChildProv.selectedChild;
+    if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
+
+    final parentId = _parent?.uid ?? widget.parentId;
+    final childId = child['cid'];
+
+    if (parentId.isEmpty || childId.isEmpty) return;
+
+    // 🔁 Attach Firestore listener for this child's journal entries
+    journalProv.loadEntries(parentId: parentId, childId: childId);
   }
 
   Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
@@ -210,7 +253,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     return [
       const SizedBox(height: 12),
-      // Child ID Card
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         elevation: 3,
@@ -278,7 +320,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         ),
       ),
       const SizedBox(height: 12),
-      // Mood & Task Charts
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -496,7 +537,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Parent Info Card
               Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
@@ -539,7 +579,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Child Charts
               Text(
                 'Dashboard for ${activeChild['name']}',
                 style: const TextStyle(
