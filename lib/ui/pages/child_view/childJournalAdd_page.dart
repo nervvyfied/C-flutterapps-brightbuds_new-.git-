@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '/data/models/journal_model.dart';
 import '../../../data/providers/journal_provider.dart';
+import 'dart:math';
 
 class JournalAddPage extends StatefulWidget {
   final String parentId;
@@ -23,51 +24,61 @@ class _JournalAddPageState extends State<JournalAddPage> {
   String _mood = "";
   int _step = 0; // 0 = affirmation page, 1 = journal form page
 
-  // Controllers for journal text
   final _thankfulForController = TextEditingController();
   final _todayILearnedController = TextEditingController();
   final _todayITriedController = TextEditingController();
   final _bestPartOfDayController = TextEditingController();
 
-// ---------------- SAVE ENTRY ----------------
-Future<void> _saveEntry() async {
-  final uuid = const Uuid().v4();
+  String _dailyAffirmation = "I am amazing";
 
-  final newEntry = JournalEntry(
-    jid: uuid,
-    cid: widget.childId,
-    entryDate: DateTime.now(),
-    stars: _stars,
-    affirmation: "I am amazing",
-    mood: _mood,
-    thankfulFor: _thankfulForController.text,
-    todayILearned: _todayILearnedController.text,
-    todayITried: _todayITriedController.text,
-    bestPartOfDay: _bestPartOfDayController.text,
-    createdAt: DateTime.now(),
-  );
+  final List<String> _affirmations = [
+    "I am capable of amazing things.",
+    "Today, I choose happiness.",
+    "I grow stronger every day.",
+    "I am proud of who I am becoming.",
+    "I radiate positivity and kindness.",
+  ];
 
-  try {
-    // Save via JournalProvider (which calls repository)
-    await Provider.of<JournalProvider>(context, listen: false)
-        .addEntry(widget.parentId, widget.childId, newEntry);
-
-    // Refresh entries in provider
-    await Provider.of<JournalProvider>(context, listen: false)
-        .getMergedEntries(
-          parentId: widget.parentId,
-          childId: widget.childId,
-        );
-
-    // Close page and return true to indicate success
-    Navigator.pop(context, true);
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Failed to save entry: $e")),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _dailyAffirmation = _affirmations[Random().nextInt(_affirmations.length)];
   }
-}
 
+  Future<void> _saveEntry() async {
+    final uuid = const Uuid().v4();
+
+    final newEntry = JournalEntry(
+      jid: uuid,
+      cid: widget.childId,
+      entryDate: DateTime.now(),
+      stars: _stars,
+      affirmation: _dailyAffirmation,
+      mood: _mood,
+      thankfulFor: _thankfulForController.text,
+      todayILearned: _todayILearnedController.text,
+      todayITried: _todayITriedController.text,
+      bestPartOfDay: _bestPartOfDayController.text,
+      createdAt: DateTime.now(),
+    );
+
+    try {
+      await Provider.of<JournalProvider>(context, listen: false)
+          .addEntry(widget.parentId, widget.childId, newEntry);
+
+      await Provider.of<JournalProvider>(context, listen: false)
+          .getMergedEntries(
+            parentId: widget.parentId,
+            childId: widget.childId,
+          );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to save entry: $e")),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -78,7 +89,6 @@ Future<void> _saveEntry() async {
     super.dispose();
   }
 
-  // ---------------- UI BUILDERS ----------------
   Widget _buildStars() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -97,126 +107,326 @@ Future<void> _saveEntry() async {
     );
   }
 
-  Widget _buildMoodButtons() {
-    final moods = [
-      {"label": "Calm", "emoji": "😊"},
-      {"label": "Sad", "emoji": "😢"},
-      {"label": "Happy", "emoji": "😃"},
-      {"label": "Confused", "emoji": "😕"},
-      {"label": "Angry", "emoji": "😡"},
-      {"label": "Scared", "emoji": "😨"},
-    ];
+  Widget _buildMoodCard(String mood, List<String> emotions, Color color, String assetName) {
+  final selected = _mood == mood;
 
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      alignment: WrapAlignment.center,
-      children: moods.map((m) {
-        final selected = _mood == m["label"];
-        return ChoiceChip(
-          label: Text("${m["emoji"]} ${m["label"]}"),
-          selected: selected,
-          onSelected: (_) {
-            setState(() => _mood = m["label"]!);
-          },
-          selectedColor: Colors.blue.shade100,
-        );
-      }).toList(),
-    );
-  }
+  return GestureDetector(
+    onTap: () => setState(() => _mood = mood),
+    child: IntrinsicHeight(
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.7) : color.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // 🟢 let it shrink-wrap
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Image.asset('assets/moods/$assetName', width: 40, height: 40),
+            const SizedBox(height: 4),
+            ...emotions.map(
+              (e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 1),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    e,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+
+
 
   Widget _affirmationPage() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        const Text(
-          "I am amazing",
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 20),
-        _buildStars(),
-        const SizedBox(height: 20),
-        const SizedBox(height: 20),
-        _buildMoodButtons(),
-        const SizedBox(height: 40),
-        ElevatedButton(
-          onPressed: (_stars > 0 && _mood.isNotEmpty)
-              ? () => setState(() => _step = 1)
-              : null,
-          child: const Text("Next"),
+        Image.asset('assets/general_bg.png', fit: BoxFit.cover),
+        SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              // Daily Affirmation Container
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text(
+                      "Affirmation of the Day:",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "\"$_dailyAffirmation\"",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Stars Container
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      "How do you rate your day?",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const SizedBox(height: 4),
+                    _buildStars(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Mood selection container
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF8657F3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        "Because I'm..",
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    GridView.count(
+                      crossAxisCount: 3,
+                      shrinkWrap: true,
+                      childAspectRatio: 0.8,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [
+                        _buildMoodCard("Calm", ["Calm", "Content", "Relaxed", "Peaceful"], const Color(0xFFA6C26F), "calm_icon.png"),
+                        _buildMoodCard("Sad", ["Sad", "Down", "Gloomy", "Hurt"], const Color(0xFF57A0F3), "sad_icon.png"),
+                        _buildMoodCard("Happy", ["Happy", "Glad", "Joyful", "Delighted"], const Color(0xFFFECE00), "happy_icon.png"),
+                        _buildMoodCard("Confused", ["Confused", "Hesitant", "Unsure", "Uncertain"], const Color(0xFFFC8B34), "confused_icon.png"),
+                        _buildMoodCard("Angry", ["Angry", "Upset", "Irritated", "Furious"], const Color(0xFFFD5C68), "angry_icon.png"),
+                        _buildMoodCard("Scared", ["Scared", "Afraid", "Worried", "Terrified"], const Color(0xFF8657F3), "scared_icon.png"),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: (_stars > 0 && _mood.isNotEmpty)
+                    ? () => setState(() => _step = 1)
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFA6C26F),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: const Text("Next", style: TextStyle(fontSize: 18)),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
   Widget _journalFormPage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("I'm thankful for:",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _thankfulForController,
-            decoration: const InputDecoration(
-              hintText: "Enter what you're thankful for",
-              border: OutlineInputBorder(),
+  return Stack(
+    fit: StackFit.expand,
+    children: [
+      Image.asset('assets/general_bg.png', fit: BoxFit.cover),
+      SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Thankful For Section
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8657F3),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      "I'm Thankful For",
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Enter what you're thankful for",
+                    style: const TextStyle(fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _thankfulForController,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.all(8),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            maxLines: 2,
-          ),
-          const SizedBox(height: 20),
-          const Text("Good things that happened today",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _todayILearnedController,
-            decoration: const InputDecoration(
-              hintText: "Today I Learned...",
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _todayITriedController,
-            decoration: const InputDecoration(
-              hintText: "Today I Tried...",
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _bestPartOfDayController,
-            decoration: const InputDecoration(
-              hintText: "Best part of my day...",
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 40),
-          ElevatedButton.icon(
-            onPressed: _saveEntry,
-            icon: const Icon(Icons.save),
-            label: const Text("Save Entry"),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 50),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+            const SizedBox(height: 20),
 
-  // ---------------- MAIN BUILD ----------------
+            // Good Things / Journal Form Section
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFA6C26F),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      "Good Things That Happened Today",
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Today I Learned
+                  Text(
+                    "Today I Learned...",
+                    style: const TextStyle(fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _todayILearnedController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.all(8),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Today I Tried
+                  Text(
+                    "Today I Tried...",
+                    style: const TextStyle(fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _todayITriedController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.all(8),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Best Part of Day
+                  Text(
+                    "Best Part of My Day...",
+                    style: const TextStyle(fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _bestPartOfDayController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.all(8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Save Button
+            ElevatedButton.icon(
+              onPressed: _saveEntry,
+              icon: const Icon(Icons.save),
+              label: const Text("Save Entry"),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
+                backgroundColor: const Color(0xFFA6C26F),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Journal Entry'),
-      automaticallyImplyLeading: false,),
-      body: Center(
-        child: _step == 0 ? _affirmationPage() : _journalFormPage(),
+      appBar: AppBar(
+        title: const Text('Add Journal Entry'),
+        automaticallyImplyLeading: false,
       ),
+      body: _step == 0 ? _affirmationPage() : _journalFormPage(),
     );
   }
 }

@@ -48,7 +48,6 @@ class _JournalListPageState extends State<JournalListPage> {
 
     await _checkConnectivity();
 
-    // Fetch merged entries from provider (Firestore + Hive)
     await journalProvider.getMergedEntries(
       parentId: widget.parentId,
       childId: widget.childId,
@@ -71,10 +70,7 @@ class _JournalListPageState extends State<JournalListPage> {
 
     if (!_isOffline) {
       try {
-        // Push pending local changes first
         await journalProvider.pushPendingChanges(widget.parentId, widget.childId);
-
-        // Re-fetch merged entries after sync
         await journalProvider.getMergedEntries(
           parentId: widget.parentId,
           childId: widget.childId,
@@ -90,7 +86,6 @@ class _JournalListPageState extends State<JournalListPage> {
 
   List<JournalEntry> _filterEntries(List<JournalEntry> entries) {
     if (entries.isEmpty) return [];
-
     return entries.where((entry) {
       final matchMonth =
           entry.entryDate.year == _selectedMonth.year &&
@@ -168,6 +163,33 @@ class _JournalListPageState extends State<JournalListPage> {
     );
   }
 
+  Widget _buildMoodIcon(String mood) {
+    String assetPath = 'assets/moods/';
+    switch (mood.toLowerCase()) {
+      case 'happy':
+        assetPath += 'happy_icon.png';
+        break;
+      case 'calm':
+        assetPath += 'calm_icon.png';
+        break;
+      case 'sad':
+        assetPath += 'sad_icon.png';
+        break;
+      case 'confused':
+        assetPath += 'confused_icon.png';
+        break;
+      case 'angry':
+        assetPath += 'angry_icon.png';
+        break;
+      case 'scared':
+        assetPath += 'scared_icon.png';
+        break;
+      default:
+        assetPath += 'happy_icon.png';
+    }
+    return Image.asset(assetPath, width: 32, height: 32);
+  }
+
   Future<void> _showPreviewDialog(JournalEntry entry) async {
     final journalProvider = Provider.of<JournalProvider>(context, listen: false);
 
@@ -233,15 +255,35 @@ class _JournalListPageState extends State<JournalListPage> {
 
         return Scaffold(
           appBar: AppBar(
-            title: GestureDetector(
-              onTap: _pickMonth,
-              child: Text(
-                _selectedDay != null
-                    ? "${DateFormat.yMMMd().format(_selectedDay!)} ▼"
-                    : "${DateFormat.yMMM().format(_selectedMonth)} ▼",
-              ),
-            ),
             automaticallyImplyLeading: false,
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => setState(() {
+                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+                    _selectedDay = null;
+                  }),
+                ),
+                GestureDetector(
+                  onTap: _pickMonth,
+                  child: Text(
+                    _selectedDay != null
+                        ? "${DateFormat.yMMMd().format(_selectedDay!)} ▼"
+                        : "${DateFormat.yMMM().format(_selectedMonth)} ▼",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.arrow_forward),
+                  onPressed: () => setState(() {
+                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+                    _selectedDay = null;
+                  }),
+                ),
+              ],
+            ),
             actions: [
               if (_isSyncing)
                 const Padding(
@@ -251,20 +293,6 @@ class _JournalListPageState extends State<JournalListPage> {
                   ),
                 ),
               IconButton(icon: const Icon(Icons.sync), onPressed: _syncWithCloud),
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => setState(() {
-                  _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
-                  _selectedDay = null;
-                }),
-              ),
-              IconButton(
-                icon: const Icon(Icons.arrow_forward),
-                onPressed: () => setState(() {
-                  _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
-                  _selectedDay = null;
-                }),
-              ),
             ],
           ),
           body: _isLoading
@@ -287,8 +315,11 @@ class _JournalListPageState extends State<JournalListPage> {
                       child: SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          icon: const Icon(Icons.add),
-                          label: const Text("Add Journal"),
+                          icon: const Icon(Icons.add, color: Colors.white),
+                          label: const Text("Add New Entry", style: TextStyle(color: Colors.white),),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF8657F3),
+                          ),
                           onPressed: () async {
                             final added = await Navigator.push(
                               context,
@@ -323,11 +354,23 @@ class _JournalListPageState extends State<JournalListPage> {
                                   return Card(
                                     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                                     child: ListTile(
-                                      title: Text(
-                                        DateFormat('yMMMd').format(entry.entryDate),
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      leading: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          _buildMoodIcon(entry.mood),
+                                          const SizedBox(width: 8),
+                                          Text(DateFormat('yMMMd').format(entry.entryDate)),
+                                        ],
                                       ),
-                                      subtitle: Text("Stars: ${entry.stars} | Mood: ${entry.mood}"),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text("${entry.stars}"),
+                                          const SizedBox(width: 4),
+                                          const Icon(Icons.star, color: Colors.amber),
+                                        ],
+                                      ),
                                       onTap: () => _showPreviewDialog(entry),
                                     ),
                                   );

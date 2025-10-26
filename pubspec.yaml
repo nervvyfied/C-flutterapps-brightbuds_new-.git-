@@ -88,6 +88,15 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  fonts:
+  - family: Fredoka
+    fonts:
+      - asset: assets/fonts/Fredoka-Regular.ttf
+      - asset: assets/fonts/Fredoka-SemiBold.ttf
+        weight: 600
+      - asset: assets/fonts/Fredoka-Bold.ttf
+        weight: 700
+
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/audios/calm/
@@ -183,7 +192,9 @@ flutter:
     - assets/tutorial/tutorial8.png
     - assets/store_bg.png
     - assets/general_bg.png
-    
+  
+
+
 
     
 
