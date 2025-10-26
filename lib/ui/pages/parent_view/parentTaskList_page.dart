@@ -31,14 +31,11 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Listen for changes in selected child
     final selectedChildProv = Provider.of<SelectedChildProvider>(
       context,
       listen: false,
     );
     selectedChildProv.addListener(_loadTasksForSelectedChild);
-
-    // Load tasks for initial child
     _loadTasksForSelectedChild();
   }
 
@@ -84,9 +81,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: TaskFormModal(
           parentId: widget.parentId,
           childId: childId,
@@ -96,6 +91,152 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     );
   }
 
+  Map<String, List<TaskModel>> _groupTasksByTime(List<TaskModel> tasks) {
+    final Map<String, List<TaskModel>> grouped = {
+      'Morning': [],
+      'Afternoon': [],
+      'Evening': [],
+      'Anytime': [],
+    };
+
+    for (var task in tasks) {
+      switch (task.routine.toLowerCase()) {
+        case 'morning':
+          grouped['Morning']!.add(task);
+          break;
+        case 'afternoon':
+          grouped['Afternoon']!.add(task);
+          break;
+        case 'evening':
+          grouped['Evening']!.add(task);
+          break;
+        default:
+          grouped['Anytime']!.add(task);
+      }
+    }
+    return grouped;
+  }
+
+  Color _getDifficultyColor(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return const Color(0xFFA6C26F);
+      case 'medium':
+        return const Color(0xFFFECE00);
+      case 'hard':
+        return const Color(0xFFFD5C68);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _buildTaskGroup(String title, List<TaskModel> tasks) {
+  if (tasks.isEmpty) return const SizedBox.shrink();
+
+  return Container(
+    margin: const EdgeInsets.symmetric(vertical: 16),
+    child: Column(
+      children: [
+        // Title container
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF8657F3),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: Text(
+              title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        // Tasks
+        Column(
+          children: tasks.map((task) {
+            Color cardColor = Colors.white;
+            if (task.verified) {
+              cardColor = const Color.fromARGB(255, 216, 248, 154); // Green
+            } else if (task.isDone) {
+              cardColor = const Color.fromARGB(255, 255, 234, 141); // Yellow
+            }
+
+            return Card(
+              color: cardColor,
+              margin: const EdgeInsets.symmetric(vertical: 6),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ListTile(
+                title: Text(task.name),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _getDifficultyColor(task.difficulty ?? 'Easy'),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            task.difficulty ?? 'Easy',
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Row(
+                          children: [
+                            Image.asset('assets/coin.png', width: 16, height: 16),
+                            const SizedBox(width: 4),
+                            Text('${task.reward ?? 0}'),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    if (!task.verified && task.isDone)
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF8657F3),
+                          foregroundColor: Colors.white, // Text color
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        ),
+                        onPressed: () {
+                          final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+                          taskProvider.verifyTask(task.id, task.childId);
+                        },
+                        child: const Text("Verify"),
+                      )
+                    else if (task.verified)
+                      const Text("✅ Verified", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
+                    else
+                      const Text("⏳ Pending", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: () => _openTaskModal(context, task: task),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    ),
+  );
+}
+
+
   @override
   Widget build(BuildContext context) {
     final selectedChildProv = Provider.of<SelectedChildProvider>(context);
@@ -103,78 +244,79 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     final childName = selectedChildProv.selectedChild?['name'] ?? 'No Child';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Quests for $childName"),
-        automaticallyImplyLeading: false,
-      ),
-      body: Consumer<TaskProvider>(
-        builder: (context, taskProvider, _) {
-          final childTasks = childId != null
-              ? taskProvider.tasks.where((t) => t.childId == childId).toList()
-              : [];
-
-          if (taskProvider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (childTasks.isEmpty) {
-            return Center(
-              child: Text("No quests assigned to $childName. Add some!"),
-            );
-          }
-
-          return ListView.builder(
-            itemCount: childTasks.length,
-            itemBuilder: (context, index) {
-              final task = childTasks[index];
-              return ListTile(
-                title: Text(task.name),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      body: Stack(
+        children: [
+          Image.asset('assets/general_bg.png', fit: BoxFit.cover, width: double.infinity, height: double.infinity),
+          Column(
+            children: [
+              const SizedBox(height: 40),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
                   children: [
                     Text(
-                      "Difficulty: ${task.difficulty} • Reward: ${task.reward} tokens",
+                      'Quests for $childName',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    task.verified
-                        ? const Text(
-                            "✅ Verified",
-                            style: TextStyle(color: Colors.green),
-                          )
-                        : task.isDone
-                        ? ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              textStyle: const TextStyle(fontSize: 14),
-                            ),
-                            child: const Text("Verify"),
-                            onPressed: () {
-                              taskProvider.verifyTask(task.id, task.childId);
-                            },
-                          )
-                        : const Text(
-                            "⏳ Pending",
-                            style: TextStyle(color: Colors.orange),
-                          ),
                   ],
                 ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () => _openTaskModal(context, task: task),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                  decoration: const BoxDecoration(
+                    color: Color.fromARGB(235, 255, 255, 255),
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  child: Consumer<TaskProvider>(
+                    builder: (context, taskProvider, _) {
+                      final List<TaskModel> childTasks = childId != null
+                        ? taskProvider.tasks.where((t) => t.childId == childId).toList()
+                        : <TaskModel>[];
+
+                      if (taskProvider.isLoading) {
+                        return const Center(child: CircularProgressIndicator());
+                      } else if (childTasks.isEmpty) {
+                        return Center(child: Text("No quests assigned to $childName."));
+                      }
+
+                      final grouped = _groupTasksByTime(childTasks);
+
+                      return RefreshIndicator(
+                        onRefresh: () async => _loadTasksForSelectedChild(),
+                        child: ListView(
+                          children: [
+                            _buildTaskGroup('Morning', grouped['Morning']!),
+                            _buildTaskGroup('Afternoon', grouped['Afternoon']!),
+                            _buildTaskGroup('Evening', grouped['Evening']!),
+                            _buildTaskGroup('Anytime', grouped['Anytime']!),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              );
-            },
-          );
-        },
+              ),
+            ],
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _openTaskModal(context),
-        child: const Icon(Icons.add),
-      ),
+      onPressed: () => _openTaskModal(context),
+      backgroundColor: const Color(0xFF8657F3), // Purple
+      foregroundColor: Colors.white, // Icon color
+      child: const Icon(Icons.add),
+    ),
     );
   }
 }
+
 // ---------------- Task Modal ----------------
 
 class TaskFormModal extends StatefulWidget {
@@ -202,19 +344,33 @@ class _TaskFormModalState extends State<TaskFormModal> {
   late String routine;
   DateTime? alarmDateTime;
 
+  late final TextEditingController _rewardController = TextEditingController();
+
+  final Map<String, int> defaultTokens = {
+    'Easy': 3,
+    'Medium': 5,
+    'Hard': 25,
+  };
+
   @override
   void initState() {
     super.initState();
     taskName = widget.task?.name ?? '';
     difficulty = widget.task?.difficulty ?? 'Easy';
-    reward = widget.task?.reward ?? 10;
+    reward = widget.task?.reward ?? defaultTokens[difficulty]!;
     routine = widget.task?.routine ?? 'Anytime';
     alarmDateTime = widget.task?.alarm;
+
+    _rewardController.text = reward.toString();
+  }
+
+  @override
+  void dispose() {
+    _rewardController.dispose();
+    super.dispose();
   }
 
   Future<void> _pickAlarmTime() async {
-    final now = DateTime.now();
-
     final pickedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(alarmDateTime ?? DateTime.now()),
@@ -232,161 +388,279 @@ class _TaskFormModalState extends State<TaskFormModal> {
     }
   }
 
+  Widget _buildDifficultyButton(String value, Color color) {
+    final selected = difficulty == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          difficulty = value;
+          reward = defaultTokens[difficulty]!; // auto-set tokens
+          _rewardController.text = reward.toString(); // update field
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: selected ? color : color.withOpacity(0.3),
+          borderRadius: BorderRadius.circular(8),
+          border: selected ? Border.all(color: Colors.black, width: 2) : null,
+        ),
+        child: Text(
+          value,
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoutineButton(String value) {
+    final selected = routine == value;
+    return GestureDetector(
+      onTap: () => setState(() => routine = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF8657F3) : Colors.grey[300],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          value,
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
     return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Form(
-        key: _formKey,
-        child: Wrap(
-          runSpacing: 12,
-          children: [
-            TextFormField(
-              initialValue: taskName,
-              decoration: const InputDecoration(labelText: "Title"),
-              onSaved: (val) => taskName = val ?? '',
-              validator: (val) => val!.isEmpty ? "Enter title" : null,
-            ),
-            DropdownButtonFormField<String>(
-              decoration: const InputDecoration(labelText: "Difficulty"),
-              value: difficulty,
-              items: [
-                'Easy',
-                'Medium',
-                'Hard',
-              ].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-              onChanged: (val) => setState(() => difficulty = val!),
-            ),
-            TextFormField(
-              decoration: const InputDecoration(labelText: "Reward (tokens)"),
-              keyboardType: TextInputType.number,
-              initialValue: reward.toString(),
-              onSaved: (val) => reward = int.tryParse(val ?? '10') ?? 10,
-            ),
-            DropdownButtonFormField<String>(
-              decoration: const InputDecoration(labelText: "Routine"),
-              value: routine,
-              items: [
-                'Morning',
-                'Afternoon',
-                'Evening',
-                'Anytime',
-              ].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-              onChanged: (val) => setState(() => routine = val!),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text("Alarm Reminder"),
-              subtitle: Text(
-                alarmDateTime != null
-                    ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2, '0')}:${alarmDateTime!.minute.toString().padLeft(2, '0')}"
-                    : "No alarm set",
-              ),
-              trailing: IconButton(
-                icon: const Icon(Icons.access_time),
-                onPressed: _pickAlarmTime,
-              ),
-            ),
-            if (alarmDateTime != null)
-              TextButton.icon(
-                icon: const Icon(Icons.delete_forever, color: Colors.red),
-                label: const Text("Remove Alarm"),
-                onPressed: () => setState(() => alarmDateTime = null),
-              ),
-            const SizedBox(height: 16),
-            Row(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        top: 0,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center, // center everything
               children: [
-                if (widget.task != null)
-                  TextButton.icon(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    label: const Text("Delete"),
-                    onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text("Delete Task"),
-                          content: const Text(
-                            "Are you sure you want to delete this task?",
+                // Header
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8657F3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Center(
+                    child: Text(
+                      widget.task == null ? "Add Quest" : "Edit Quest",
+                      style: const TextStyle(
+                        fontSize: 20,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Task Name
+                TextFormField(
+                    textAlign: TextAlign.center,
+                    initialValue: taskName,
+                    decoration: InputDecoration(
+                      label: Align(
+                        alignment: Alignment.center,
+                        child: Text(
+                          "Title",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
                           ),
-                          actions: [
-                            TextButton(
-                              child: const Text("Cancel"),
-                              onPressed: () => Navigator.pop(ctx, false),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                              ),
-                              child: const Text("Delete"),
-                              onPressed: () => Navigator.pop(ctx, true),
-                            ),
-                          ],
                         ),
-                      );
-                      if (confirm == true) {
-                        await taskProvider.deleteTask(
-                          widget.task!.id,
-                          widget.parentId,
-                          widget.childId,
-                        );
-                        Navigator.pop(context);
-                      }
-                    },
+                      ),
+                    ),
+                    onSaved: (val) => taskName = val ?? '',
+                    validator: (val) => val!.isEmpty ? "Enter title" : null,
                   ),
-                const Spacer(),
-                ElevatedButton(
-                  child: Text(
-                    widget.task == null ? "Add Task" : "Save Changes",
+                  const SizedBox(height: 16),
+
+                // Difficulty row
+                Text("Difficulty", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildDifficultyButton('Easy', const Color(0xFFA6C26F)),
+                    _buildDifficultyButton('Medium', const Color(0xFFFECE00)),
+                    _buildDifficultyButton('Hard', const Color(0xFFFD5C68)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Reward container
+                Text("Reward (tokens)", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.asset('assets/coin.png', width: 24, height: 24),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 80,
+                      child: TextFormField(
+                        controller: _rewardController,
+                        textAlign: TextAlign.center,
+                        keyboardType: TextInputType.number,
+                        onSaved: (val) => reward = int.tryParse(val ?? '0') ?? 0,
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Routine row
+                Text("Routine", style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildRoutineButton('Morning'),
+                    _buildRoutineButton('Afternoon'),
+                    _buildRoutineButton('Evening'),
+                    _buildRoutineButton('Anytime'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Alarm
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text("Alarm Reminder"),
+                  subtitle: Text(
+                    alarmDateTime != null
+                        ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2, '0')}:${alarmDateTime!.minute.toString().padLeft(2, '0')}"
+                        : "No alarm set",
                   ),
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      _formKey.currentState!.save();
+                  trailing: IconButton(
+                    icon: const Icon(Icons.access_time),
+                    onPressed: _pickAlarmTime,
+                  ),
+                ),
+                if (alarmDateTime != null)
+                  TextButton.icon(
+                    icon: const Icon(Icons.delete_forever, color: Colors.red),
+                    label: const Text("Remove Alarm"),
+                    onPressed: () => setState(() => alarmDateTime = null),
+                  ),
 
-                      final taskProvider = Provider.of<TaskProvider>(
-                        context,
-                        listen: false,
-                      );
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    if (widget.task != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        label: const Text("Delete"),
+                        onPressed: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("Delete Task"),
+                              content: const Text(
+                                "Are you sure you want to delete this task?",
+                              ),
+                              actions: [
+                                TextButton(
+                                  child: const Text("Cancel"),
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                ),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                  ),
+                                  child: const Text("Delete"),
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true) {
+                            await taskProvider.deleteTask(
+                              widget.task!.id,
+                              widget.parentId,
+                              widget.childId,
+                            );
+                            Navigator.pop(context);
+                          }
+                        },
+                      ),
+                    const Spacer(),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFA6C26F),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(widget.task == null ? "Add Quest" : "Save Changes"),
+                      onPressed: () {
+                        if (_formKey.currentState!.validate()) {
+                          _formKey.currentState!.save();
 
-                      if (widget.task == null) {
-                        // Creating a new task
-                        final newTask = TaskModel(
-                          id: DateTime.now().millisecondsSinceEpoch.toString(),
-                          name: taskName,
-                          difficulty: difficulty,
-                          reward: reward,
-                          routine: routine,
-                          parentId: widget.parentId,
-                          childId: widget.childId,
-                          createdAt: DateTime.now(),
-                          alarm: alarmDateTime,
-                        );
-                        taskProvider.addTask(newTask);
-                      } else {
-                        // Updating existing task — only send the changed fields
-                        final updatedFields = TaskModel(
-                          id: widget.task!.id,
-                          name: taskName,
-                          difficulty: difficulty,
-                          reward: reward,
-                          routine: routine,
-                          parentId: widget.parentId,
-                          childId: widget.childId,
-                          createdAt: widget.task!.createdAt,
-                          alarm: alarmDateTime,
-                        );
+                          if (widget.task == null) {
+                            final newTask = TaskModel(
+                              id: DateTime.now().millisecondsSinceEpoch.toString(),
+                              name: taskName,
+                              difficulty: difficulty,
+                              reward: reward,
+                              routine: routine,
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                              createdAt: DateTime.now(),
+                              alarm: alarmDateTime,
+                            );
+                            taskProvider.addTask(newTask);
+                          } else {
+                            final updatedTask = TaskModel(
+                              id: widget.task!.id,
+                              name: taskName,
+                              difficulty: difficulty,
+                              reward: reward,
+                              routine: routine,
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                              createdAt: widget.task!.createdAt,
+                              alarm: alarmDateTime,
+                            );
+                            taskProvider.updateTask(updatedTask);
+                          }
 
-                        taskProvider.updateTask(updatedFields);
-                      }
-
-                      Navigator.pop(context);
-                    }
-                  },
+                          Navigator.pop(context);
+                        }
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
