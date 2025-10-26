@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -23,67 +25,120 @@ class JournalProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
+  StreamSubscription<QuerySnapshot>? _journalSubscription;
+
   JournalProvider() {
     _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
   }
 
-  // ---------------- LOAD ENTRIES ----------------
-  Future<void> loadEntries({String? parentId, String? childId}) async {
-    if (parentId == null || childId == null) return;
+  // ---------------- LOAD ENTRIES (REAL-TIME) ----------------
+  Future<void> loadEntries({
+    required String parentId,
+    required String childId,
+  }) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      final merged = await _journalRepo.getMergedEntries(parentId, childId);
-      _entries[childId] = merged;
+      // Get initial merged data (local + remote)
+      final mergedEntries = await _journalRepo.getMergedEntries(
+        parentId,
+        childId,
+      );
+      _entries[childId] = mergedEntries;
+      notifyListeners();
+
+      // Cancel old listener if any
+      await _journalSubscription?.cancel();
+
+      // Attach Firestore listener for real-time updates
+      _journalSubscription = FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('journals')
+          .orderBy('entryDate', descending: true)
+          .snapshots()
+          .listen((snapshot) async {
+            final remoteEntries = snapshot.docs
+                .map(
+                  (doc) =>
+                      JournalEntry.fromMap(doc.data() as Map<String, dynamic>),
+                )
+                .toList();
+
+            _entries[childId] = remoteEntries;
+            notifyListeners();
+
+            // Sync with Hive for offline persistence
+            for (var entry in remoteEntries) {
+              await _journalRepo.saveEntryLocal(entry);
+            }
+
+            debugPrint(
+              "📡 Realtime update: ${remoteEntries.length} journal entries synced.",
+            );
+          });
     } catch (e) {
-      debugPrint("Error loading entries: $e");
+      debugPrint("❌ Error loading entries: $e");
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
+  // ---------------- LEGACY MERGED FETCH (NON-REALTIME) ----------------
   Future<List<JournalEntry>> getMergedEntries({
     required String parentId,
     required String childId,
   }) async {
-    final merged = await _journalRepo.getMergedEntries(parentId, childId);
-    _entries[childId] = merged;
-    notifyListeners();
-    return merged;
+    try {
+      final merged = await _journalRepo.getMergedEntries(parentId, childId);
+      _entries[childId] = merged;
+      notifyListeners();
+      return merged;
+    } catch (e) {
+      debugPrint("Error fetching merged journal entries: $e");
+      return [];
+    }
   }
 
   // ---------------- CRUD ----------------
-Future<void> addEntry(String parentId, String childId, JournalEntry entry) async {
-  final newEntry = entry.copyWith(
-    jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
-    cid: childId,
-    entryDate: entry.entryDate,
-    createdAt: DateTime.now(),
-  );
+  Future<void> addEntry(
+    String parentId,
+    String childId,
+    JournalEntry entry,
+  ) async {
+    final newEntry = entry.copyWith(
+      jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
+      cid: childId,
+      entryDate: entry.entryDate,
+      createdAt: DateTime.now(),
+    );
 
-  // Save locally
-  await _journalRepo.saveEntryLocal(newEntry);
+    // Save locally
+    await _journalRepo.saveEntryLocal(newEntry);
 
-  _entries.putIfAbsent(childId, () => []);
-  _entries[childId]!.insert(0, newEntry);
+    _entries.putIfAbsent(childId, () => []);
+    _entries[childId]!.insert(0, newEntry);
+    notifyListeners();
 
-  notifyListeners();
-
-  // Save remotely if online
-  if (await NetworkHelper.isOnline()) {
-    try {
-      await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
-    } catch (e) {
-      debugPrint("⚠️ Firestore add failed: $e");
+    // Save remotely
+    if (await NetworkHelper.isOnline()) {
+      try {
+        await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
+      } catch (e) {
+        debugPrint("⚠️ Firestore add failed: $e");
       }
     }
   }
 
-
-
-  Future<void> updateEntry(String parentId, String childId, JournalEntry updated) async {
+  Future<void> updateEntry(
+    String parentId,
+    String childId,
+    JournalEntry updated,
+  ) async {
     final updatedEntry = updated.copyWith(createdAt: DateTime.now());
 
     await _journalRepo.saveEntryLocal(updatedEntry);
@@ -96,14 +151,13 @@ Future<void> addEntry(String parentId, String childId, JournalEntry entry) async
     } else {
       list.insert(0, updatedEntry);
     }
-
     notifyListeners();
 
     if (await NetworkHelper.isOnline()) {
       try {
         await _journalRepo.saveEntryRemote(parentId, childId, updatedEntry);
       } catch (e) {
-        debugPrint("Firestore update failed: $e");
+        debugPrint("⚠️ Firestore update failed: $e");
       }
     }
   }
@@ -117,15 +171,22 @@ Future<void> addEntry(String parentId, String childId, JournalEntry entry) async
       try {
         await _journalRepo.deleteEntryRemote(parentId, childId, jid);
       } catch (e) {
-        debugPrint("Firestore delete failed: $e");
+        debugPrint("⚠️ Firestore delete failed: $e");
       }
     }
   }
 
+  // ---------------- UTILITIES ----------------
   List<JournalEntry> getEntries(String childId) => _entries[childId] ?? [];
 
   Future<void> pushPendingChanges(String parentId, String childId) async {
     await _journalRepo.pushPendingLocalChanges(parentId, childId);
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _journalSubscription?.cancel();
+    super.dispose();
   }
 }

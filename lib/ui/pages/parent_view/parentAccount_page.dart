@@ -17,7 +17,6 @@ class ParentAccountPage extends StatefulWidget {
   State<ParentAccountPage> createState() => _ParentAccountPageState();
 }
 
-
 class _ParentAccountPageState extends State<ParentAccountPage> {
   final UserRepository _userRepo = UserRepository();
   Map<String, dynamic>? parentData;
@@ -33,13 +32,72 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
   @override
   void initState() {
     super.initState();
+
     // Reset selected child on new login
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-    final selectedChildProvider = 
-        Provider.of<SelectedChildProvider>(context, listen: false);
-    selectedChildProvider.clearSelectedChild();
-  });
-    fetchParentData();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final selectedChildProvider = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
+      selectedChildProvider.clearSelectedChild();
+
+      await fetchParentData();
+
+      // Force child selection right after data is loaded
+      if (childrenList.isNotEmpty) {
+        _forceSelectChild();
+      }
+    });
+  }
+
+  Future<void> _forceSelectChild() async {
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    if (selectedChildProv.selectedChild != null) return; // already selected
+
+    await Future.delayed(
+      const Duration(milliseconds: 300),
+    ); // short delay to ensure UI is ready
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false, // cannot close without selecting
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text("Select a Child"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: childrenList.map((childMap) {
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue[100],
+                  child: Text(childMap['name'][0]),
+                ),
+                title: Text(childMap['name']),
+                subtitle: Text("Access Code: ${childMap['accessCode']}"),
+                onTap: () async {
+                  selectedChildProv.setSelectedChild(childMap);
+
+                  // preload their journals
+                  await Provider.of<JournalProvider>(
+                    context,
+                    listen: false,
+                  ).getEntries(childMap['cid']);
+
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Switched to ${childMap['name']}")),
+                  );
+                },
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> fetchParentData() async {
@@ -72,7 +130,9 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
           .collection('children')
           .get();
 
-      List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((doc) {
+      List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((
+        doc,
+      ) {
         var c = doc.data() as Map<String, dynamic>;
         String code = accessCodes[doc.id]?.toString() ?? "—";
         return {
@@ -84,15 +144,35 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
         };
       }).toList();
 
-      final selectedChildProv =
-          Provider.of<SelectedChildProvider>(context, listen: false);
+      final selectedChildProv = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
 
-      // Auto-select first child if none selected
-      if (tempChildren.isNotEmpty && selectedChildProv.selectedChild == null) {
-        selectedChildProv.setSelectedChild(tempChildren[0]);
-        Provider.of<JournalProvider>(context, listen: false)
-            .getEntries(tempChildren[0]['cid']);
+      // --- FIXED SECTION START ---
+      if (tempChildren.isNotEmpty) {
+        var currentSelected = selectedChildProv.selectedChild;
+
+        // If no child selected or the previous one no longer exists, pick the first valid one
+        if (currentSelected == null ||
+            !tempChildren.any((c) => c['cid'] == currentSelected['cid'])) {
+          selectedChildProv.setSelectedChild(tempChildren[0]);
+          await Provider.of<JournalProvider>(
+            context,
+            listen: false,
+          ).getEntries(tempChildren[0]['cid']);
+        } else {
+          // Refresh entries for the currently selected child
+          await Provider.of<JournalProvider>(
+            context,
+            listen: false,
+          ).getEntries(currentSelected['cid']);
+        }
+      } else {
+        // No children at all
+        selectedChildProv.setSelectedChild(null);
       }
+      // --- FIXED SECTION END ---
 
       setState(() {
         parentData = data;
@@ -128,13 +208,17 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
                 title: Text(childMap['name']),
                 subtitle: Text("Access Code: ${childMap['accessCode']}"),
                 onTap: () async {
-                  final selectedChildProv =
-                      Provider.of<SelectedChildProvider>(context, listen: false);
+                  final selectedChildProv = Provider.of<SelectedChildProvider>(
+                    context,
+                    listen: false,
+                  );
 
                   selectedChildProv.setSelectedChild(childMap);
 
-                  await Provider.of<JournalProvider>(context, listen: false)
-                      .getEntries(childMap['cid']);
+                  await Provider.of<JournalProvider>(
+                    context,
+                    listen: false,
+                  ).getEntries(childMap['cid']);
 
                   Navigator.pop(ctx);
                 },
@@ -146,159 +230,164 @@ class _ParentAccountPageState extends State<ParentAccountPage> {
     );
   }
 
-    Future<void> _showParentSettingsDialog() async {
-      _newName = parentData!['name'];
-      _newEmail = parentData!['email'];
-      String? _newPasswordConfirm;
-      bool _obscureNewPassword = true;
-      bool _obscureConfirmPassword = true;
+  Future<void> _showParentSettingsDialog() async {
+    _newName = parentData!['name'];
+    _newEmail = parentData!['email'];
+    String? _newPasswordConfirm;
+    bool _obscureNewPassword = true;
+    bool _obscureConfirmPassword = true;
 
-      final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
 
-      await showDialog(
-        context: context,
-        builder: (ctx) {
-          return StatefulBuilder(
-            builder: (context, setStateDialog) => AlertDialog(
-              title: const Text("Settings"),
-              content: Form(
-                key: _editFormKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      initialValue: _newName,
-                      decoration: const InputDecoration(labelText: "Name"),
-                      onSaved: (val) => _newName = val,
-                      validator: (val) =>
-                          val == null || val.isEmpty ? "Enter a name" : null,
-                    ),
-                    TextFormField(
-                      initialValue: _newEmail,
-                      decoration: const InputDecoration(labelText: "Email"),
-                      onSaved: (val) => _newEmail = val,
-                      validator: (val) => val == null || !val.contains('@')
-                          ? "Enter a valid email"
-                          : null,
-                    ),
-                    TextFormField(
-                      decoration: InputDecoration(
-                        labelText: "New Password (leave blank to keep)",
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscureNewPassword
-                              ? Icons.visibility
-                              : Icons.visibility_off),
-                          onPressed: () {
-                            setStateDialog(() {
-                              _obscureNewPassword = !_obscureNewPassword;
-                            });
-                          },
-                        ),
-                      ),
-                      onSaved: (val) => _newPassword = val,
-                      obscureText: _obscureNewPassword,
-                    ),
-                    TextFormField(
-                      decoration: InputDecoration(
-                        labelText: "Confirm New Password",
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscureConfirmPassword
-                              ? Icons.visibility
-                              : Icons.visibility_off),
-                          onPressed: () {
-                            setStateDialog(() {
-                              _obscureConfirmPassword = !_obscureConfirmPassword;
-                            });
-                          },
-                        ),
-                      ),
-                      onSaved: (val) => _newPasswordConfirm = val,
-                      obscureText: _obscureConfirmPassword,
-                      validator: (val) {
-                        if ((_newPassword != null && _newPassword!.isNotEmpty) &&
-                            val != _newPassword) {
-                          return "Passwords do not match";
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-              actions: [
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.logout),
-                  label: const Text("Log Out"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.deepPurple,
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) => AlertDialog(
+            title: const Text("Settings"),
+            content: Form(
+              key: _editFormKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    initialValue: _newName,
+                    decoration: const InputDecoration(labelText: "Name"),
+                    onSaved: (val) => _newName = val,
+                    validator: (val) =>
+                        val == null || val.isEmpty ? "Enter a name" : null,
                   ),
-                  onPressed: () async {
-                    Provider.of<SelectedChildProvider>(context, listen: false)
-                        .clearSelectedChild();
-
-                    await auth.signOut();
-
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (_) => const ChooseRolePage()),
-                      (route) => false,
-                    );
-                  },
+                  TextFormField(
+                    initialValue: _newEmail,
+                    decoration: const InputDecoration(labelText: "Email"),
+                    onSaved: (val) => _newEmail = val,
+                    validator: (val) => val == null || !val.contains('@')
+                        ? "Enter a valid email"
+                        : null,
+                  ),
+                  TextFormField(
+                    decoration: InputDecoration(
+                      labelText: "New Password (leave blank to keep)",
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureNewPassword
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                        onPressed: () {
+                          setStateDialog(() {
+                            _obscureNewPassword = !_obscureNewPassword;
+                          });
+                        },
+                      ),
+                    ),
+                    onSaved: (val) => _newPassword = val,
+                    obscureText: _obscureNewPassword,
+                  ),
+                  TextFormField(
+                    decoration: InputDecoration(
+                      labelText: "Confirm New Password",
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureConfirmPassword
+                              ? Icons.visibility
+                              : Icons.visibility_off,
+                        ),
+                        onPressed: () {
+                          setStateDialog(() {
+                            _obscureConfirmPassword = !_obscureConfirmPassword;
+                          });
+                        },
+                      ),
+                    ),
+                    onSaved: (val) => _newPasswordConfirm = val,
+                    obscureText: _obscureConfirmPassword,
+                    validator: (val) {
+                      if ((_newPassword != null && _newPassword!.isNotEmpty) &&
+                          val != _newPassword) {
+                        return "Passwords do not match";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+            actions: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.logout),
+                label: const Text("Log Out"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.deepPurple,
                 ),
-                ElevatedButton(
-                  onPressed: _updateParentInfo,
-                  child: const Text("Save"),
+                onPressed: () async {
+                  Provider.of<SelectedChildProvider>(
+                    context,
+                    listen: false,
+                  ).clearSelectedChild();
+
+                  await auth.signOut();
+
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+                    (route) => false,
+                  );
+                },
+              ),
+              ElevatedButton(
+                onPressed: _updateParentInfo,
+                child: const Text("Save"),
               ),
             ],
-          )
-      );
-    },
-  );
-}
-
-Future<void> _updateParentInfo() async {
-  if (!_editFormKey.currentState!.validate()) return;
-  _editFormKey.currentState!.save();
-
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-
-    // Update email if changed
-    if (_newEmail != null &&
-        _newEmail!.isNotEmpty &&
-        _newEmail != parentData!['email']) {
-      await user?.updateEmail(_newEmail!);
-    }
-
-    // Update password if provided
-    if (_newPassword != null && _newPassword!.isNotEmpty) {
-      await user?.updatePassword(_newPassword!);
-    }
-
-    // Update Firestore data
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.parentId)
-        .update({'name': _newName, 'email': _newEmail});
-
-    setState(() {
-      parentData!['name'] = _newName;
-      parentData!['email'] = _newEmail;
-    });
-
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Parent info updated successfully!")),
-    );
-  } catch (e) {
-    print("Error updating parent info: $e");
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Failed to update: $e")),
+          ),
+        );
+      },
     );
   }
-}
 
+  Future<void> _updateParentInfo() async {
+    if (!_editFormKey.currentState!.validate()) return;
+    _editFormKey.currentState!.save();
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      // Update email if changed
+      if (_newEmail != null &&
+          _newEmail!.isNotEmpty &&
+          _newEmail != parentData!['email']) {
+        await user?.updateEmail(_newEmail!);
+      }
+
+      // Update password if provided
+      if (_newPassword != null && _newPassword!.isNotEmpty) {
+        await user?.updatePassword(_newPassword!);
+      }
+
+      // Update Firestore data
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.parentId)
+          .update({'name': _newName, 'email': _newEmail});
+
+      setState(() {
+        parentData!['name'] = _newName;
+        parentData!['email'] = _newEmail;
+      });
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Parent info updated successfully!")),
+      );
+    } catch (e) {
+      print("Error updating parent info: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -307,7 +396,9 @@ Future<void> _updateParentInfo() async {
       return const Center(child: Text("Parent data not found."));
     }
 
-    final activeChild = Provider.of<SelectedChildProvider>(context).selectedChild;
+    final activeChild = Provider.of<SelectedChildProvider>(
+      context,
+    ).selectedChild;
 
     return Scaffold(
       appBar: AppBar(
@@ -326,8 +417,9 @@ Future<void> _updateParentInfo() async {
                 children: [
                   const CircleAvatar(
                     radius: 40,
-                    backgroundImage:
-                        AssetImage("assets/profile_placeholder.jpg"),
+                    backgroundImage: AssetImage(
+                      "assets/profile_placeholder.jpg",
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -368,14 +460,18 @@ Future<void> _updateParentInfo() async {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: ListTile(
-                    leading: const Icon(Icons.child_care,
-                        size: 40, color: Colors.blue),
+                    leading: const Icon(
+                      Icons.child_care,
+                      size: 40,
+                      color: Colors.blue,
+                    ),
                     title: const Text(
                       "No children added yet",
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    subtitle:
-                        const Text("Add your first child to get started."),
+                    subtitle: const Text(
+                      "Add your first child to get started.",
+                    ),
                     trailing: ElevatedButton.icon(
                       icon: const Icon(Icons.add),
                       label: const Text("Add Child"),
