@@ -22,6 +22,10 @@ class UserRepository {
     if (parent != null) await cacheParent(parent);
     return parent;
   }
+String? getCachedParentId() {
+  if (_parentBox.isEmpty) return null;
+  return _parentBox.values.first.uid; // Assuming only one parent cached
+}
 
   /// Fetch parent from Firestore and cache locally
   Future<ParentUser?> fetchParentAndCache(String parentUid) async {
