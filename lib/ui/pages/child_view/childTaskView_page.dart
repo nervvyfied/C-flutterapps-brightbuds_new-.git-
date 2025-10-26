@@ -123,7 +123,43 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                   trailing: task.isDone
                       ? (task.verified
                             ? const Icon(Icons.verified, color: Colors.blue)
-                            : const Icon(Icons.check, color: Colors.green))
+                            : ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                ),
+                                onPressed: () async {
+                                  final taskProvider =
+                                      Provider.of<TaskProvider>(
+                                        context,
+                                        listen: false,
+                                      );
+
+                                  // 🔄 Optimistic UI: mark undone locally
+                                  final optimisticTask = task.copyWith(
+                                    isDone: false,
+                                  );
+
+                                  setState(() {
+                                    final index = tasks.indexOf(task);
+                                    tasks[index] = optimisticTask;
+                                  });
+
+                                  // 🔹 Call markTaskAsUndone
+                                  await taskProvider.markTaskAsUndone(
+                                    task.id,
+                                    task.childId,
+                                  );
+
+                                  // 🔹 Optional: recheck unlocks
+                                  unlockManager.checkUnlocks();
+
+                                  // 🔹 Sync online if possible
+                                  if (!isOffline) {
+                                    await taskProvider.pushPendingChanges();
+                                  }
+                                },
+                                child: const Text("Undone"),
+                              ))
                       : ElevatedButton(
                           onPressed: () async {
                             final taskProvider = Provider.of<TaskProvider>(
@@ -131,16 +167,14 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                               listen: false,
                             );
 
-                            // ✅ Create an optimistic local copy
+                            // ✅ Optimistic update
                             final optimisticTask = task.copyWith(isDone: true);
-
-                            // ✅ Temporarily rebuild the UI with updated task
                             setState(() {
                               final index = tasks.indexOf(task);
                               tasks[index] = optimisticTask;
                             });
 
-                            // ✅ Apply the real change to local Hive
+                            // ✅ Apply actual change
                             await taskProvider.markTaskAsDone(
                               task.id,
                               task.childId,
@@ -149,7 +183,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                             // ✅ Unlock checks
                             unlockManager.checkUnlocks();
 
-                            // ✅ Sync only if online
+                            // ✅ Sync if online
                             if (!isOffline) {
                               await taskProvider.pushPendingChanges();
                             }

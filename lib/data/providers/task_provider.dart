@@ -347,79 +347,136 @@ class TaskProvider extends ChangeNotifier {
 
   // ---------------- TASK COMPLETION ----------------
   Future<void> markTaskAsDone(String taskId, String childId) async {
-    final task = _taskRepo.getTaskLocal(taskId);
-    if (task == null) return;
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
 
-    final updatedTask = _computeTaskCompletion(task);
-
-    await _saveTaskCompletion(updatedTask);
-    await _notifyParentCompletion(updatedTask, childId);
-  }
-
-  TaskModel _computeTaskCompletion(TaskModel task) {
+    final task = _tasks[index];
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    final lastDone = task.lastCompletedDate != null
-        ? DateTime(
-            task.lastCompletedDate!.year,
-            task.lastCompletedDate!.month,
-            task.lastCompletedDate!.day,
-          )
-        : null;
+    // ✅ Compute streak correctly
+    final bool isYesterday =
+        task.lastCompletedDate != null &&
+        task.lastCompletedDate!.difference(today).inDays == -1;
+    final newActiveStreak = isYesterday ? task.activeStreak + 1 : 1;
 
-    int newActiveStreak = 1;
-    if (lastDone != null) {
-      if (lastDone.add(const Duration(days: 1)) == today) {
-        newActiveStreak = task.activeStreak + 1;
-      } else if (lastDone == today) {
-        newActiveStreak = task.activeStreak;
-      }
-    }
-
-    return task.copyWith(
+    // ✅ Update local task
+    final updatedTask = task.copyWith(
       isDone: true,
       doneAt: now,
       lastCompletedDate: today,
       activeStreak: newActiveStreak,
-      longestStreak: newActiveStreak > task.longestStreak
+      longestStreak: newActiveStreak > (task.longestStreak)
           ? newActiveStreak
           : task.longestStreak,
-      totalDaysCompleted: task.totalDaysCompleted + 1,
+      totalDaysCompleted: (task.totalDaysCompleted ?? 0) + 1,
       lastUpdated: now,
     );
-  }
 
-  Future<void> _saveTaskCompletion(TaskModel updatedTask) async {
-    final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
-    if (index != -1)
-      _tasks[index] = updatedTask;
-    else
-      _tasks.add(updatedTask);
-
+    // ✅ Update local Hive + memory
+    _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
     notifyListeners();
 
-    if (!kIsWeb && updatedTask.alarm != null)
+    // ✅ Cancel alarm if any
+    if (!kIsWeb && updatedTask.alarm != null) {
       await cancelTaskAlarm(updatedTask);
+    }
 
+    // ✅ Sync to Firestore (for realtime update)
+    if (await NetworkHelper.isOnline()) {
+      try {
+        final firestore = FirebaseFirestore.instance;
+        final docRef = firestore
+            .collection('users')
+            .doc(updatedTask.parentId)
+            .collection('children')
+            .doc(updatedTask.childId)
+            .collection('tasks')
+            .doc(updatedTask.id);
+
+        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
+        debugPrint('✅ Task marked done and synced: ${updatedTask.name}');
+      } catch (e) {
+        debugPrint('⚠️ Firestore sync failed: $e');
+      }
+    } else {
+      debugPrint('⚠️ Offline: will sync later.');
+    }
+
+    // ✅ Update streak data
     await _streakRepo.updateStreak(
       updatedTask.childId,
       updatedTask.parentId,
       updatedTask.id,
     );
 
-    // Firestore sync
+    // ✅ Notify parent
+    await _notifyParentCompletion(updatedTask, childId);
+
+    // ✅ Deduplicate any local duplicates after Firestore resync
+    final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
+    _tasks = uniqueTasks.values.toList()
+      ..sort((a, b) => b.lastUpdated!.compareTo(a.lastUpdated!));
+
+    notifyListeners();
+  }
+
+  Future<void> markTaskAsUndone(String taskId, String childId) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    final task = _tasks[index];
+    if (!task.isDone) return; // Already undone — nothing to do
+
+    final now = DateTime.now();
+
+    // ✅ Decrease totalDaysCompleted but don’t go below 0
+    final newTotalDays = (task.totalDaysCompleted > 0)
+        ? task.totalDaysCompleted - 1
+        : 0;
+
+    // ✅ Update local task
+    final updatedTask = task.copyWith(
+      isDone: false,
+      doneAt: null,
+      verified: false,
+      lastUpdated: now,
+      totalDaysCompleted: newTotalDays,
+    );
+
+    // ✅ Update local cache and in-memory
+    _tasks[index] = updatedTask;
+    await _taskBox?.put(updatedTask.id, updatedTask);
+    notifyListeners();
+
+    // ✅ Sync to Firestore for realtime reflection
     if (await NetworkHelper.isOnline()) {
-      await _firestore
-          .collection('users')
-          .doc(updatedTask.parentId)
-          .collection('children')
-          .doc(updatedTask.childId)
-          .collection('tasks')
-          .doc(updatedTask.id)
-          .set(updatedTask.toMap(), SetOptions(merge: true));
+      try {
+        final firestore = FirebaseFirestore.instance;
+        final docRef = firestore
+            .collection('users')
+            .doc(updatedTask.parentId)
+            .collection('children')
+            .doc(updatedTask.childId)
+            .collection('tasks')
+            .doc(updatedTask.id);
+
+        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
+        debugPrint('↩️ Task marked as undone and synced: ${updatedTask.name}');
+      } catch (e) {
+        debugPrint('⚠️ Failed to sync undone task: $e');
+      }
+    } else {
+      debugPrint('⚠️ Offline: will sync undone task later.');
     }
+
+    // ✅ Clean duplicates and re-sort by lastUpdated
+    final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
+    _tasks = uniqueTasks.values.toList()
+      ..sort((a, b) => b.lastUpdated!.compareTo(a.lastUpdated!));
+
+    notifyListeners();
   }
 
   Future<void> _notifyParentCompletion(TaskModel task, String childId) async {
@@ -453,19 +510,33 @@ class TaskProvider extends ChangeNotifier {
 
     final now = DateTime.now();
 
-    // Update locally (Hive & in-memory)
-    final updatedTask = task.copyWith(verified: true, lastUpdated: now);
+    // ✅ Mark as done (before marking verified, to ensure both sync properly)
+    await markTaskAsDone(task.parentId, childId);
+
+    // ✅ Update locally (Hive & in-memory)
+    final updatedTask = task.copyWith(
+      verified: true,
+      isDone: true, // ensure consistency
+      lastUpdated: now,
+    );
+
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
     notifyListeners();
 
-    // Update in local repository
+    // ✅ Update in repository (handles Firestore sync logic)
     await _taskRepo.verifyTask(taskId, childId);
 
-    // Only sync to Firestore if online, but don’t manually add to _tasks
+    // ✅ Update child's balance after verification
+    final userRepo = UserRepository();
+    final rewardAmount = (task.reward ?? 0).toInt(); // ensure integer
+    await userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
+
+    // ✅ Only sync to Firestore if online
     if (await NetworkHelper.isOnline()) {
       try {
-        final docRef = _firestore
+        final FirebaseFirestore firestore = FirebaseFirestore.instance;
+        final docRef = firestore
             .collection('users')
             .doc(task.parentId)
             .collection('children')
@@ -473,9 +544,9 @@ class TaskProvider extends ChangeNotifier {
             .collection('tasks')
             .doc(taskId);
 
-        // Merge with Firestore; subscription will automatically update in-memory list
         await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
-        debugPrint('✅ Task verified and synced to Firestore: ${task.name}');
+
+        debugPrint('✅ Task verified, marked done, and synced: ${task.name}');
       } catch (e) {
         debugPrint('⚠️ Failed to sync verified task: $e');
       }
