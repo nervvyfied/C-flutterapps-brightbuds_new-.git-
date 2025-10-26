@@ -15,18 +15,26 @@ class FishRepository {
     _childBox = await Hive.openBox<ChildUser>('childBox');
   }
 
-  Future<List<OwnedFish>> getOwnedFishes(String parentUid, String childId) async {
+  // 🐟 Get all fishes (merged local + remote)
+  Future<List<OwnedFish>> getOwnedFishes(
+    String parentUid,
+    String childId,
+  ) async {
+    await _initBox(); // ensure initialized
     final child = _childBox.get(childId);
     if (child == null) return [];
 
-    List<OwnedFish> localFishes = child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList();
+    final localFishes = child.ownedFish
+        .map((e) => OwnedFish.fromMap(e))
+        .toList();
 
     try {
       final remoteFishes = await _service.fetchOwnedFishes(parentUid, childId);
 
+      // Merge without duplication
       final mergedMap = {for (var f in localFishes) f.id: f};
       for (var f in remoteFishes) {
-        mergedMap[f.id] = f; // overwrite with remote
+        mergedMap[f.id] = f;
       }
 
       final mergedList = mergedMap.values.toList();
@@ -34,12 +42,19 @@ class FishRepository {
       await _childBox.put(childId, child);
 
       return mergedList;
-    } catch (_) {
+    } catch (e) {
+      print("⚠️ getOwnedFishes fallback to local: $e");
       return localFishes;
     }
   }
 
-  Future<void> addOwnedFish(String parentUid, String childId, OwnedFish fish) async {
+  // 🐟 Add a fish to owned list
+  Future<void> addOwnedFish(
+    String parentUid,
+    String childId,
+    OwnedFish fish,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -54,10 +69,19 @@ class FishRepository {
         childId,
         child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList(),
       );
-    } catch (_) {}
+      print("✅ Firestore sync success (addOwnedFish)");
+    } catch (e) {
+      print("❌ Firestore sync failed (addOwnedFish): $e");
+    }
   }
 
-  Future<void> updateOwnedFish(String parentUid, String childId, OwnedFish fish) async {
+  // 🐟 Update owned fish (used when changing properties)
+  Future<void> updateOwnedFish(
+    String parentUid,
+    String childId,
+    OwnedFish fish,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -76,10 +100,19 @@ class FishRepository {
         childId,
         child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList(),
       );
-    } catch (_) {}
+      print("✅ Firestore sync success (updateOwnedFish)");
+    } catch (e) {
+      print("❌ Firestore sync failed (updateOwnedFish): $e");
+    }
   }
 
-  Future<void> removeOwnedFish(String parentUid, String childId, String fishId) async {
+  // 🐟 Remove fish (for selling)
+  Future<void> removeOwnedFish(
+    String parentUid,
+    String childId,
+    String fishId,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -87,15 +120,20 @@ class FishRepository {
     await _childBox.put(childId, child);
 
     try {
-      await _service.syncOwnedFishes(
-        parentUid,
-        childId,
-        child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
-      );
-    } catch (_) {}
+      await _service.removeOwnedFish(parentUid, childId, fishId);
+      print("✅ Firestore fish removed: $fishId");
+    } catch (e) {
+      print("❌ Firestore removeOwnedFish failed: $e");
+    }
   }
 
-  Future<void> storeFish(String parentUid, String childId, String fishId) async {
+  // 🐟 Store fish (make inactive)
+  Future<void> storeFish(
+    String parentUid,
+    String childId,
+    String fishId,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -112,11 +150,19 @@ class FishRepository {
         childId,
         child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
       );
-    } catch (_) {}
+      print("✅ Firestore sync success (storeFish)");
+    } catch (e) {
+      print("❌ Firestore sync failed (storeFish): $e");
+    }
   }
 
-  /// Public balance updates for provider
-  Future<void> updateBalance(String parentUid, String childId, int newBalance) async {
+  // 💰 Balance update (used by purchase/sell)
+  Future<void> updateBalance(
+    String parentUid,
+    String childId,
+    int newBalance,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
     if (child.balance == newBalance) return;
@@ -126,24 +172,48 @@ class FishRepository {
 
     try {
       await _service.updateBalance(parentUid, childId, newBalance);
-    } catch (_) {}
+      print("✅ Firestore balance updated to $newBalance");
+    } catch (e) {
+      print("❌ Firestore updateBalance failed: $e");
+    }
   }
 
-  Future<void> refundBalance(String parentUid, String childId, int amount) async {
+  Future<void> refundBalance(
+    String parentUid,
+    String childId,
+    int amount,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
-    await updateBalance(parentUid, childId, child.balance + amount);
+
+    final newBalance = child.balance + amount;
+    await updateBalance(parentUid, childId, newBalance);
   }
 
-  Future<void> deductBalance(String parentUid, String childId, int amount) async {
+  Future<void> deductBalance(
+    String parentUid,
+    String childId,
+    int amount,
+  ) async {
+    await _initBox();
     final child = _childBox.get(childId);
     if (child == null) return;
-    await updateBalance(parentUid, childId, child.balance - amount);
+
+    final newBalance = child.balance - amount;
+    await updateBalance(parentUid, childId, newBalance);
   }
 
   Future<int> fetchBalance(String parentUid, String childId) async {
+    await _initBox();
     final child = _childBox.get(childId);
-    if (child == null) return 0;
-    return child.balance;
+    if (child != null && child.balance > 0) return child.balance;
+
+    final remoteBalance = await _service.fetchBalance(parentUid, childId);
+    if (child != null) {
+      final updated = child.copyWith(balance: remoteBalance);
+      await _childBox.put(childId, updated);
+    }
+    return remoteBalance;
   }
 }

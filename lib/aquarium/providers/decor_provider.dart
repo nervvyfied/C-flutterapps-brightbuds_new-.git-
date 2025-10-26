@@ -16,15 +16,15 @@ class _PendingAction {
   final PlacedDecor? decor; // present for addOrUpdate
   final String? id; // id for remove or addOrUpdate
   _PendingAction.addOrUpdate(this.decor)
-      : type = _PendingActionType.addOrUpdate,
-        id = decor?.id;
+    : type = _PendingActionType.addOrUpdate,
+      id = decor?.id;
   _PendingAction.remove(this.id)
-      : type = _PendingActionType.remove,
-        decor = null;
+    : type = _PendingActionType.remove,
+      decor = null;
   _PendingAction.balance()
-      : type = _PendingActionType.balance,
-        decor = null,
-        id = null;
+    : type = _PendingActionType.balance,
+      decor = null,
+      id = null;
 }
 
 class DecorProvider extends ChangeNotifier {
@@ -82,7 +82,8 @@ class DecorProvider extends ChangeNotifier {
 
   // ---------- PURCHASE (offline-first) ----------
   Future<bool> purchaseDecor(DecorDefinition decor) async {
-    if (isAlreadyPlaced(decor.id) || isOwnedButNotPlaced(decor.id)) return false;
+    if (isAlreadyPlaced(decor.id) || isOwnedButNotPlaced(decor.id))
+      return false;
     if (currentChild.balance < decor.price) return false;
 
     _updateLocalBalance(currentChild.balance - decor.price);
@@ -104,9 +105,15 @@ class DecorProvider extends ChangeNotifier {
 
     try {
       await _repo.addPlacedDecor(
-          currentChild.parentUid, currentChild.cid, newDecor);
+        currentChild.parentUid,
+        currentChild.cid,
+        newDecor,
+      );
       await _maybePersistBalance();
-      _removeFirstPendingOfTypeForId(_PendingActionType.addOrUpdate, newDecor.id);
+      _removeFirstPendingOfTypeForId(
+        _PendingActionType.addOrUpdate,
+        newDecor.id,
+      );
       _removeFirstPendingOfType(_PendingActionType.balance);
       if (await NetworkHelper.isOnline()) await pushPendingChanges();
     } catch (e) {
@@ -132,7 +139,8 @@ class DecorProvider extends ChangeNotifier {
     _safeNotify();
 
     debugPrint(
-        "🟢 Sold decor ${soldDecor.decorId} for $price tokens. New balance: ${currentChild.balance}");
+      "🟢 Sold decor ${soldDecor.decorId} for $price tokens. New balance: ${currentChild.balance}",
+    );
   }
 
   void _updateLocalBalance(int newBalance) {
@@ -163,8 +171,10 @@ class DecorProvider extends ChangeNotifier {
   // ---------- LOAD OFFLINE-FIRST ----------
   Future<void> loadOfflineFirst() async {
     try {
-      final local =
-          await _repo.getPlacedDecors(currentChild.parentUid, currentChild.cid);
+      final local = await _repo.getPlacedDecors(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
 
       // ✅ Prevent duplicates by replacing placedDecors with unique IDs
       final Map<String, PlacedDecor> unique = {
@@ -172,8 +182,9 @@ class DecorProvider extends ChangeNotifier {
       };
       placedDecors = unique.values.toList();
 
-      _editingBuffer =
-          placedDecors.map((d) => PlacedDecor.fromMap(d.toMap())).toList();
+      _editingBuffer = placedDecors
+          .map((d) => PlacedDecor.fromMap(d.toMap()))
+          .toList();
       _safeNotify();
     } catch (e) {
       debugPrint('DecorProvider: Failed to load local placed decors: $e');
@@ -189,8 +200,10 @@ class DecorProvider extends ChangeNotifier {
 
   Future<void> _mergeRemote() async {
     try {
-      final remote =
-          await _repo.getPlacedDecors(currentChild.parentUid, currentChild.cid);
+      final remote = await _repo.getPlacedDecors(
+        currentChild.parentUid,
+        currentChild.cid,
+      );
 
       final Map<String, PlacedDecor> merged = {
         for (var d in placedDecors) d.id: PlacedDecor.fromMap(d.toMap()),
@@ -200,12 +213,16 @@ class DecorProvider extends ChangeNotifier {
       }
 
       placedDecors = merged.values.toList();
-      _editingBuffer =
-          placedDecors.map((d) => PlacedDecor.fromMap(d.toMap())).toList();
+      _editingBuffer = placedDecors
+          .map((d) => PlacedDecor.fromMap(d.toMap()))
+          .toList();
       _safeNotify();
 
       await _repo.updatePlacedDecors(
-          currentChild.parentUid, currentChild.cid, placedDecors);
+        currentChild.parentUid,
+        currentChild.cid,
+        placedDecors,
+      );
 
       if (_pendingActions.isNotEmpty) await pushPendingChanges();
     } catch (e) {
@@ -215,8 +232,9 @@ class DecorProvider extends ChangeNotifier {
 
   // ---------- EDIT MODE ----------
   void enterEditMode({String? focusDecorId}) {
-    _editingBuffer =
-        placedDecors.map((d) => PlacedDecor.fromMap(d.toMap())).toList();
+    _editingBuffer = placedDecors
+        .map((d) => PlacedDecor.fromMap(d.toMap()))
+        .toList();
     isInEditMode = true;
     for (var d in _editingBuffer) d.isSelected = false;
 
@@ -262,8 +280,12 @@ class DecorProvider extends ChangeNotifier {
   }
 
   // ---------- PLACEMENT ----------
-  Future<void> updateDecorPosition(String decorId, double x, double y,
-      {bool persist = false}) async {
+  Future<void> updateDecorPosition(
+    String decorId,
+    double x,
+    double y, {
+    bool persist = false,
+  }) async {
     final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
     if (idx != -1) {
       _editingBuffer[idx].x = x;
@@ -283,8 +305,14 @@ class DecorProvider extends ChangeNotifier {
       _pendingActions.add(_PendingAction.addOrUpdate(decor));
       try {
         await _repo.updatePlacedDecor(
-            currentChild.parentUid, currentChild.cid, decor);
-        _removeFirstPendingOfTypeForId(_PendingActionType.addOrUpdate, decor.id);
+          currentChild.parentUid,
+          currentChild.cid,
+          decor,
+        );
+        _removeFirstPendingOfTypeForId(
+          _PendingActionType.addOrUpdate,
+          decor.id,
+        );
         if (await NetworkHelper.isOnline()) await pushPendingChanges();
       } catch (e) {
         debugPrint('⚠️ updateDecorPosition offline, will sync later: $e');
@@ -294,7 +322,8 @@ class DecorProvider extends ChangeNotifier {
 
   Future<void> placeDecor(String decorId) async {
     final idx = placedDecors.indexWhere(
-        (d) => d.decorId == decorId && d.isPlaced == false);
+      (d) => d.decorId == decorId && d.isPlaced == false,
+    );
     if (idx == -1) return;
 
     placedDecors[idx] = placedDecors[idx].copyWith(isPlaced: true);
@@ -303,9 +332,14 @@ class DecorProvider extends ChangeNotifier {
 
     try {
       await _repo.updatePlacedDecor(
-          currentChild.parentUid, currentChild.cid, placedDecors[idx]);
+        currentChild.parentUid,
+        currentChild.cid,
+        placedDecors[idx],
+      );
       _removeFirstPendingOfTypeForId(
-          _PendingActionType.addOrUpdate, placedDecors[idx].id);
+        _PendingActionType.addOrUpdate,
+        placedDecors[idx].id,
+      );
       if (await NetworkHelper.isOnline()) await pushPendingChanges();
     } catch (e) {
       debugPrint('⚠️ placeDecor offline, will sync later: $e');
@@ -315,11 +349,15 @@ class DecorProvider extends ChangeNotifier {
   Future<bool> placeFromInventory(String decorId, double x, double y) async {
     try {
       final idx = placedDecors.indexWhere(
-          (d) => d.decorId == decorId && d.isPlaced == false);
+        (d) => d.decorId == decorId && d.isPlaced == false,
+      );
 
       if (idx != -1) {
-        placedDecors[idx] =
-            placedDecors[idx].copyWith(isPlaced: true, x: x, y: y);
+        placedDecors[idx] = placedDecors[idx].copyWith(
+          isPlaced: true,
+          x: x,
+          y: y,
+        );
         _pendingActions.add(_PendingAction.addOrUpdate(placedDecors[idx]));
       } else {
         final newDecor = PlacedDecor(
@@ -333,13 +371,17 @@ class DecorProvider extends ChangeNotifier {
         _pendingActions.add(_PendingAction.addOrUpdate(newDecor));
       }
 
-      _editingBuffer =
-          placedDecors.map((d) => PlacedDecor.fromMap(d.toMap())).toList();
+      _editingBuffer = placedDecors
+          .map((d) => PlacedDecor.fromMap(d.toMap()))
+          .toList();
       _safeNotify();
 
       try {
         await _repo.updatePlacedDecors(
-            currentChild.parentUid, currentChild.cid, placedDecors);
+          currentChild.parentUid,
+          currentChild.cid,
+          placedDecors,
+        );
         if (await NetworkHelper.isOnline()) await pushPendingChanges();
       } catch (e) {
         debugPrint('⚠️ placeFromInventory offline, will sync later: $e');
@@ -352,42 +394,45 @@ class DecorProvider extends ChangeNotifier {
     }
   }
 
-Future<void> storeDecor(String decorId) async {
-  final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
-  if (mainIdx == -1) return;
+  Future<void> storeDecor(String decorId) async {
+    final mainIdx = placedDecors.indexWhere((d) => d.id == decorId);
+    if (mainIdx == -1) return;
 
-  // 1️⃣ Update local state immediately
-  final updatedDecor = placedDecors[mainIdx].copyWith(isPlaced: false);
-  placedDecors[mainIdx] = updatedDecor;
+    // 1️⃣ Update local state immediately
+    final updatedDecor = placedDecors[mainIdx].copyWith(isPlaced: false);
+    placedDecors[mainIdx] = updatedDecor;
 
-  // Remove from editing buffer only if it’s not placed
-  _editingBuffer.removeWhere((d) => d.id == decorId);
+    // Remove from editing buffer only if it’s not placed
+    _editingBuffer.removeWhere((d) => d.id == decorId);
 
-  // 2️⃣ Notify UI immediately
-  notifyListeners();
+    // 2️⃣ Notify UI immediately
+    notifyListeners();
 
-  // 3️⃣ Queue pending action for offline/remote sync
-  _pendingActions.add(_PendingAction.addOrUpdate(updatedDecor));
+    // 3️⃣ Queue pending action for offline/remote sync
+    _pendingActions.add(_PendingAction.addOrUpdate(updatedDecor));
 
-  // 4️⃣ Fire off remote update asynchronously
-  await(_storeDecorRemote(updatedDecor));
-}
-
-// Helper to do async Firestore/Hive update without blocking UI
-Future<void> _storeDecorRemote(PlacedDecor decor) async {
-  try {
-    await _repo.updatePlacedDecor(currentChild.parentUid, currentChild.cid, decor);
-
-    // Remove pending action once synced
-    _removeFirstPendingOfTypeForId(_PendingActionType.addOrUpdate, decor.id);
-
-    // Attempt to push other pending changes
-    if (await NetworkHelper.isOnline()) await pushPendingChanges();
-  } catch (e) {
-    debugPrint('⚠️ storeDecor remote sync failed: $e');
+    // 4️⃣ Fire off remote update asynchronously
+    await (_storeDecorRemote(updatedDecor));
   }
-}
 
+  // Helper to do async Firestore/Hive update without blocking UI
+  Future<void> _storeDecorRemote(PlacedDecor decor) async {
+    try {
+      await _repo.updatePlacedDecor(
+        currentChild.parentUid,
+        currentChild.cid,
+        decor,
+      );
+
+      // Remove pending action once synced
+      _removeFirstPendingOfTypeForId(_PendingActionType.addOrUpdate, decor.id);
+
+      // Attempt to push other pending changes
+      if (await NetworkHelper.isOnline()) await pushPendingChanges();
+    } catch (e) {
+      debugPrint('⚠️ storeDecor remote sync failed: $e');
+    }
+  }
 
   // ---------- SAVE EDIT ----------
   Future<void> saveEditMode() async {
@@ -406,7 +451,10 @@ Future<void> _storeDecorRemote(PlacedDecor decor) async {
 
     try {
       await _repo.updatePlacedDecors(
-          currentChild.parentUid, currentChild.cid, placedDecors);
+        currentChild.parentUid,
+        currentChild.cid,
+        placedDecors,
+      );
       if (await NetworkHelper.isOnline()) await pushPendingChanges();
       await _mergeRemote();
     } catch (e) {
@@ -422,16 +470,19 @@ Future<void> _storeDecorRemote(PlacedDecor decor) async {
 
     try {
       final addUpdates = actions
-          .where((a) =>
-              a.type == _PendingActionType.addOrUpdate && a.decor != null)
+          .where(
+            (a) => a.type == _PendingActionType.addOrUpdate && a.decor != null,
+          )
           .map((a) => a.decor!)
           .toList();
       if (addUpdates.isNotEmpty) {
         await _repo.pushPlacedDecorChanges(
-            currentChild.parentUid, currentChild.cid, addUpdates);
+          currentChild.parentUid,
+          currentChild.cid,
+          addUpdates,
+        );
         for (var d in addUpdates) {
-          _removeFirstPendingOfTypeForId(
-              _PendingActionType.addOrUpdate, d.id);
+          _removeFirstPendingOfTypeForId(_PendingActionType.addOrUpdate, d.id);
         }
       }
 
@@ -441,12 +492,16 @@ Future<void> _storeDecorRemote(PlacedDecor decor) async {
           .toList();
       for (var id in removes) {
         await _repo.removePlacedDecor(
-            currentChild.parentUid, currentChild.cid, id);
+          currentChild.parentUid,
+          currentChild.cid,
+          id,
+        );
         _removeFirstPendingOfTypeForId(_PendingActionType.remove, id);
       }
 
-      final hasBalance =
-          actions.any((a) => a.type == _PendingActionType.balance);
+      final hasBalance = actions.any(
+        (a) => a.type == _PendingActionType.balance,
+      );
       if (hasBalance) {
         await _maybePersistBalance();
         _removeFirstPendingOfType(_PendingActionType.balance);
@@ -465,18 +520,22 @@ Future<void> _storeDecorRemote(PlacedDecor decor) async {
 
   void _removeFirstPendingOfTypeForId(_PendingActionType type, String? id) {
     if (id == null) return;
-    final idx =
-        _pendingActions.indexWhere((a) => a.type == type && a.id == id);
+    final idx = _pendingActions.indexWhere((a) => a.type == type && a.id == id);
     if (idx != -1) _pendingActions.removeAt(idx);
   }
 
   Future<void> _maybePersistBalance() async {
     try {
       final storedBalance = await _repo.fetchBalance(
-          currentChild.parentUid, currentChild.cid);
+        currentChild.parentUid,
+        currentChild.cid,
+      );
       if (storedBalance != currentChild.balance) {
         await _repo.updateBalance(
-            currentChild.parentUid, currentChild.cid, currentChild.balance);
+          currentChild.parentUid,
+          currentChild.cid,
+          currentChild.balance,
+        );
       }
     } catch (e) {
       debugPrint('⚠️ _maybePersistBalance failed: $e');

@@ -46,8 +46,9 @@ class UserRepository {
           .collection('children')
           .get();
 
-      final children =
-          snapshot.docs.map((doc) => ChildUser.fromMap(doc.data(), doc.id)).toList();
+      final children = snapshot.docs
+          .map((doc) => ChildUser.fromMap(doc.data(), doc.id))
+          .toList();
 
       // Cache in Hive
       for (var child in children) {
@@ -70,7 +71,11 @@ class UserRepository {
   ChildUser? getCachedChild(String id) => _childBox.get(id);
 
   /// Create child + refresh parent (so access code is updated)
-  Future<ChildUser?> createChild(String parentUid, ChildUser child, String code) async {
+  Future<ChildUser?> createChild(
+    String parentUid,
+    ChildUser child,
+    String code,
+  ) async {
     await _firestore.createChild(parentUid, child, code);
     await cacheChild(child);
 
@@ -83,17 +88,19 @@ class UserRepository {
     return child;
   }
 
-  Future<ChildUser?> fetchChildAndCache(String parentUid, String childId) async {
-  final child = await _firestore.getChildById(parentUid, childId);
-  if (child != null) {
-    // Ensure parentUid is correct
-    final updatedChild = child.copyWith(parentUid: parentUid);
-    await cacheChild(updatedChild);
-    return updatedChild;
+  Future<ChildUser?> fetchChildAndCache(
+    String parentUid,
+    String childId,
+  ) async {
+    final child = await _firestore.getChildById(parentUid, childId);
+    if (child != null) {
+      // Ensure parentUid is correct
+      final updatedChild = child.copyWith(parentUid: parentUid);
+      await cacheChild(updatedChild);
+      return updatedChild;
+    }
+    return null;
   }
-  return null;
-}
-
 
   Future<ChildUser?> getChildByAccessCode(String parentUid, String code) async {
     final child = await _firestore.getChildByAccessCode(parentUid, code);
@@ -102,20 +109,24 @@ class UserRepository {
   }
 
   Future<List<ChildUser>> getChildrenByParent(String parentUid) async {
-  final snapshot = await _firestore
-      .collection('users')
-      .doc(parentUid)
-      .collection('children')
-      .get();
+    final snapshot = await _firestore
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .get();
 
-  return snapshot.docs.map((doc) => ChildUser.fromMap(doc.data(), doc.id)).toList();
-}
+    return snapshot.docs
+        .map((doc) => ChildUser.fromMap(doc.data(), doc.id))
+        .toList();
+  }
 
   Future<Map<String, dynamic>?> fetchParentAndChildByAccessCode(
-      String accessCode) async {
+    String accessCode,
+  ) async {
     try {
-      final result =
-          await _firestore.getParentByAccessCodeWithChild(accessCode);
+      final result = await _firestore.getParentByAccessCodeWithChild(
+        accessCode,
+      );
 
       if (result == null) return null;
 
@@ -123,14 +134,11 @@ class UserRepository {
       final child = result['child'] as ChildUser?;
 
       await cacheParent(parent);
-          if (child != null) {
+      if (child != null) {
         await cacheChild(child);
       }
 
-      return {
-        'parent': parent,
-        'child': child,
-      };
+      return {'parent': parent, 'child': child};
     } catch (e) {
       if (kDebugMode) {
         print('Error fetching parent/child by accessCode: $e');
@@ -140,64 +148,59 @@ class UserRepository {
   }
 
   Future<ChildUser?> fetchChildAndCacheById(String childId) async {
-  try {
-    // 🔍 Search across all parents
-    final parentSnapshot = await _firestore.collection('users').get();
+    try {
+      // 🔍 Search across all parents
+      final parentSnapshot = await _firestore.collection('users').get();
 
-    for (var parentDoc in parentSnapshot.docs) {
-      final childDoc = await _firestore
-          .collection('users')
-          .doc(parentDoc.id)
-          .collection('children')
-          .doc(childId)
-          .get();
+      for (var parentDoc in parentSnapshot.docs) {
+        final childDoc = await _firestore
+            .collection('users')
+            .doc(parentDoc.id)
+            .collection('children')
+            .doc(childId)
+            .get();
 
-      if (childDoc.exists) {
-        final child = ChildUser.fromMap(childDoc.data()!, childDoc.id);
-        await cacheChild(child);
-        return child;
+        if (childDoc.exists) {
+          final child = ChildUser.fromMap(childDoc.data()!, childDoc.id);
+          await cacheChild(child);
+          return child;
+        }
       }
+
+      return null;
+    } catch (e) {
+      print("Error fetching child by id: $e");
+      return null;
     }
-
-    return null;
-  } catch (e) {
-    print("Error fetching child by id: $e");
-    return null;
   }
-}
-
 
   Future<void> updateChildBalance(
-  String parentUid,
-  String childId,
-  int amount,
-) async {
-  if (parentUid.isEmpty || childId.isEmpty) {
-    throw ArgumentError("parentUid and childId cannot be empty.");
-  }
-
-  final childRef = _firestore
-      .collection('users')
-      .doc(parentUid)
-      .collection('children')
-      .doc(childId);
-
-  await _firestore.runTransaction((transaction) async {
-    final snapshot = await transaction.get(childRef);
-    if (!snapshot.exists) {
-      throw Exception("Child $childId not found under parent $parentUid");
+    String parentUid,
+    String childId,
+    int amount,
+  ) async {
+    if (parentUid.isEmpty || childId.isEmpty) {
+      throw ArgumentError("parentUid and childId cannot be empty.");
     }
 
-    final current = (snapshot.data()?['balance'] ?? 0) as int;
-    final newBalance = current + amount;
+    final childRef = _firestore
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId);
 
-    transaction.update(childRef, {
-      'balance': newBalance,
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(childRef);
+      if (!snapshot.exists) {
+        throw Exception("Child $childId not found under parent $parentUid");
+      }
+
+      final current = (snapshot.data()?['balance'] ?? 0) as int;
+      final newBalance = current + amount;
+
+      transaction.update(childRef, {'balance': newBalance});
     });
-  });
 
-  await fetchChildAndCache(parentUid, childId);
+    await fetchChildAndCache(parentUid, childId);
+  }
 }
-
-}
-
