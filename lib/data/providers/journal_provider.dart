@@ -1,7 +1,5 @@
-import 'dart:async';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../models/journal_model.dart';
@@ -11,6 +9,8 @@ import '../repositories/task_repository.dart';
 import '../repositories/streak_repository.dart';
 import '../services/sync_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
+import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class JournalProvider extends ChangeNotifier {
   final JournalRepository _journalRepo = JournalRepository();
@@ -19,26 +19,68 @@ class JournalProvider extends ChangeNotifier {
   final StreakRepository _streakRepo = StreakRepository();
   late final SyncService _syncService;
 
+  /// childId -> list of entries shown in UI
   final Map<String, List<JournalEntry>> _entries = {};
+
+  /// childId -> parentId mapping
+  final Map<String, String> _parentForChild = {};
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
   StreamSubscription<QuerySnapshot>? _journalSubscription;
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
 
   JournalProvider() {
     _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
+    _startConnectivityListener();
   }
 
-  // ---------------- LOAD ENTRIES (REAL-TIME) ----------------
+  // ---------------- CONNECTIVITY ----------------
+  void _startConnectivityListener() {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      result,
+    ) async {
+      if (result != ConnectivityResult.none) {
+        debugPrint("🌐 Reconnected — pushing pending journal changes...");
+
+        for (final childId in _entries.keys) {
+          final parentId = _parentForChild[childId];
+          if (parentId == null || parentId.isEmpty) continue;
+
+          try {
+            // Push all local entries for this child
+            await _journalRepo.pushPendingLocalChanges(parentId, childId);
+            await _syncService.syncAllPendingChanges(
+              parentId: parentId,
+              childId: childId,
+            );
+            debugPrint(
+              "✅ Pending journals pushed for child $childId (parent: $parentId)",
+            );
+          } catch (e) {
+            debugPrint(
+              "⚠️ Failed to push pending journals for child $childId: $e",
+            );
+          }
+        }
+
+        notifyListeners();
+      }
+    });
+  }
+
+  // ---------------- LOAD ENTRIES ----------------
   Future<void> loadEntries({
     required String parentId,
     required String childId,
   }) async {
     _isLoading = true;
+    _parentForChild[childId] = parentId;
     notifyListeners();
 
     try {
-      // Merge offline + online entries on first load
+      // Load merged entries (Hive + Firestore)
       final mergedEntries = await _journalRepo.getMergedEntries(
         parentId,
         childId,
@@ -46,10 +88,10 @@ class JournalProvider extends ChangeNotifier {
       _entries[childId] = mergedEntries;
       notifyListeners();
 
-      // Cancel any old listeners
+      // Cancel previous subscription if any
       await _journalSubscription?.cancel();
 
-      // Firestore listener for real-time updates
+      // Start realtime Firestore listener
       _journalSubscription = FirebaseFirestore.instance
           .collection('users')
           .doc(parentId)
@@ -58,28 +100,35 @@ class JournalProvider extends ChangeNotifier {
           .collection('journals')
           .orderBy('entryDate', descending: true)
           .snapshots()
-          .listen((snapshot) async {
-            final remoteEntries = snapshot.docs
-                .map(
-                  (doc) =>
-                      JournalEntry.fromMap(doc.data() as Map<String, dynamic>),
-                )
-                .toList();
-
-            if (!listEquals(_entries[childId], remoteEntries)) {
-              _entries[childId] = remoteEntries;
-
-              // Persist to Hive
-              for (var entry in remoteEntries) {
-                await _journalRepo.saveEntryLocal(entry);
+          .listen(
+            (snapshot) async {
+              final List<JournalEntry> remoteEntries = [];
+              for (var doc in snapshot.docs) {
+                try {
+                  final data = doc.data() as Map<String, dynamic>;
+                  final entry = JournalEntry.fromMap(
+                    data,
+                  ).copyWith(jid: doc.id);
+                  remoteEntries.add(entry);
+                  // Always save to Hive locally
+                  await _journalRepo.saveEntryLocal(entry);
+                } catch (e) {
+                  debugPrint(
+                    "⚠️ Failed to parse or save journal ${doc.id}: $e",
+                  );
+                }
               }
 
+              _entries[childId] = remoteEntries;
               debugPrint(
-                "📡 Realtime sync: ${remoteEntries.length} journal entries",
+                "📡 Realtime sync: ${remoteEntries.length} journal entries for child $childId",
               );
               notifyListeners();
-            }
-          });
+            },
+            onError: (e) {
+              debugPrint("⚠️ Firestore journal snapshots error: $e");
+            },
+          );
     } catch (e) {
       debugPrint("❌ Error loading entries: $e");
     } finally {
@@ -87,6 +136,72 @@ class JournalProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  // ---------------- CRUD ----------------
+  Future<void> addEntry(
+    String parentId,
+    String childId,
+    JournalEntry entry,
+  ) async {
+    final newEntry = entry.copyWith(
+      jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
+      cid: childId,
+      createdAt: DateTime.now(),
+    );
+
+    _parentForChild[childId] = parentId;
+
+    // Save locally
+    await _journalRepo.saveEntryLocal(newEntry);
+
+    _entries.putIfAbsent(childId, () => []);
+    _entries[childId]!.insert(0, newEntry);
+    notifyListeners();
+
+    // Push pending changes if online
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges(parentId, childId);
+    }
+  }
+
+  Future<void> updateEntry(
+    String parentId,
+    String childId,
+    JournalEntry updated,
+  ) async {
+    final updatedEntry = updated.copyWith(createdAt: DateTime.now());
+    _parentForChild[childId] = parentId;
+
+    await _journalRepo.saveEntryLocal(updatedEntry);
+
+    _entries.putIfAbsent(childId, () => []);
+    final list = _entries[childId]!;
+    final idx = list.indexWhere((e) => e.jid == updatedEntry.jid);
+    if (idx != -1) {
+      list[idx] = updatedEntry;
+    } else {
+      list.insert(0, updatedEntry);
+    }
+    notifyListeners();
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges(parentId, childId);
+    }
+  }
+
+  Future<void> deleteEntry(String parentId, String childId, String jid) async {
+    _parentForChild[childId] = parentId;
+
+    await _journalRepo.deleteEntryLocal(jid);
+    _entries[childId]?.removeWhere((e) => e.jid == jid);
+    notifyListeners();
+
+    if (await NetworkHelper.isOnline()) {
+      await pushPendingChanges(parentId, childId);
+    }
+  }
+
+  List<JournalEntry> getEntries(String childId) => _entries[childId] ?? [];
 
   // ---------------- MANUAL FETCH ----------------
   Future<List<JournalEntry>> getMergedEntries({
@@ -104,178 +219,24 @@ class JournalProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------- ADD ENTRY ----------------
-  Future<void> addEntry(
-    String parentId,
-    String childId,
-    JournalEntry entry,
-  ) async {
-    final newEntry = entry.copyWith(
-      jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
-      cid: childId,
-      entryDate: entry.entryDate,
-      createdAt: DateTime.now(),
-    );
-
-    // ✅ Always save locally first (offline-first)
-    await _journalRepo.saveEntryLocal(newEntry);
-
-    _entries.putIfAbsent(childId, () => []);
-    _entries[childId]!.insert(0, newEntry);
-    notifyListeners();
-
-    // ✅ Check if online using connectivity_plus
-    final isOnline = await NetworkHelper.isOnline();
-
-    if (isOnline) {
-      try {
-        await _journalRepo.saveEntryRemote(parentId, childId, newEntry);
-        await _syncService.syncAllPendingChanges(
-          parentId: parentId,
-          childId: childId,
-        );
-        debugPrint("✅ Synced new journal entry ${newEntry.jid} to Firestore.");
-      } catch (e) {
-        debugPrint("⚠️ Firestore add failed, will retry when back online: $e");
-      }
-    } else {
-      debugPrint("📴 Offline: journal saved locally (${newEntry.jid}).");
-
-      // ✅ Watch for reconnection and push pending entries
-      final connectivity = Connectivity();
-      StreamSubscription<ConnectivityResult>? subscription; // declare first
-
-      subscription = connectivity.onConnectivityChanged.listen((result) async {
-        if (result != ConnectivityResult.none) {
-          debugPrint("🌐 Reconnected — pushing pending journals...");
-          await _journalRepo.pushPendingLocalChanges(parentId, childId);
-          await _syncService.syncAllPendingChanges(
-            parentId: parentId,
-            childId: childId,
-          );
-          await subscription?.cancel(); // stop listening after sync
-        }
-      });
-    }
-  }
-
-  // ---------------- UPDATE ENTRY ----------------
-  Future<void> updateEntry(
-    String parentId,
-    String childId,
-    JournalEntry updated,
-  ) async {
-    final updatedEntry = updated.copyWith(createdAt: DateTime.now());
-
-    // ✅ Always save locally first
-    await _journalRepo.saveEntryLocal(updatedEntry);
-
-    _entries.putIfAbsent(childId, () => []);
-    final list = _entries[childId]!;
-    final idx = list.indexWhere((e) => e.jid == updatedEntry.jid);
-    if (idx != -1) {
-      list[idx] = updatedEntry;
-    } else {
-      list.insert(0, updatedEntry);
-    }
-    notifyListeners();
-
-    // ✅ Check connectivity
-    final isOnline = await NetworkHelper.isOnline();
-
-    if (isOnline) {
-      try {
-        await _journalRepo.saveEntryRemote(parentId, childId, updatedEntry);
-        await _syncService.syncAllPendingChanges(
-          parentId: parentId,
-          childId: childId,
-        );
-        debugPrint(
-          "✅ Journal update synced to Firestore (${updatedEntry.jid})",
-        );
-      } catch (e) {
-        debugPrint("⚠️ Firestore update failed, queued for later sync: $e");
-      }
-    } else {
-      debugPrint(
-        "📴 Offline: journal update saved locally (${updatedEntry.jid})",
-      );
-
-      // ✅ Listen for reconnection and sync pending updates
-      final connectivity = Connectivity();
-      StreamSubscription<ConnectivityResult>? subscription;
-
-      subscription = connectivity.onConnectivityChanged.listen((result) async {
-        if (result != ConnectivityResult.none) {
-          debugPrint("🌐 Reconnected — syncing updated journals...");
-          await _journalRepo.pushPendingLocalChanges(parentId, childId);
-          await _syncService.syncAllPendingChanges(
-            parentId: parentId,
-            childId: childId,
-          );
-          await subscription?.cancel();
-        }
-      });
-    }
-  }
-
-  // ---------------- DELETE ENTRY ----------------
-  Future<void> deleteEntry(String parentId, String childId, String jid) async {
-    // ✅ Mark for local deletion first
-    await _journalRepo.deleteEntryLocal(jid);
-    _entries[childId]?.removeWhere((e) => e.jid == jid);
-    notifyListeners();
-
-    // ✅ Check connectivity
-    final isOnline = await NetworkHelper.isOnline();
-
-    if (isOnline) {
-      try {
-        await _journalRepo.deleteEntryRemote(parentId, childId, jid);
-        await _syncService.syncAllPendingChanges(
-          parentId: parentId,
-          childId: childId,
-        );
-        debugPrint("✅ Journal deleted remotely ($jid)");
-      } catch (e) {
-        debugPrint("⚠️ Firestore delete failed, will retry later: $e");
-      }
-    } else {
-      debugPrint("📴 Offline: journal marked deleted locally ($jid)");
-
-      // ✅ Watch for reconnection and push pending deletions
-      final connectivity = Connectivity();
-      StreamSubscription<ConnectivityResult>? subscription;
-
-      subscription = connectivity.onConnectivityChanged.listen((result) async {
-        if (result != ConnectivityResult.none) {
-          debugPrint("🌐 Reconnected — pushing pending deletions...");
-          await _journalRepo.pushPendingLocalChanges(parentId, childId);
-          await _syncService.syncAllPendingChanges(
-            parentId: parentId,
-            childId: childId,
-          );
-          await subscription?.cancel();
-        }
-      });
-    }
-  }
-
-  // ---------------- UTILITIES ----------------
-  List<JournalEntry> getEntries(String childId) => _entries[childId] ?? [];
-
+  // ---------------- PUSH PENDING ----------------
   Future<void> pushPendingChanges(String parentId, String childId) async {
-    await _journalRepo.pushPendingLocalChanges(parentId, childId);
-    await _syncService.syncAllPendingChanges(
-      parentId: parentId,
-      childId: childId,
-    );
-    notifyListeners();
+    try {
+      await _journalRepo.pushPendingLocalChanges(parentId, childId);
+      await _syncService.syncAllPendingChanges(
+        parentId: parentId,
+        childId: childId,
+      );
+      notifyListeners();
+    } catch (e) {
+      debugPrint("⚠️ Failed to push pending journal changes: $e");
+    }
   }
 
   @override
   void dispose() {
     _journalSubscription?.cancel();
+    _connectivitySubscription?.cancel();
     super.dispose();
   }
 }

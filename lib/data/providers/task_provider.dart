@@ -376,6 +376,14 @@ class TaskProvider extends ChangeNotifier {
     // ✅ Update local Hive + memory
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
+
+    // Persist via repository so repo/pending logic knows about change
+    try {
+      await _taskRepo.saveTask(updatedTask);
+    } catch (e) {
+      debugPrint('⚠️ _taskRepo.saveTask failed (mark done): $e');
+    }
+
     notifyListeners();
 
     // ✅ Cancel alarm if any
@@ -383,25 +391,25 @@ class TaskProvider extends ChangeNotifier {
       await cancelTaskAlarm(updatedTask);
     }
 
-    // ✅ Sync to Firestore (for realtime update)
+    // ✅ Try to sync immediately if online (push this single change)
     if (await NetworkHelper.isOnline()) {
       try {
-        final firestore = FirebaseFirestore.instance;
-        final docRef = firestore
-            .collection('users')
-            .doc(updatedTask.parentId)
-            .collection('children')
-            .doc(updatedTask.childId)
-            .collection('tasks')
-            .doc(updatedTask.id);
-
-        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
+        await _syncToFirestore(updatedTask);
+        // Also ensure syncService flushes any other pending changes for this child
+        try {
+          await _syncService.syncAllPendingChanges(
+            parentId: updatedTask.parentId,
+            childId: updatedTask.childId,
+          );
+        } catch (e) {
+          debugPrint('⚠️ syncAllPendingChanges failed (after mark done): $e');
+        }
         debugPrint('✅ Task marked done and synced: ${updatedTask.name}');
       } catch (e) {
-        debugPrint('⚠️ Firestore sync failed: $e');
+        debugPrint('⚠️ Firestore sync failed (mark done): $e');
       }
     } else {
-      debugPrint('⚠️ Offline: will sync later.');
+      debugPrint('⚠️ Offline: will sync later (mark done).');
     }
 
     // ✅ Update streak data
@@ -417,7 +425,11 @@ class TaskProvider extends ChangeNotifier {
     // ✅ Deduplicate any local duplicates after Firestore resync
     final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
     _tasks = uniqueTasks.values.toList()
-      ..sort((a, b) => b.lastUpdated!.compareTo(a.lastUpdated!));
+      ..sort(
+        (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
+          a.lastUpdated ?? DateTime(0),
+        ),
+      );
 
     notifyListeners();
   }
@@ -448,21 +460,28 @@ class TaskProvider extends ChangeNotifier {
     // ✅ Update local cache and in-memory
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
+
+    // Persist via repository so repo/pending logic knows about change
+    try {
+      await _taskRepo.saveTask(updatedTask);
+    } catch (e) {
+      debugPrint('⚠️ _taskRepo.saveTask failed (mark undone): $e');
+    }
+
     notifyListeners();
 
-    // ✅ Sync to Firestore for realtime reflection
+    // ✅ Try to sync immediately if online
     if (await NetworkHelper.isOnline()) {
       try {
-        final firestore = FirebaseFirestore.instance;
-        final docRef = firestore
-            .collection('users')
-            .doc(updatedTask.parentId)
-            .collection('children')
-            .doc(updatedTask.childId)
-            .collection('tasks')
-            .doc(updatedTask.id);
-
-        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
+        await _syncToFirestore(updatedTask);
+        try {
+          await _syncService.syncAllPendingChanges(
+            parentId: updatedTask.parentId,
+            childId: updatedTask.childId,
+          );
+        } catch (e) {
+          debugPrint('⚠️ syncAllPendingChanges failed (after mark undone): $e');
+        }
         debugPrint('↩️ Task marked as undone and synced: ${updatedTask.name}');
       } catch (e) {
         debugPrint('⚠️ Failed to sync undone task: $e');
@@ -474,7 +493,11 @@ class TaskProvider extends ChangeNotifier {
     // ✅ Clean duplicates and re-sort by lastUpdated
     final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
     _tasks = uniqueTasks.values.toList()
-      ..sort((a, b) => b.lastUpdated!.compareTo(a.lastUpdated!));
+      ..sort(
+        (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
+          a.lastUpdated ?? DateTime(0),
+        ),
+      );
 
     notifyListeners();
   }

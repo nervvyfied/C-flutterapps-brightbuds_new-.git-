@@ -12,7 +12,9 @@ class JournalRepository {
   JournalRepository() {
     // Ensure Hive box is already opened before using this repository
     if (!Hive.isBoxOpen(hiveBoxName)) {
-      throw Exception("Hive box '$hiveBoxName' is not open. Open it before using JournalRepository.");
+      throw Exception(
+        "Hive box '$hiveBoxName' is not open. Open it before using JournalRepository.",
+      );
     }
     _journalBox = Hive.box<JournalEntry>(hiveBoxName);
   }
@@ -56,21 +58,33 @@ class JournalRepository {
         .collection('journals');
   }
 
-  Future<void> saveEntryRemote(String parentId, String childId, JournalEntry entry) async {
-    await _childJournalRef(parentId, childId)
-        .doc(entry.jid)
-        .set(entry.toMap(), SetOptions(merge: true));
+  Future<void> saveEntryRemote(
+    String parentId,
+    String childId,
+    JournalEntry entry,
+  ) async {
+    await _childJournalRef(
+      parentId,
+      childId,
+    ).doc(entry.jid).set(entry.toMap(), SetOptions(merge: true));
     debugPrint("Journal ${entry.jid} saved remotely under child $childId.");
   }
 
-  Future<List<JournalEntry>> getAllEntriesRemote(String parentId, String childId) async {
+  Future<List<JournalEntry>> getAllEntriesRemote(
+    String parentId,
+    String childId,
+  ) async {
     try {
       final snapshot = await _childJournalRef(parentId, childId).get();
       final remoteEntries = snapshot.docs
-          .map((doc) => JournalEntry.fromMap(doc.data() as Map<String, dynamic>))
+          .map(
+            (doc) => JournalEntry.fromMap(doc.data() as Map<String, dynamic>),
+          )
           .toList();
 
-      debugPrint("Fetched ${remoteEntries.length} remote entries for child $childId");
+      debugPrint(
+        "Fetched ${remoteEntries.length} remote entries for child $childId",
+      );
       return remoteEntries;
     } catch (e) {
       debugPrint("Error fetching remote entries: $e");
@@ -78,7 +92,11 @@ class JournalRepository {
     }
   }
 
-  Future<void> deleteEntryRemote(String parentId, String childId, String jid) async {
+  Future<void> deleteEntryRemote(
+    String parentId,
+    String childId,
+    String jid,
+  ) async {
     await _childJournalRef(parentId, childId).doc(jid).delete();
     debugPrint("Journal $jid deleted remotely.");
   }
@@ -86,8 +104,9 @@ class JournalRepository {
   // ---------------- OFFLINE-FIRST SYNC ----------------
   Future<bool> _hasConnection() async {
     try {
-      final result = await InternetAddress.lookup('google.com')
-          .timeout(const Duration(seconds: 3));
+      final result = await InternetAddress.lookup(
+        'google.com',
+      ).timeout(const Duration(seconds: 3));
       return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
     } catch (_) {
       return false;
@@ -95,7 +114,10 @@ class JournalRepository {
   }
 
   // ---------------- MERGE LOCAL + REMOTE ----------------
-  Future<List<JournalEntry>> getMergedEntries(String parentId, String childId) async {
+  Future<List<JournalEntry>> getMergedEntries(
+    String parentId,
+    String childId,
+  ) async {
     final localEntries = getAllEntriesLocal(childId);
 
     bool online = await _hasConnection();
@@ -120,7 +142,8 @@ class JournalRepository {
         }
 
         debugPrint(
-            "✅ Merged ${mergedList.length} entries for child $childId (Local: ${localEntries.length}, Remote: ${remoteEntries.length}, Online: $online)");
+          "✅ Merged ${mergedList.length} entries for child $childId (Local: ${localEntries.length}, Remote: ${remoteEntries.length}, Online: $online)",
+        );
         return mergedList;
       } catch (e) {
         debugPrint("Error merging remote entries: $e");
@@ -129,21 +152,51 @@ class JournalRepository {
     }
 
     debugPrint(
-        "Offline: returning local entries (${localEntries.length}) for child $childId");
+      "Offline: returning local entries (${localEntries.length}) for child $childId",
+    );
     return localEntries;
   }
 
   Future<void> pushPendingLocalChanges(String parentId, String childId) async {
-    if (!await _hasConnection()) {
-      debugPrint("Offline: skipping push of local changes.");
-      return;
+    // Get all local entries for this child
+    final localEntries = _journalBox.values
+        .where((e) => e.cid == childId)
+        .toList();
+
+    for (final entry in localEntries) {
+      try {
+        // Reference to Firestore doc
+        final docRef = _childJournalRef(parentId, childId).doc(entry.jid);
+        final remoteSnapshot = await docRef.get();
+
+        if (!remoteSnapshot.exists) {
+          // Remote doesn't exist → push local
+          await saveEntryRemote(parentId, childId, entry);
+          debugPrint("⬆️ Pushed new local journal ${entry.jid} to Firestore.");
+        } else {
+          final remoteData = remoteSnapshot.data() as Map<String, dynamic>;
+          final remoteEntry = JournalEntry.fromMap(remoteData);
+
+          // Compare timestamps to see which is newer
+          final localTime =
+              entry.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final remoteTime =
+              remoteEntry.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+
+          if (localTime.isAfter(remoteTime)) {
+            await saveEntryRemote(parentId, childId, entry);
+            debugPrint(
+              "⬆️ Updated Firestore journal ${entry.jid} with newer local version.",
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint("⚠️ Failed to push local journal ${entry.jid}: $e");
+      }
     }
 
-    final localEntries = getAllEntriesLocal(childId);
-    for (final entry in localEntries) {
-      await saveEntryRemote(parentId, childId, entry);
-    }
     debugPrint(
-        "Pushed ${localEntries.length} local journals to Firestore for child $childId.");
+      "✅ Completed pushing pending local journals for child $childId (parent $parentId).",
+    );
   }
 }
