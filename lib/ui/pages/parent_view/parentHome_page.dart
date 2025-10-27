@@ -253,18 +253,22 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
     return [
-      const SizedBox(height: 12),
+      const SizedBox(height: 10),
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        color: const Color(0xFFA6C26F),
         elevation: 3,
         child: ListTile(
-          title: const Text('Child ID'),
-          subtitle: Text(
-            activeChild['cid'],
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-          ),
+          title: Text(
+              "${activeChild['name']}'s Report",
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
           trailing: IconButton(
-            icon: const Icon(Icons.download),
+            icon: const Icon(Icons.download, color: Colors.white),
             tooltip: "Export to PDF",
             onPressed: () {
               final journalProv = Provider.of<JournalProvider>(
@@ -429,12 +433,13 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.bolt, size: 16),
+                      icon: const Icon(Icons.auto_awesome, size: 16, color: Colors.white),
                       label: const Text(
                         "Assign Power Boost",
-                        style: TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: 12, color: Colors.white),
                       ),
                       style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFECE00),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 12,
                           vertical: 8,
@@ -505,99 +510,121 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final journalProv = Provider.of<JournalProvider>(context);
-    final taskProv = Provider.of<TaskProvider>(context);
-    final selectedChildProv = Provider.of<SelectedChildProvider>(context);
+Widget build(BuildContext context) {
+  final journalProv = Provider.of<JournalProvider>(context);
+  final taskProv = Provider.of<TaskProvider>(context);
+  final selectedChildProv = Provider.of<SelectedChildProvider>(context);
 
-    if (_loading) return const Center(child: CircularProgressIndicator());
+  if (_loading) return const Center(child: CircularProgressIndicator());
 
-    final activeChild =
-        selectedChildProv.selectedChild ??
-        {
-          "cid": "",
-          "name": "No Child",
-          "balance": 0,
-          "streak": 0,
-          "parentUid": widget.parentId,
-        };
+  final activeChild =
+      selectedChildProv.selectedChild ??
+      {
+        "cid": "",
+        "name": "No Child",
+        "balance": 0,
+        "streak": 0,
+        "parentUid": widget.parentId,
+      };
 
-    final parentName = _parent?.name ?? "Parent";
-    final parentEmail = _parent?.email ?? "";
+  final parentName = _parent?.name ?? "Parent";
+  final parentEmail = _parent?.email ?? "";
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Parent Dashboard'),
-        automaticallyImplyLeading: true,
+  return Scaffold(
+    backgroundColor: const Color(0xFF8657F3),
+    appBar: AppBar(
+      backgroundColor: const Color(0xFF8657F3),
+      elevation: 0,
+      title: const Text('Parent Dashboard', style: TextStyle(color: Colors.white)),
+      automaticallyImplyLeading: true,
+      iconTheme: const IconThemeData(
+        color: Colors.white, // <-- sets menu icon color
       ),
-      drawer: ParentAccountSidebar(parentId: widget.parentId),
-      body: RefreshIndicator(
-        onRefresh: _loadParentData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+    ),
+    drawer: ParentAccountSidebar(parentId: widget.parentId),
+    body: RefreshIndicator(
+      onRefresh: _loadParentData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ---------------- Greeting Area ----------------
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.white,
+                  child: Text(
+                    parentName.isNotEmpty ? parentName[0].toUpperCase() : 'P',
+                    style: const TextStyle(
+                      color: Color(0xFF8657F3),
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
-                elevation: 3,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.account_circle,
-                        size: 40,
-                        color: Colors.blue,
+                      Text(
+                        "Welcome Back, $parentName!",
+                        style: const TextStyle(
+                          fontSize: 20,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Hello Parent, $parentName!",
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              parentEmail,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 4),
+                      Text(
+                        parentEmail,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Colors.white70,
                         ),
                       ),
                     ],
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ---------------- Dashboard Container ----------------
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              Text(
-                'Dashboard for ${activeChild['name']}',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 16),
+                  ..._buildChildCharts(
+                    journalProv,
+                    taskProv,
+                    activeChild,
+                    selectedChildProv,
+                  ),
+                ],
               ),
-              ..._buildChildCharts(
-                journalProv,
-                taskProv,
-                activeChild,
-                selectedChildProv,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

@@ -46,83 +46,88 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
   Future<void> _initPage() async {
   _settingsBox = await Hive.openBox('settings');
-  
+
   await _checkConnectivity();
-  
-  // Make sure auto-reset runs *before* loading tasks
+
+  // Init TaskProvider and run auto-reset
   final taskProvider = Provider.of<TaskProvider>(context, listen: false);
   await taskProvider.initHive();
-  await taskProvider.autoResetIfNeeded();  // ✅ run reset early
+  await taskProvider.autoResetIfNeeded(); // run reset early
 
+  // Load tasks once
   await _loadTasksOnce();
-  _listenToBalance();      
-  await _checkNewTokens();                 // now check AFTER reset
+
+  // Start listening to balance updates (real-time)
+  _listenToBalance();
+  _fetchBalance();
+
+  // Check new tokens *after a frame to ensure context is ready*
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    await _checkNewTokens();
+  });
 }
+
 
 
 /// ✅ REAL-TIME BALANCE LISTENER
   void _listenToBalance() {
-    _balanceStream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.parentId)
-        .collection('children')
-        .doc(widget.childId)
-        .snapshots();
+  _balanceStream = FirebaseFirestore.instance
+      .collection('users')
+      .doc(widget.parentId)
+      .collection('children')
+      .doc(widget.childId)
+      .snapshots();
 
-    _balanceStream!.listen((snapshot) {
-      if (!snapshot.exists) return;
-      final data = snapshot.data() as Map<String, dynamic>?;
-      if (data == null) return;
+  _balanceStream!.listen((snapshot) {
+    if (!snapshot.exists) return;
+    final data = snapshot.data() as Map<String, dynamic>?;
+    if (data == null) return;
 
-      final newBalance = data['balance'] ?? 0;
-      if (mounted) {
-        setState(() => _balance = newBalance);
-      }
-    });
-  }
+    final newBalance = data['balance'] ?? 0;
+    if (mounted) {
+      setState(() => _balance = newBalance);
+    }
+  }, onError: (e) {
+    debugPrint('❌ Balance stream error: $e');
+  });
+}
+
 
 
   Future<void> _checkNewTokens() async {
   final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
-  // Get all tasks for this child
-  final childTasks = taskProvider.tasks
-      .where((task) => task.childId == widget.childId)
-      .toList();
-
-  if (childTasks.isEmpty) return;
+  // Ensure tasks are loaded
+  if (taskProvider.tasks.isEmpty) return;
 
   // Get last seen verified task timestamp
-  final lastSeen = _settingsBox.get(
-    'lastSeenVerifiedTaskTimestamp_${widget.childId}',
-    defaultValue: 0,
-  );
+  final lastSeenKey = 'lastSeenVerifiedTaskTimestamp_${widget.childId}';
+  final lastSeen = _settingsBox.get(lastSeenKey, defaultValue: 0);
 
-  // Filter tasks that are verified and updated after last seen
-  final newTasks = childTasks.where((task) {
+  // Filter tasks verified after last seen
+  final newTasks = taskProvider.tasks.where((task) {
     final updatedTime = task.lastUpdated?.millisecondsSinceEpoch ?? 0;
     return (task.verified ?? false) && updatedTime > lastSeen;
   }).toList();
 
   if (newTasks.isEmpty) return;
 
-  // Play confetti!
-  _confettiController.play();
+  // Delay slightly to ensure context is stable
+  await Future.delayed(const Duration(milliseconds: 100));
 
-  // Show the token dialog
+  if (!mounted) return;
+
+  // Show dialog and confetti
+  _confettiController.play();
   _showTokenDialog(newTasks);
 
-  // Update last seen timestamp
+  // Update last seen timestamp AFTER dialog
   final latestTimestamp = newTasks
       .map((t) => t.lastUpdated?.millisecondsSinceEpoch ?? 0)
       .reduce((a, b) => a > b ? a : b);
 
-  _settingsBox.put(
-      'lastSeenVerifiedTaskTimestamp_${widget.childId}', latestTimestamp);
+  _settingsBox.put(lastSeenKey, latestTimestamp);
 }
-
-
-
 
   Future<void> _fetchBalance() async {
   final doc = await FirebaseFirestore.instance
