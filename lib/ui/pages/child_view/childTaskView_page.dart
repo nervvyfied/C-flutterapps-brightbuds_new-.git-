@@ -45,6 +45,9 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     _confettiController = ConfettiController(
       duration: const Duration(seconds: 2),
     );
+    _confettiController = ConfettiController(
+      duration: const Duration(seconds: 2),
+    );
     _initPage();
   }
 
@@ -145,6 +148,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     }).toList();
 
     if (newTasks.isEmpty) return;
+    if (newTasks.isEmpty) return;
 
     // small delay to ensure UI is stable before showing dialog
     await Future.delayed(const Duration(milliseconds: 150));
@@ -211,6 +215,12 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Widget _buildTaskGroup(
+    String title,
+    List<TaskModel> tasks,
+    UnlockManager unlockManager,
+    bool isOffline,
+  ) {
+    if (tasks.isEmpty) return const SizedBox.shrink();
     String title,
     List<TaskModel> tasks,
     UnlockManager unlockManager,
@@ -348,6 +358,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                               );
                             }
 
+                            unlockManager.checkUnlocks();
                             unlockManager.checkUnlocks();
 
                             // if online, push pending changes immediately
@@ -506,6 +517,9 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                     borderRadius: BorderRadius.vertical(
                       top: Radius.circular(24),
                     ),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
                   ),
                   child: Consumer<TaskProvider>(
                     builder: (context, taskProvider, _) {
@@ -547,6 +561,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                       final total = childTasks.length;
                       final done = childTasks.where((t) => t.isDone).length;
                       final progress = total == 0 ? 0.0 : done / total;
+                      final progress = total == 0 ? 0.0 : done / total;
 
                       return RefreshIndicator(
                         onRefresh: _initPage,
@@ -560,9 +575,16 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                               ),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 16,
+                              ),
                               padding: const EdgeInsets.symmetric(
                                 vertical: 12,
                                 horizontal: 16,
@@ -584,10 +606,15 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         const Text(
                                           "Daily Progress",
                                           style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
                                             fontWeight: FontWeight.bold,
                                             color: Colors.black87,
                                           ),
@@ -597,10 +624,17 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                           child: LinearProgressIndicator(
                                             value: progress,
                                             minHeight: 10,
                                             backgroundColor: Colors.grey[300],
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                  Colors.green,
+                                                ),
                                             valueColor:
                                                 AlwaysStoppedAnimation<Color>(
                                                   Colors.green,
@@ -616,12 +650,21 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                       horizontal: 12,
                                       vertical: 6,
                                     ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFF8657F3),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Row(
                                       children: [
+                                        Image.asset(
+                                          'assets/coin.png',
+                                          width: 20,
+                                          height: 20,
+                                        ),
                                         Image.asset(
                                           'assets/coin.png',
                                           width: 20,
@@ -634,6 +677,9 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                             color: Colors.white,
                                             fontWeight: FontWeight.bold,
                                           ),
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -642,6 +688,30 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                               ),
                             ),
                             const SizedBox(height: 16),
+                            _buildTaskGroup(
+                              'Morning',
+                              grouped['Morning']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
+                            _buildTaskGroup(
+                              'Afternoon',
+                              grouped['Afternoon']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
+                            _buildTaskGroup(
+                              'Evening',
+                              grouped['Evening']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
+                            _buildTaskGroup(
+                              'Anytime',
+                              grouped['Anytime']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
                             _buildTaskGroup(
                               'Morning',
                               grouped['Morning']!,
