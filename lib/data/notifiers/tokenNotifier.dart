@@ -1,7 +1,7 @@
 import 'package:brightbuds_new/data/managers/token_manager.dart';
+import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
 
 class TokenNotifier extends ChangeNotifier {
   final TokenManager tokenManager;
@@ -13,44 +13,41 @@ class TokenNotifier extends ChangeNotifier {
 
   TokenNotifier(this.tokenManager, {required this.settingsBox, required this.childId});
 
-  /// Initialize lastSeen to prevent old tasks from triggering notifications
-  void initLastSeen() {
-    final lastSeenKey = 'lastSeenVerifiedTaskTimestamp_$childId';
-    final lastSeen = settingsBox.get(lastSeenKey, defaultValue: 0);
+  /// ✅ Detects tasks newly verified by the parent that the child hasn’t seen yet
+  Future<List<TaskModel>> checkAndNotify() async {
+  final unseenKey = 'seen_verified_tasks_$childId';
+  List<String> seenIds = List<String>.from(settingsBox.get(unseenKey, defaultValue: []));
 
-    final allTasks = tokenManager.taskProvider.tasks;
-    final latest = allTasks
-        .where((t) => t.verified ?? false)
-        .map((t) => t.lastUpdated?.millisecondsSinceEpoch ?? 0)
-        .fold(lastSeen, (a, b) => a > b ? a : b);
+  final verifiedTasks = tokenManager.taskProvider.tasks
+      .where((t) => t.verified == true && t.childId == childId)
+      .toList();
 
-    settingsBox.put(lastSeenKey, latest);
-  }
+  final unseenTasks = verifiedTasks.where((t) => !seenIds.contains(t.id)).toList();
 
-  void clearNewTasks() {
-  _newTasks.clear();
-  notifyListeners();
+  if (unseenTasks.isEmpty) return [];
+
+  _newTasks = [..._newTasks, ...unseenTasks];
+  notifyListeners(); // triggers popup
+
+  return unseenTasks; // ✅ return them so we can mark them seen later
 }
 
 
-  /// Check for newly verified tasks after init
-  void checkAndNotify() {
-    final allTasks = tokenManager.taskProvider.tasks;
-    final lastSeenKey = 'lastSeenVerifiedTaskTimestamp_$childId';
-    final lastSeen = settingsBox.get(lastSeenKey, defaultValue: 0);
+  /// ✅ Safely add tasks manually (for Firestore listener)
+  void addNewlyVerifiedTasks(List<TaskModel> tasks) {
+    if (tasks.isEmpty) return;
 
-    _newTasks = allTasks.where((task) {
-      final updated = task.lastUpdated?.millisecondsSinceEpoch ?? 0;
-      return (task.verified ?? false) && updated > lastSeen;
-    }).toList();
+    // Merge with any existing tasks to show in the popup
+    _newTasks = [
+      ..._newTasks,
+      ...tasks.where((t) => !_newTasks.any((nt) => nt.id == t.id)),
+    ];
+    notifyListeners();
+  }
 
-    if (_newTasks.isNotEmpty) {
-      final latest = _newTasks
-          .map((t) => t.lastUpdated?.millisecondsSinceEpoch ?? 0)
-          .reduce((a, b) => a > b ? a : b);
-
-      settingsBox.put(lastSeenKey, latest); // mark new tasks as seen
-      notifyListeners();
-    }
+  /// ✅ Clear only the _newTasks cache (not seen IDs)
+  void clearNewTasks() {
+    _newTasks = [];
+    notifyListeners();
   }
 }

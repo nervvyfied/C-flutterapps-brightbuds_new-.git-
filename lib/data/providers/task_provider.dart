@@ -268,16 +268,17 @@ Future<void> loadTasks({
 
     _tasks.add(newTask);
     await _taskBox?.put(newTask.id, newTask);
-   
+    
+    notifyListeners();
 
     await _taskRepo.saveTask(newTask);
 
     // Sync to Firestore
     await _syncToFirestore(newTask);
 
-    notifyListeners();
-
-    if (!kIsWeb) await scheduleTaskAlarm(newTask);
+    if (!kIsWeb) {
+      scheduleTaskAlarm(newTask); // no await
+    }
   }
  
   Future<void> updateTask(TaskModel updatedFields) async {

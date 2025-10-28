@@ -23,6 +23,7 @@ class _JournalEditPageState extends State<JournalEditPage> {
   int _stars = 0;
   String _mood = "";
   int _step = 0;
+  bool _isSaving = false;
 
   final _thankfulForController = TextEditingController();
   final _todayILearnedController = TextEditingController();
@@ -48,6 +49,60 @@ class _JournalEditPageState extends State<JournalEditPage> {
     _bestPartOfDayController.dispose();
     super.dispose();
   }
+
+  Future<void> _showSaveConfirmationDialog() async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Confirm Save'),
+      content: const Text('Are you sure you want to save changes to this entry?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    setState(() => _isSaving = true);
+
+    final updatedEntry = widget.entry.copyWith(
+      stars: _stars,
+      mood: _mood,
+      thankfulFor: _thankfulForController.text,
+      todayILearned: _todayILearnedController.text,
+      todayITried: _todayITriedController.text,
+      bestPartOfDay: _bestPartOfDayController.text,
+      createdAt: DateTime.now(),
+    );
+
+    final provider = Provider.of<JournalProvider>(context, listen: false);
+
+    try {
+      await provider.deleteEntry(widget.parentId, widget.childId, widget.entry.jid);
+      await provider.addEntry(widget.parentId, widget.childId, updatedEntry);
+      await provider.getMergedEntries(
+        parentId: widget.parentId,
+        childId: widget.childId,
+      );
+
+      Navigator.pop(context, true); // Go back to journal list
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to update entry: $e")),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+}
+
 
   Future<void> _saveEdit() async {
     final updatedEntry = widget.entry.copyWith(
@@ -375,13 +430,22 @@ class _JournalEditPageState extends State<JournalEditPage> {
               ),
               const SizedBox(height: 30),
               ElevatedButton.icon(
-                onPressed: _saveEdit,
-                icon: const Icon(Icons.save),
-                label: const Text("Save Changes"),
+                onPressed: _isSaving ? null : _showSaveConfirmationDialog,
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(Icons.save),
+                label: Text(_isSaving ? "Saving..." : "Save Changes"),
                 style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
                   backgroundColor: const Color(0xFFA6C26F),
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
                 ),
               ),
             ],

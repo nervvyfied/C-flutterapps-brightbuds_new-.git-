@@ -23,6 +23,7 @@ class _JournalAddPageState extends State<JournalAddPage> {
   int _stars = 0;
   String _mood = "";
   int _step = 0; // 0 = affirmation page, 1 = journal form page
+  bool _isSaving = false;
 
   final _thankfulForController = TextEditingController();
   final _todayILearnedController = TextEditingController();
@@ -45,7 +46,35 @@ class _JournalAddPageState extends State<JournalAddPage> {
     _dailyAffirmation = _affirmations[Random().nextInt(_affirmations.length)];
   }
 
+  Future<void> _showSaveConfirmationDialog() async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Confirm Save'),
+      content: const Text('Are you sure you want to save this journal entry?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    // Optionally disable the button while saving
+    await _saveEntry();
+  }
+}
+
+
   Future<void> _saveEntry() async {
+    setState(() => _isSaving = true);
+
     final uuid = const Uuid().v4();
 
     final newEntry = JournalEntry(
@@ -77,6 +106,9 @@ class _JournalAddPageState extends State<JournalAddPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to save entry: $e")),
       );
+    }
+    finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -402,9 +434,18 @@ class _JournalAddPageState extends State<JournalAddPage> {
 
             // Save Button
             ElevatedButton.icon(
-              onPressed: _saveEntry,
-              icon: const Icon(Icons.save),
-              label: const Text("Save Entry"),
+              onPressed: _isSaving ? null : () => _showSaveConfirmationDialog(),
+              icon: _isSaving 
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.save),
+              label: Text(_isSaving ? "Saving..." : "Save Entry"),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
                 backgroundColor: const Color(0xFFA6C26F),

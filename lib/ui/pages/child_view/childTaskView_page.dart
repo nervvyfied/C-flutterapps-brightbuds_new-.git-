@@ -37,6 +37,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   bool _isOffline = false;
   bool _isSyncing = false;
   int _balance = 0;
+  bool _tokenCheckDone = false;
   late Box _settingsBox;
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
   StreamSubscription<QuerySnapshot>? _taskSubscription;
@@ -48,44 +49,85 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Future<void> _initPage() async {
-    _settingsBox = await Hive.openBox('settings');
+  _settingsBox = await Hive.openBox('settings');
 
-    // 1️⃣ Show cached balance immediately
-    final cachedKey = 'cached_balance_${widget.childId}';
-    final cached = _settingsBox.get(cachedKey, defaultValue: 0);
-    if (mounted) setState(() => _balance = cached ?? 0);
+  // 1️⃣ Show cached balance immediately
+  final cachedKey = 'cached_balance_${widget.childId}';
+  final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+  if (mounted) setState(() => _balance = cached ?? 0);
 
-    await _checkConnectivity();
+  await _checkConnectivity();
+
+  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+  await taskProvider.initHive();
+  await taskProvider.loadTasks(
+    parentId: widget.parentId,
+    childId: widget.childId,
+  );
+
+  taskProvider.startDailyResetScheduler();
+
+  // 2️⃣ Start real-time listeners
+  _listenToBalance();
+  _listenToTasks();
+
+  // 3️⃣ Fetch balance from Firestore
+  try {
+    await _fetchBalance();
+  } catch (e) {
+    debugPrint('⚠️ _fetchBalance failed: $e');
+  }
+}
+
+  /// Real-time task listener — reloads provider tasks and checks for new tokens
+  void _listenToTasks() {
+  _taskSubscription?.cancel();
+
+  final stream = FirebaseFirestore.instance
+      .collection('users')
+      .doc(widget.parentId)
+      .collection('children')
+      .doc(widget.childId)
+      .collection('tasks')
+      .snapshots();
+
+   _taskSubscription = stream.listen((snapshot) async {
+    if (!mounted) return;
 
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    await taskProvider.initHive();
+    final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+
+    // Reload tasks from Firestore
     await taskProvider.loadTasks(
       parentId: widget.parentId,
       childId: widget.childId,
     );
 
-    taskProvider.startDailyResetScheduler();
+    // Find any verified tasks that haven't been shown yet
+    final newlyVerifiedTasks = taskProvider.tasks.where((t) {
+      if (t.verified != true) return false;
 
-    // 2️⃣ Start real-time listeners after cached balance is displayed
-    _listenToBalance();
-    _listenToTasks();
+      final seenIds = List<String>.from(
+        _settingsBox.get('seen_verified_tasks_${widget.childId}', defaultValue: []),
+      );
 
-    // Immediate balance fetch
-    try {
-      await _fetchBalance();
-    } catch (e) {
-      debugPrint('⚠️ _fetchBalance failed: $e');
+      return !seenIds.contains(t.id);
+    }).toList();
+
+    if (newlyVerifiedTasks.isNotEmpty) {
+      // mark them as seen immediately
+      final seenIds = List<String>.from(
+        _settingsBox.get('seen_verified_tasks_${widget.childId}', defaultValue: []),
+      );
+      seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
+      await _settingsBox.put('seen_verified_tasks_${widget.childId}', seenIds);
+
+      tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
     }
+  }, onError: (e) => debugPrint('❌ Task stream error: $e'));
+}
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
-      tokenNotifier.initLastSeen();
-      tokenNotifier.checkAndNotify();
-    });
-
-  }
-
-  /// Listen to real-time balance updates
+/// Listen to real-time balance updates
   void _listenToBalance() {
     _balanceSubscription?.cancel();
     final stream = FirebaseFirestore.instance
@@ -113,41 +155,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       }
     }, onError: (e) => debugPrint('❌ Balance stream error: $e'));
   }
-
-  /// Real-time task listener — reloads provider tasks and checks for new tokens
-  void _listenToTasks() {
-  _taskSubscription?.cancel();
-
-  final stream = FirebaseFirestore.instance
-      .collection('users')
-      .doc(widget.parentId)
-      .collection('children')
-      .doc(widget.childId)
-      .collection('tasks')
-      .snapshots();
-
-  _taskSubscription = stream.listen((snapshot) async {
-    if (!mounted) return;
-
-    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    final oldTasks = taskProvider.tasks.map((t) => t.id).toSet();
-
-    await taskProvider.loadTasks(
-      parentId: widget.parentId,
-      childId: widget.childId,
-    );
-
-    // Get tasks that are newly verified
-    final newlyVerified = taskProvider.tasks.where((t) => t.verified == true && !oldTasks.contains(t.id)).toList();
-
-    if (newlyVerified.isNotEmpty) {
-      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
-      tokenNotifier.checkAndNotify();
-    }
-  }, onError: (e) => debugPrint('❌ Task stream error: $e'));
-}
-
-
 
   Future<void> _fetchBalance() async {
     try {
@@ -390,8 +397,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   @override
 Widget build(BuildContext context) {
   final unlockManager = Provider.of<UnlockManager>(context, listen: false);
-  final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
-
 
   return FutureBuilder(
     future: Hive.openBox('settings'),
@@ -402,20 +407,7 @@ Widget build(BuildContext context) {
         );
       }
 
-      final settingsBox = snapshot.data as Box;
-
-      return ChangeNotifierProvider(
-        create: (_) => TokenNotifier(
-          TokenManager(
-            taskProvider: Provider.of<TaskProvider>(context, listen: false),
-            settingsBox: settingsBox,
-            childId: widget.childId,
-          ),
-          settingsBox: settingsBox,
-          childId: widget.childId,
-        ),
-        child: TokenListener(
-          child: Scaffold(
+    return Scaffold(
             body: Stack(
               children: [
                 Image.asset(
@@ -670,10 +662,8 @@ Widget build(BuildContext context) {
                   ),
               ],
             ),
-          ),
-        ),
-      );
-    },
-  );
-}
+          );
+      },
+    );
+  }
 }

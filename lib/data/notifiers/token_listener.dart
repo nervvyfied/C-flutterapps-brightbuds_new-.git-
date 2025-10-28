@@ -1,3 +1,4 @@
+import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenDialog.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:flutter/material.dart';
@@ -14,70 +15,76 @@ class TokenListener extends StatefulWidget {
 
 class _TokenListenerState extends State<TokenListener> {
   late ConfettiController _confettiController;
-  late TokenNotifier _tokenNotifier;
+  bool _dialogShown = false; // prevent double popups
 
   @override
   void initState() {
     super.initState();
-    _confettiController = ConfettiController(duration: const Duration(seconds: 2));
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 2));
 
-    // Wait for first frame to safely access provider
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+    // ✅ Fetch unseen tasks after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final notifier = Provider.of<TokenNotifier>(context, listen: false);
+      final unseenTasks = await notifier.checkAndNotify();
 
-
-      // Add listener for newly verified tasks
-      _tokenNotifier.addListener(_showDialogOnNewTokens);
+      if (unseenTasks.isNotEmpty) {
+        _showTokenDialog(context, notifier);
+      }
     });
-  }
-
-  void _showDialogOnNewTokens() {
-    if (!mounted || _tokenNotifier.newTasks.isEmpty) return;
-
-    _confettiController.play();
-
-    showDialog(
-      context: context,
-      builder: (_) => TokenDialog(
-        tasks: _tokenNotifier.newTasks,
-        confettiController: _confettiController,
-      ),
-    );
   }
 
   @override
   void dispose() {
-    // Remove listener first
-    if (mounted) {
-      _tokenNotifier.removeListener(_showDialogOnNewTokens);
-    }
-
-    // Dispose confetti last
     _confettiController.dispose();
     super.dispose();
   }
 
-  @override
-Widget build(BuildContext context) {
-  return Consumer<TokenNotifier>(
-    builder: (context, notifier, _) {
-      if (notifier.newTasks.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          showDialog(
-            context: context,
-            builder: (_) => TokenDialog(
-              tasks: notifier.newTasks,
-              confettiController: _confettiController,
-            ),
-          );
-          _confettiController.play();
-          _tokenNotifier.clearNewTasks();
-        });
-      }
-      return widget.child;
-    },
-  );
-}
+  Future<void> _showTokenDialog(BuildContext context, TokenNotifier notifier) async {
+    if (_dialogShown || notifier.newTasks.isEmpty) return;
+    _dialogShown = true;
 
+    _confettiController.play();
+
+    // Copy the current tasks to display
+    final tasksToShow = List<TaskModel>.from(notifier.newTasks);
+
+    // Wait a tiny delay to ensure the context is ready in release mode
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (_) => TokenDialog(
+        tasks: tasksToShow,
+        confettiController: _confettiController,
+      ),
+    );
+
+    // Mark tasks as seen AFTER the dialog closes
+    final unseenKey = 'seen_verified_tasks_${notifier.childId}';
+    final seenIds =
+        List<String>.from(notifier.settingsBox.get(unseenKey, defaultValue: []));
+    seenIds.addAll(tasksToShow.map((t) => t.id));
+    await notifier.settingsBox.put(unseenKey, seenIds);
+
+    notifier.clearNewTasks();
+    _dialogShown = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<TokenNotifier>(
+      builder: (context, notifier, _) {
+        // Schedule dialog after the frame to avoid build-time issues
+        if (notifier.newTasks.isNotEmpty && !_dialogShown) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showTokenDialog(context, notifier);
+          });
+        }
+        return widget.child;
+      },
+    );
+  }
 }

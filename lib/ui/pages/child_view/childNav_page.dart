@@ -1,10 +1,15 @@
 import 'package:brightbuds_new/cbt/pages/child_cbt_page.dart';
+import 'package:brightbuds_new/data/managers/token_manager.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
+import 'package:brightbuds_new/data/notifiers/token_listener.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
 import 'package:brightbuds_new/aquarium/pages/aquarium_page.dart';
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart'; // if you have Hive types here
 
 class ChildNavigationShell extends StatefulWidget {
@@ -16,12 +21,13 @@ class ChildNavigationShell extends StatefulWidget {
 
 class _ChildNavigationShellState extends State<ChildNavigationShell> {
   int _selectedIndex = 0;
+  TokenNotifier? _tokenNotifier;
 
   List<Widget> _buildPages(String parentId, String childId, String childName) {
     return [
       ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
       JournalListPage(parentId: parentId, childId: childId),
-      ChildCBTPage(childId:childId, parentId: parentId,),
+      ChildCBTPage(childId: childId, parentId: parentId),
       AquariumPage(),
     ];
   }
@@ -41,19 +47,48 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     final childId = child?.cid ?? '';
     final childName = child?.name ?? 'Child';
 
-    return Scaffold(
-      body: _buildPages(parentId, childId, childName)[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Quests'),
-          BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Journal'),
-          BottomNavigationBarItem(icon: Icon(Icons.auto_awesome), label: 'Power Pack'),
-          BottomNavigationBarItem(icon: Icon(Icons.bubble_chart), label: 'Aquarium'),
-        ],
-      ),
+    return FutureBuilder(
+      future: Hive.openBox('settings'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final settingsBox = snapshot.data as Box;
+
+        // ✅ Only create once
+        _tokenNotifier ??= TokenNotifier(
+          TokenManager(
+            taskProvider: context.read<TaskProvider>(),
+            settingsBox: settingsBox,
+            childId: childId,
+          ),
+          settingsBox: settingsBox,
+          childId: childId,
+        );
+
+        return ChangeNotifierProvider.value(
+          value: _tokenNotifier!,
+          child: TokenListener(
+            child: Scaffold(
+              body: _buildPages(parentId, childId, childName)[_selectedIndex],
+              bottomNavigationBar: BottomNavigationBar(
+                currentIndex: _selectedIndex,
+                onTap: (index) => setState(() => _selectedIndex = index),
+                type: BottomNavigationBarType.fixed,
+                items: const [
+                  BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Quests'),
+                  BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Journal'),
+                  BottomNavigationBarItem(icon: Icon(Icons.auto_awesome), label: 'Power Pack'),
+                  BottomNavigationBarItem(icon: Icon(Icons.bubble_chart), label: 'Aquarium'),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
