@@ -48,7 +48,7 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
     final cbtProvider = context.read<CBTProvider>();
 
     // Load local CBT first (offline-first)
-    await cbtProvider.loadLocalCBT(widget.parentId, widget.childId);
+    await cbtProvider.loadLocalCBT(widget.childId);
 
     // Check connectivity
     await _checkConnectivity();

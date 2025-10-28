@@ -29,7 +29,7 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CBTProvider>().loadLocalCBT(widget.parentId, widget.childId);
+      context.read<CBTProvider>().loadLocalCBT(widget.parentId);
       context.read<CBTProvider>().syncPendingCompletions(widget.parentId);
     });
   }
