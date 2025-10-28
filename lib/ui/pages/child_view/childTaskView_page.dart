@@ -1,7 +1,7 @@
-import 'package:brightbuds_new/aquarium/manager/token_manager.dart';
+import 'package:brightbuds_new/data/managers/token_manager.dart';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
-import 'package:brightbuds_new/aquarium/notifiers/tokenNotifier.dart';
-import 'package:brightbuds_new/aquarium/notifiers/token_listener.dart';
+import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
+import 'package:brightbuds_new/data/notifiers/token_listener.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
@@ -59,11 +59,14 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
     await taskProvider.initHive();
-    await taskProvider.autoResetIfNeeded();
-    await taskProvider.loadTasks(
-      parentId: widget.parentId,
-      childId: widget.childId,
-    );
+await taskProvider.loadTasks(
+  parentId: widget.parentId,
+  childId: widget.childId,
+);
+
+    
+    taskProvider.startDailyResetScheduler();
+
 
     _listenToBalance();
     _listenToTasks(); // real-time task listener
@@ -74,6 +77,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     } catch (e) {
       debugPrint('⚠️ _fetchBalance failed: $e');
     }
+
+    final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+  tokenNotifier.initLastSeen(); // prevent old tasks triggering
+  tokenNotifier.checkAndNotify(); // immediately check for new verified tasks
   }
 
   /// Listen to real-time balance updates
@@ -106,28 +113,38 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
   void _listenToTasks() {
-    _taskSubscription?.cancel();
+  _taskSubscription?.cancel();
 
-    final stream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.parentId)
-        .collection('children')
-        .doc(widget.childId)
-        .collection('tasks')
-        .snapshots();
+  final stream = FirebaseFirestore.instance
+      .collection('users')
+      .doc(widget.parentId)
+      .collection('children')
+      .doc(widget.childId)
+      .collection('tasks')
+      .snapshots();
 
-    _taskSubscription = stream.listen((snapshot) async {
-      if (!mounted) return;
+  _taskSubscription = stream.listen((snapshot) async {
+    if (!mounted) return;
 
-      // reload tasks from provider so UI updates
-      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-      await taskProvider.loadTasks(
-        parentId: widget.parentId,
-        childId: widget.childId,
-      );
+    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+    final oldTasks = taskProvider.tasks.map((t) => t.id).toSet();
 
-    }, onError: (e) => debugPrint('❌ Task stream error: $e'));
-  }
+    await taskProvider.loadTasks(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
+
+    // Get tasks that are newly verified
+    final newlyVerified = taskProvider.tasks.where((t) => t.verified == true && !oldTasks.contains(t.id)).toList();
+
+    if (newlyVerified.isNotEmpty) {
+      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+      tokenNotifier.checkAndNotify();
+    }
+  }, onError: (e) => debugPrint('❌ Task stream error: $e'));
+}
+
+
 
   Future<void> _fetchBalance() async {
     try {
@@ -383,6 +400,8 @@ Widget build(BuildContext context) {
             settingsBox: settingsBox,
             childId: widget.childId,
           ),
+          settingsBox: settingsBox,
+          childId: widget.childId,
         ),
         child: TokenListener(
           child: Scaffold(

@@ -135,46 +135,38 @@ class TaskProvider extends ChangeNotifier {
     String? childId,
     bool isParent = false,
   }) async {
-    _setLoading(true);
+  try {
+    _isLoading = true;
+    notifyListeners();
 
-    try {
-      // 1️⃣ Open Hive first
-      await initHive();
+    // Load cached tasks right away so the UI isn't empty
+    _tasks = _taskBox?.values.toList() ?? [];
+    debugPrint('📦 Loaded ${_tasks.length} tasks from Hive.');
 
-      // 2️⃣ Load tasks from local Hive
-      _tasks = _taskBox?.values.toList() ?? [];
-      notifyListeners();
-
-      // 3️⃣ Start Firestore subscription early for real-time updates
-      if (childId != null && childId.isNotEmpty) {
-        startFirestoreSubscription(parentId: parentId, childId: childId);
-      }
-
-      // 4️⃣ Auto-reset if needed (this will trigger Firestore writes if tasks need reset)
-      await autoResetIfNeeded();
-
-      // 5️⃣ Merge remote tasks if online
-      if (await NetworkHelper.isOnline()) {
-        await mergeRemoteTasks(
-          parentId: parentId,
-          childId: childId,
-          isParent: isParent,
-        );
-      }
-
-      // 6️⃣ Reload tasks from local Hive after merge/reset
-      _tasks = _taskBox?.values.toList() ?? [];
-      notifyListeners();
-
-      // 7️⃣ Schedule alarms for tasks (skip web)
-      if (!kIsWeb) await _scheduleAllAlarms(_tasks);
-
-      // 8️⃣ Start web simulation if needed
-      if (kIsWeb) startWebDebugSimulation();
-    } finally {
-      _setLoading(false);
+    // Sync with Firestore first
+    if (await NetworkHelper.isOnline()) {
+      debugPrint('🌐 Syncing remote tasks...');
+      await mergeRemoteTasks(
+        parentId: parentId,
+        childId: childId,
+        isParent: isParent,
+      );
+      debugPrint('✅ Remote tasks merged: ${_tasks.length}');
     }
+
+    // Now that all tasks are present, check for a daily reset
+    await autoResetIfNeeded();
+
+    // Reload from Hive after reset
+    _tasks = _taskBox?.values.toList() ?? [];
+    debugPrint('🔄 Tasks reloaded after reset. Count: ${_tasks.length}');
+  } catch (e, st) {
+    debugPrint('❌ loadTasks error: $e\n$st');
+  } finally {
+    _isLoading = false;
+    notifyListeners();
   }
+}
 
   void _setLoading(bool value) {
     _isLoading = value;
@@ -646,94 +638,105 @@ class TaskProvider extends ChangeNotifier {
 
   // ---------------- REAL-TIME SAFE DAILY RESET ----------------
   Future<void> resetDailyTasks() async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  bool updated = false;
 
-    bool updated = false;
+  debugPrint('🕛 Starting daily task reset check for ${_tasks.length} tasks...');
 
-    for (var i = 0; i < _tasks.length; i++) {
-      final task = _tasks[i];
+  for (var i = 0; i < _tasks.length; i++) {
+    final task = _tasks[i];
+    final lastDone = task.lastCompletedDate != null
+        ? DateTime(
+            task.lastCompletedDate!.year,
+            task.lastCompletedDate!.month,
+            task.lastCompletedDate!.day,
+          )
+        : null;
 
-      final lastDone = task.lastCompletedDate != null
-          ? DateTime(
-              task.lastCompletedDate!.year,
-              task.lastCompletedDate!.month,
-              task.lastCompletedDate!.day,
-            )
-          : null;
+    // ✅ Reset if the task was done before today
+    final shouldReset = task.isDone && (lastDone == null || lastDone.isBefore(today));
 
-      // Compute new active streak
-      int updatedActiveStreak =
-          lastDone != null &&
-              lastDone.isBefore(today.subtract(const Duration(days: 1)))
-          ? 0
-          : task.activeStreak;
+    if (shouldReset) {
+      // ✅ Keep streak if task was done yesterday, else reset streak
+      int updatedActiveStreak = 0;
+      if (lastDone != null &&
+          lastDone.isAfter(today.subtract(const Duration(days: 2)))) {
+        updatedActiveStreak = task.activeStreak;
+      }
 
-      // Only reset if it wasn’t already reset today
-      if (lastDone == null || lastDone.isBefore(today)) {
-        final updatedTask = task.copyWith(
-          isDone: false,
-          verified: false,
-          activeStreak: updatedActiveStreak,
-          lastUpdated: now,
-          // keep lastCompletedDate intact if needed
-        );
+      final updatedTask = task.copyWith(
+        isDone: false,
+        verified: false,
+        activeStreak: updatedActiveStreak,
+        lastUpdated: now,
+      );
 
-        // --- UPDATE LOCAL STORAGE ---
-        await _taskBox?.put(updatedTask.id, updatedTask);
-        await _taskRepo.saveTask(updatedTask);
+      debugPrint('🔄 Resetting task "${updatedTask.name}" (was done on $lastDone)');
 
-        // --- UPDATE IN-MEMORY LIST ---
-        _tasks[i] = updatedTask;
-        updated = true;
+      // --- LOCAL SAVE ---
+      await _taskBox?.put(updatedTask.id, updatedTask);
+      await _taskRepo.saveTask(updatedTask);
+      _tasks[i] = updatedTask;
+      updated = true;
 
-        // --- FIRESTORE REAL-TIME SYNC ---
-        if (await NetworkHelper.isOnline()) {
-          try {
-            await _firestore
-                .collection('users')
-                .doc(updatedTask.parentId)
-                .collection('children')
-                .doc(updatedTask.childId)
-                .collection('tasks')
-                .doc(updatedTask.id)
-                .set(updatedTask.toMap(), SetOptions(merge: true));
-          } catch (e) {
-            debugPrint(
-              '⚠️ Firestore sync failed for task ${updatedTask.name}: $e',
-            );
-          }
-        }
+      // --- FIRESTORE SYNC ---
+      try {
+        await _firestore
+            .collection('users')
+            .doc(updatedTask.parentId)
+            .collection('children')
+            .doc(updatedTask.childId)
+            .collection('tasks')
+            .doc(updatedTask.id)
+            .set(updatedTask.toMap(), SetOptions(merge: true));
+
+        debugPrint('✅ Firestore updated for ${updatedTask.name}');
+      } catch (e) {
+        debugPrint('⚠️ Firestore sync failed for ${updatedTask.name}: $e');
       }
     }
-
-    if (updated) {
-      notifyListeners(); // update UI immediately
-      debugPrint('✅ Daily tasks reset and synced in real-time at $now');
-    }
   }
+
+  if (updated) {
+    notifyListeners();
+    debugPrint('✅ Daily tasks reset and synced successfully at $now');
+  } else {
+    debugPrint('⏳ No tasks needed resetting today.');
+  }
+}
+
 
   // ---------------- AUTO RESET CHECK ----------------
   Future<void> autoResetIfNeeded() async {
+  try {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-
     final lastReset = await getLastResetDate();
 
-    // Only reset if last reset was before today
-    if (lastReset == null ||
-        DateTime(
-          lastReset.year,
-          lastReset.month,
-          lastReset.day,
-        ).isBefore(today)) {
-      debugPrint('🔄 Auto-resetting daily tasks...');
+    if (lastReset == null) {
+      debugPrint('🆕 No last reset found — performing first daily reset...');
+      await resetDailyTasks();
+      await setLastResetDate(today);
+      return;
+    }
+
+    final lastResetDay =
+        DateTime(lastReset.year, lastReset.month, lastReset.day);
+
+    if (lastResetDay.isBefore(today)) {
+      debugPrint(
+          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.');
       await resetDailyTasks();
       await setLastResetDate(today);
     } else {
-      debugPrint('⏳ Daily tasks already reset today.');
+      debugPrint('✅ Daily tasks already reset today (${lastResetDay.toLocal()}).');
     }
+  } catch (e, stack) {
+    debugPrint('❌ autoResetIfNeeded() failed: $e');
+    debugPrint(stack.toString());
   }
+}
 
   // ---------------- DAILY RESET SCHEDULER ----------------
   void startDailyResetScheduler() {
@@ -760,6 +763,8 @@ class TaskProvider extends ChangeNotifier {
     _midnightTimer = null;
     debugPrint('⏹ Daily reset scheduler stopped');
   }
+
+
 
   // ---------------- SYNC ----------------
   Future<void> pushPendingChanges() async {
