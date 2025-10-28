@@ -1,4 +1,7 @@
+import 'package:brightbuds_new/aquarium/manager/token_manager.dart';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
+import 'package:brightbuds_new/aquarium/notifiers/tokenNotifier.dart';
+import 'package:brightbuds_new/aquarium/notifiers/token_listener.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
@@ -35,16 +38,12 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   bool _isSyncing = false;
   int _balance = 0;
   late Box _settingsBox;
-  late ConfettiController _confettiController;
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
   StreamSubscription<QuerySnapshot>? _taskSubscription;
 
   @override
   void initState() {
     super.initState();
-    _confettiController = ConfettiController(
-      duration: const Duration(seconds: 2),
-    );
     _initPage();
   }
 
@@ -127,36 +126,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         childId: widget.childId,
       );
 
-      // check for newly verified tasks and show tokens/popups
-      await _checkNewTokens();
     }, onError: (e) => debugPrint('❌ Task stream error: $e'));
-  }
-
-  Future<void> _checkNewTokens() async {
-    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    if (taskProvider.tasks.isEmpty) return;
-
-    final lastSeenKey = 'lastSeenVerifiedTaskTimestamp_${widget.childId}';
-    final lastSeen = _settingsBox.get(lastSeenKey, defaultValue: 0);
-
-    final newTasks = taskProvider.tasks.where((task) {
-      final updated = task.lastUpdated?.millisecondsSinceEpoch ?? 0;
-      return (task.verified ?? false) && updated > lastSeen;
-    }).toList();
-
-    if (newTasks.isEmpty) return;
-
-    // small delay to ensure UI is stable before showing dialog
-    await Future.delayed(const Duration(milliseconds: 150));
-    if (!mounted) return;
-
-    _confettiController.play();
-    _showTokenDialog(newTasks);
-
-    final latest = newTasks
-        .map((t) => t.lastUpdated?.millisecondsSinceEpoch ?? 0)
-        .reduce((a, b) => a > b ? a : b);
-    _settingsBox.put(lastSeenKey, latest);
   }
 
   Future<void> _fetchBalance() async {
@@ -382,316 +352,298 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     );
   }
 
-  void _showTokenDialog(List<TaskModel> newTasks) {
-    showDialog(
-      context: context,
-      builder: (context) => Stack(
-        alignment: Alignment.center,
-        children: [
-          AlertDialog(
-            title: const Text('You received tokens!'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: newTasks.map((task) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text(
-                    '+${task.reward ?? 0} token(s) for "${task.name}"',
-                  ),
-                );
-              }).toList(),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-          Positioned.fill(
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              numberOfParticles: 40,
-              gravity: 0.3,
-              colors: const [
-                Colors.yellow,
-                Colors.blue,
-                Colors.pink,
-                Colors.green,
-                Colors.orange,
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  
 
   @override
   void dispose() {
     _balanceSubscription?.cancel();
     _taskSubscription?.cancel();
-    _confettiController.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final unlockManager = Provider.of<UnlockManager>(context, listen: false);
+Widget build(BuildContext context) {
+  final unlockManager = Provider.of<UnlockManager>(context, listen: false);
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Image.asset(
-            'assets/general_bg.png',
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
+  return FutureBuilder(
+    future: Hive.openBox('settings'),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        );
+      }
+
+      final settingsBox = snapshot.data as Box;
+
+      return ChangeNotifierProvider(
+        create: (_) => TokenNotifier(
+          TokenManager(
+            taskProvider: Provider.of<TaskProvider>(context, listen: false),
+            settingsBox: settingsBox,
+            childId: widget.childId,
           ),
-          Column(
-            children: [
-              const SizedBox(height: 40),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        ),
+        child: TokenListener(
+          child: Scaffold(
+            body: Stack(
+              children: [
+                Image.asset(
+                  'assets/general_bg.png',
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+                Column(
                   children: [
-                    Text(
-                      '${_getGreeting()}, ${widget.childName}!',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
+                    const SizedBox(height: 40),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${_getGreeting()}, ${widget.childName}!',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.logout, color: Colors.black),
+                            onPressed: () async {
+                              final auth = Provider.of<AuthProvider>(
+                                context,
+                                listen: false,
+                              );
+                              final fish = Provider.of<FishProvider>(
+                                context,
+                                listen: false,
+                              );
+                              final decor = Provider.of<DecorProvider>(
+                                context,
+                                listen: false,
+                              );
+                              await auth.logoutChild();
+                              fish.clearData();
+                              decor.clearData();
+                              if (!mounted) return;
+                              Navigator.pushAndRemoveUntil(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ChooseRolePage(),
+                                ),
+                                (r) => false,
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.logout, color: Colors.black),
-                      onPressed: () async {
-                        final auth = Provider.of<AuthProvider>(
-                          context,
-                          listen: false,
-                        );
-                        final fish = Provider.of<FishProvider>(
-                          context,
-                          listen: false,
-                        );
-                        final decor = Provider.of<DecorProvider>(
-                          context,
-                          listen: false,
-                        );
-                        await auth.logoutChild();
-                        fish.clearData();
-                        decor.clearData();
-                        if (!mounted) return;
-                        Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const ChooseRolePage(),
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: const BoxDecoration(
+                          color: Color.fromARGB(235, 255, 255, 255),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(24),
                           ),
-                          (r) => false,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: const BoxDecoration(
-                    color: Color.fromARGB(235, 255, 255, 255),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
-                  child: Consumer<TaskProvider>(
-                    builder: (context, taskProvider, _) {
-                      final childTasks = taskProvider.tasks
-                          .where(
-                            (t) =>
-                                t.childId == widget.childId &&
-                                t.name.isNotEmpty,
-                          )
-                          .toList();
+                        ),
+                        child: Consumer<TaskProvider>(
+                          builder: (context, taskProvider, _) {
+                            final childTasks = taskProvider.tasks
+                                .where(
+                                  (t) =>
+                                      t.childId == widget.childId &&
+                                      t.name.isNotEmpty,
+                                )
+                                .toList();
 
-                      if (childTasks.isEmpty) {
-                        return const Center(child: Text("No tasks to display"));
-                      }
+                            if (childTasks.isEmpty) {
+                              return const Center(
+                                child: Text("No tasks to display"),
+                              );
+                            }
 
-                      final grouped = {
-                        'Morning': <TaskModel>[],
-                        'Afternoon': <TaskModel>[],
-                        'Evening': <TaskModel>[],
-                        'Anytime': <TaskModel>[],
-                      };
+                            final grouped = {
+                              'Morning': <TaskModel>[],
+                              'Afternoon': <TaskModel>[],
+                              'Evening': <TaskModel>[],
+                              'Anytime': <TaskModel>[],
+                            };
 
-                      for (var task in childTasks) {
-                        switch (task.routine.toLowerCase()) {
-                          case 'morning':
-                            grouped['Morning']!.add(task);
-                            break;
-                          case 'afternoon':
-                            grouped['Afternoon']!.add(task);
-                            break;
-                          case 'evening':
-                            grouped['Evening']!.add(task);
-                            break;
-                          default:
-                            grouped['Anytime']!.add(task);
-                        }
-                      }
+                            for (var task in childTasks) {
+                              switch (task.routine.toLowerCase()) {
+                                case 'morning':
+                                  grouped['Morning']!.add(task);
+                                  break;
+                                case 'afternoon':
+                                  grouped['Afternoon']!.add(task);
+                                  break;
+                                case 'evening':
+                                  grouped['Evening']!.add(task);
+                                  break;
+                                default:
+                                  grouped['Anytime']!.add(task);
+                              }
+                            }
 
-                      final total = childTasks.length;
-                      final done = childTasks.where((t) => t.isDone).length;
-                      final progress = total == 0 ? 0.0 : done / total;
+                            final total = childTasks.length;
+                            final done =
+                                childTasks.where((t) => t.isDone).length;
+                            final progress = total == 0 ? 0.0 : done / total;
 
-                      return RefreshIndicator(
-                        onRefresh: _initPage,
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          children: [
-                            const Text(
-                              "Complete your daily tasks to earn tokens!",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 12,
-                                horizontal: 16,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.05),
-                                    blurRadius: 5,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
+                            return RefreshIndicator(
+                              onRefresh: _initPage,
+                              child: ListView(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12),
                                 children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "Daily Progress",
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black87,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        ClipRRect(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          child: LinearProgressIndicator(
-                                            value: progress,
-                                            minHeight: 10,
-                                            backgroundColor: Colors.grey[300],
-                                            valueColor:
-                                                AlwaysStoppedAnimation<Color>(
-                                                  Colors.green,
-                                                ),
-                                          ),
-                                        ),
-                                      ],
+                                  const Text(
+                                    "Complete your daily tasks to earn tokens!",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
                                     ),
                                   ),
-                                  const SizedBox(width: 16),
+                                  const SizedBox(height: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
+                                      vertical: 12,
+                                      horizontal: 16,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF8657F3),
-                                      borderRadius: BorderRadius.circular(8),
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.05),
+                                          blurRadius: 5,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
                                     ),
                                     child: Row(
                                       children: [
-                                        Image.asset(
-                                          'assets/coin.png',
-                                          width: 20,
-                                          height: 20,
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                "Daily Progress",
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.black87,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: LinearProgressIndicator(
+                                                  value: progress,
+                                                  minHeight: 10,
+                                                  backgroundColor:
+                                                      Colors.grey[300],
+                                                  valueColor:
+                                                      const AlwaysStoppedAnimation<
+                                                          Color>(Colors.green),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '$_balance',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
+                                        const SizedBox(width: 16),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 6,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF8657F3),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Image.asset(
+                                                'assets/coin.png',
+                                                width: 20,
+                                                height: 20,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                '$_balance',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
+                                  const SizedBox(height: 16),
+                                  _buildTaskGroup(
+                                    'Morning',
+                                    grouped['Morning']!,
+                                    unlockManager,
+                                    _isOffline,
+                                  ),
+                                  _buildTaskGroup(
+                                    'Afternoon',
+                                    grouped['Afternoon']!,
+                                    unlockManager,
+                                    _isOffline,
+                                  ),
+                                  _buildTaskGroup(
+                                    'Evening',
+                                    grouped['Evening']!,
+                                    unlockManager,
+                                    _isOffline,
+                                  ),
+                                  _buildTaskGroup(
+                                    'Anytime',
+                                    grouped['Anytime']!,
+                                    unlockManager,
+                                    _isOffline,
+                                  ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            _buildTaskGroup(
-                              'Morning',
-                              grouped['Morning']!,
-                              unlockManager,
-                              _isOffline,
-                            ),
-                            _buildTaskGroup(
-                              'Afternoon',
-                              grouped['Afternoon']!,
-                              unlockManager,
-                              _isOffline,
-                            ),
-                            _buildTaskGroup(
-                              'Evening',
-                              grouped['Evening']!,
-                              unlockManager,
-                              _isOffline,
-                            ),
-                            _buildTaskGroup(
-                              'Anytime',
-                              grouped['Anytime']!,
-                              unlockManager,
-                              _isOffline,
-                            ),
-                          ],
+                            );
+                          },
                         ),
-                      );
-                    },
+                      ),
+                    ),
+                  ],
+                ),
+                if (_isOffline)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      color: Colors.redAccent,
+                      padding: const EdgeInsets.all(8),
+                      child: const Text(
+                        "You're offline. Changes will sync automatically when online.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
-          ),
-          if (_isOffline)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                color: Colors.redAccent,
-                padding: const EdgeInsets.all(8),
-                child: const Text(
-                  "You're offline. Changes will sync automatically when online.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontSize: 13),
-                ),
-              ),
+              ],
             ),
-        ],
-      ),
-    );
-  }
+          ),
+        ),
+      );
+    },
+  );
+}
 }
