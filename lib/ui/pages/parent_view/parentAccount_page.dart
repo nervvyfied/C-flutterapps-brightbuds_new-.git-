@@ -38,15 +38,18 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         listen: false,
       );
       await fetchParentData();
-      if (childrenList.isNotEmpty && selectedChildProvider.selectedChild == null) {
+      if (childrenList.isNotEmpty &&
+          selectedChildProvider.selectedChild == null) {
         _forceSelectChild();
       }
     });
   }
 
   Future<void> _forceSelectChild() async {
-    final selectedChildProv =
-        Provider.of<SelectedChildProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
     if (selectedChildProv.selectedChild != null) return;
     await Future.delayed(const Duration(milliseconds: 300));
 
@@ -62,15 +65,19 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.blue[100],
-                  child: Text(childMap['name'][0],
-                      style: const TextStyle(color: Colors.black)),
+                  child: Text(
+                    childMap['name'][0],
+                    style: const TextStyle(color: Colors.black),
+                  ),
                 ),
                 title: Text(childMap['name']),
                 subtitle: Text("Access Code: ${childMap['accessCode']}"),
                 onTap: () async {
                   selectedChildProv.setSelectedChild(childMap);
-                  await Provider.of<JournalProvider>(context, listen: false)
-                      .getEntries(childMap['cid']);
+                  await Provider.of<JournalProvider>(
+                    context,
+                    listen: false,
+                  ).getEntries(childMap['cid']);
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text("Switched to ${childMap['name']}")),
@@ -113,7 +120,9 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
           .collection('children')
           .get();
 
-      List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((doc) {
+      List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((
+        doc,
+      ) {
         var c = doc.data() as Map<String, dynamic>;
         String code = accessCodes[doc.id]?.toString() ?? "—";
         return {
@@ -121,23 +130,28 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
           "name": c['name'] ?? 'Child',
           "accessCode": code,
           "balance": c['balance'] ?? 0,
-          "streak": c['streak'] ?? 0,
         };
       }).toList();
 
-      final selectedChildProv =
-          Provider.of<SelectedChildProvider>(context, listen: false);
+      final selectedChildProv = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
 
       if (tempChildren.isNotEmpty) {
         var currentSelected = selectedChildProv.selectedChild;
         if (currentSelected == null ||
             !tempChildren.any((c) => c['cid'] == currentSelected['cid'])) {
           selectedChildProv.setSelectedChild(tempChildren[0]);
-          await Provider.of<JournalProvider>(context, listen: false)
-              .getEntries(tempChildren[0]['cid']);
+          await Provider.of<JournalProvider>(
+            context,
+            listen: false,
+          ).getEntries(tempChildren[0]['cid']);
         } else {
-          await Provider.of<JournalProvider>(context, listen: false)
-              .getEntries(currentSelected['cid']);
+          await Provider.of<JournalProvider>(
+            context,
+            listen: false,
+          ).getEntries(currentSelected['cid']);
         }
       } else {
         selectedChildProv.setSelectedChild(null);
@@ -171,17 +185,23 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.blue[100],
-                  child: Text(childMap['name'][0],
-                      style: const TextStyle(color: Colors.black)),
+                  child: Text(
+                    childMap['name'][0],
+                    style: const TextStyle(color: Colors.black),
+                  ),
                 ),
                 title: Text(childMap['name']),
                 subtitle: Text("Access Code: ${childMap['accessCode']}"),
                 onTap: () async {
-                  final selectedChildProv =
-                      Provider.of<SelectedChildProvider>(context, listen: false);
+                  final selectedChildProv = Provider.of<SelectedChildProvider>(
+                    context,
+                    listen: false,
+                  );
                   selectedChildProv.setSelectedChild(childMap);
-                  await Provider.of<JournalProvider>(context, listen: false)
-                      .getEntries(childMap['cid']);
+                  await Provider.of<JournalProvider>(
+                    context,
+                    listen: false,
+                  ).getEntries(childMap['cid']);
                   Navigator.pop(ctx);
                   setState(() {});
                 },
@@ -226,8 +246,9 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
       );
     } catch (e) {
       print("Error updating parent info: $e");
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Failed to update: $e")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));
     }
   }
 
@@ -244,9 +265,15 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setStateDialog) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Center(
-              child: Text("Parent Settings", style: TextStyle(fontWeight: FontWeight.bold))),
+            child: Text(
+              "Parent Settings",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
           content: Form(
             key: _editFormKey,
             child: Column(
@@ -270,8 +297,9 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     labelStyle: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   onSaved: (val) => _newEmail = val,
-                  validator: (val) =>
-                      val == null || !val.contains('@') ? "Enter a valid email" : null,
+                  validator: (val) => val == null || !val.contains('@')
+                      ? "Enter a valid email"
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -332,7 +360,8 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                 backgroundColor: const Color(0xFF8657F3),
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 minimumSize: const Size(100, 40),
               ),
               onPressed: _updateParentInfo,
@@ -356,7 +385,10 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Center(
-          child: Text('Add Child', style: TextStyle(fontWeight: FontWeight.bold)),
+          child: Text(
+            'Add Child',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
         content: TextField(
           controller: controller,
@@ -403,8 +435,10 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
 
   Future<void> _logout() async {
     final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
-    Provider.of<SelectedChildProvider>(context, listen: false)
-        .clearSelectedChild();
+    Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    ).clearSelectedChild();
     await auth.signOut();
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const ChooseRolePage()),
@@ -415,156 +449,173 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
-    if (parentData == null) return const Center(child: Text("Parent data not found."));
+    if (parentData == null)
+      return const Center(child: Text("Parent data not found."));
 
-    final activeChild = Provider.of<SelectedChildProvider>(context).selectedChild;
+    final activeChild = Provider.of<SelectedChildProvider>(
+      context,
+    ).selectedChild;
 
     return Drawer(
-  child: Column(
-    children: [
-      // Scrollable content
-      Expanded(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Logo
-              Center(
-                child: Image.asset(
-                  "assets/bb3.png",
-                  height: 80,
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Parent Profile
-              Row(
+      child: Column(
+        children: [
+          // Scrollable content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: Colors.blue[100],
-                    child: Text(
-                      parentData!['name'][0].toUpperCase(),
-                      style: const TextStyle(
-                          fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          parentData!['name'],
+                  // Logo
+                  Center(child: Image.asset("assets/bb3.png", height: 80)),
+                  const SizedBox(height: 24),
+
+                  // Parent Profile
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 30,
+                        backgroundColor: Colors.blue[100],
+                        child: Text(
+                          parentData!['name'][0].toUpperCase(),
                           style: const TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold),
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        Text(
-                          "${childrenList.length} children",
-                          style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              parentData!['name'],
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              "${childrenList.length} children",
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.settings, color: Colors.grey),
+                        onPressed: _showParentSettingsDialog,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Add Child Button
+                  ElevatedButton.icon(
+                    onPressed: _showAddChildDialog,
+                    icon: const Icon(Icons.add),
+                    label: const Text("Add Child"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFA6C26F),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings, color: Colors.grey),
-                    onPressed: _showParentSettingsDialog,
-                  ),
+                  const SizedBox(height: 16),
+
+                  // Active Child Card
+                  if (childrenList.isNotEmpty &&
+                      Provider.of<SelectedChildProvider>(
+                            context,
+                          ).selectedChild !=
+                          null)
+                    Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 3,
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.blue[100],
+                          child: Text(
+                            Provider.of<SelectedChildProvider>(
+                              context,
+                            ).selectedChild!['name'][0],
+                            style: const TextStyle(color: Colors.black),
+                          ),
+                        ),
+                        title: Text(
+                          Provider.of<SelectedChildProvider>(
+                            context,
+                          ).selectedChild!['name'],
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Balance: ${Provider.of<SelectedChildProvider>(context).selectedChild!['balance']}",
+                            ),
+                          ],
+                        ),
+                        trailing: IconButton(
+                          onPressed: _switchChildDialog,
+                          icon: const Icon(Icons.swap_horiz),
+                          tooltip: "Switch Child",
+                        ),
+                      ),
+                    ),
+
+                  // No children
+                  if (childrenList.isEmpty)
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        leading: const Icon(
+                          Icons.child_care,
+                          size: 40,
+                          color: Colors.blue,
+                        ),
+                        title: const Text(
+                          "No children added yet",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: const Text(
+                          "Add your first child to get started.",
+                        ),
+                      ),
+                    ),
                 ],
               ),
-              const SizedBox(height: 24),
+            ),
+          ),
 
-              // Add Child Button
-              ElevatedButton.icon(
-                onPressed: _showAddChildDialog,
-                icon: const Icon(Icons.add),
-                label: const Text("Add Child"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFA6C26F),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+          // Logout Button at the bottom
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: ElevatedButton.icon(
+              onPressed: _logout,
+              icon: const Icon(Icons.logout),
+              label: const Text("Log Out"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF8657F3),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              const SizedBox(height: 16),
-
-              // Active Child Card
-              if (childrenList.isNotEmpty && 
-                  Provider.of<SelectedChildProvider>(context).selectedChild != null)
-                Card(
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  elevation: 3,
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.blue[100],
-                      child: Text(
-                          Provider.of<SelectedChildProvider>(context)
-                              .selectedChild!['name'][0],
-                          style: const TextStyle(color: Colors.black)),
-                    ),
-                    title: Text(
-                        Provider.of<SelectedChildProvider>(context)
-                            .selectedChild!['name'],
-                        style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                            "Balance: ${Provider.of<SelectedChildProvider>(context).selectedChild!['balance']}"),
-                        Text(
-                            "Streak: ${Provider.of<SelectedChildProvider>(context).selectedChild!['streak']}"),
-                      ],
-                    ),
-                    trailing: IconButton(
-                      onPressed: _switchChildDialog,
-                      icon: const Icon(Icons.swap_horiz),
-                      tooltip: "Switch Child",
-                    ),
-                  ),
-                ),
-
-              // No children
-              if (childrenList.isEmpty)
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: ListTile(
-                    leading: const Icon(Icons.child_care,
-                        size: 40, color: Colors.blue),
-                    title: const Text("No children added yet",
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle:
-                        const Text("Add your first child to get started."),
-                  ),
-                ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
-
-      // Logout Button at the bottom
-      Padding(
-        padding: const EdgeInsets.all(16),
-        child: ElevatedButton.icon(
-          onPressed: _logout,
-          icon: const Icon(Icons.logout),
-          label: const Text("Log Out"),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF8657F3),
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-      ),
-    ],
-  ),
-);
-
+    );
   }
 }

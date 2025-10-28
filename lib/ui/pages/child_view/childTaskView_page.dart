@@ -51,7 +51,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   Future<void> _initPage() async {
     _settingsBox = await Hive.openBox('settings');
 
-    // show cached balance immediately
+    // 1️⃣ Show cached balance immediately
     final cachedKey = 'cached_balance_${widget.childId}';
     final cached = _settingsBox.get(cachedKey, defaultValue: 0);
     if (mounted) setState(() => _balance = cached ?? 0);
@@ -60,21 +60,18 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
     await taskProvider.initHive();
-    await taskProvider.autoResetIfNeeded();
+    await taskProvider.resetDailyTasks();
     await taskProvider.loadTasks(
       parentId: widget.parentId,
       childId: widget.childId,
     );
 
+    // 2️⃣ Start real-time listeners after cached balance is displayed
     _listenToBalance();
-    _listenToTasks(); // real-time task listener
+    _listenToTasks();
 
-    // Immediate balance fetch
-    try {
-      await _fetchBalance();
-    } catch (e) {
-      debugPrint('⚠️ _fetchBalance failed: $e');
-    }
+    // 3️⃣ Fetch latest balance from Firestore (async update)
+    _fetchBalance();
   }
 
   /// Listen to real-time balance updates
@@ -98,6 +95,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           ? (data['balance'] as double).toInt()
           : int.tryParse('${data['balance']}') ?? 0;
 
+      // Update UI and cache instantly
       if (mounted) {
         setState(() => _balance = newBalance);
         _settingsBox.put('cached_balance_${widget.childId}', newBalance);
@@ -147,11 +145,14 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     if (newTasks.isEmpty) return;
 
     // small delay to ensure UI is stable before showing dialog
-    await Future.delayed(const Duration(milliseconds: 150));
+    await Future.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
 
-    _confettiController.play();
-    _showTokenDialog(newTasks);
+    // Use microtask to ensure it's scheduled *after* any pending setState
+    Future.microtask(() {
+      _confettiController.play();
+      _showTokenDialog(newTasks);
+    });
 
     final latest = newTasks
         .map((t) => t.lastUpdated?.millisecondsSinceEpoch ?? 0)
@@ -168,17 +169,23 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           .doc(widget.childId)
           .get();
 
-      if (doc.exists && doc.data() != null) {
-        final val = doc['balance'];
-        final fetched = (val is int)
-            ? val
-            : (val is double)
-            ? val.toInt()
-            : int.tryParse('$val') ?? 0;
-        if (mounted) {
-          setState(() => _balance = fetched);
-          _settingsBox.put('cached_balance_${widget.childId}', fetched);
-        }
+      if (!doc.exists || doc.data() == null) return;
+
+      final val = doc['balance'];
+      final fetched = (val is int)
+          ? val
+          : (val is double)
+          ? val.toInt()
+          : int.tryParse('$val') ?? 0;
+
+      // Only update if different from current cached value
+      final cachedKey = 'cached_balance_${widget.childId}';
+      final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+
+      if (fetched != cached) {
+        if (mounted) setState(() => _balance = fetched);
+        _settingsBox.put(cachedKey, fetched);
+        debugPrint('💰 Balance updated from Firestore: $fetched');
       }
     } catch (e) {
       debugPrint('⚠️ Error fetching balance: $e');
