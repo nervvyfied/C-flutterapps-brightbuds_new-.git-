@@ -29,6 +29,9 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
   @override
   void initState() {
     super.initState();
+    final cbtProvider = context.read<CBTProvider>();
+    // Start the real-time listener
+    cbtProvider.startRealtimeCBTUpdates(widget.parentId, widget.childId);
     _loadCBT();
   }
 
@@ -39,7 +42,9 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
   }
 
   Future<void> _loadCBT() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
+
     final cbtProvider = context.read<CBTProvider>();
 
     // Load local CBT first (offline-first)
@@ -50,30 +55,27 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
 
     // If online, sync pending completions and fetch remote
     if (!_isOffline) {
+      if (!mounted) return;
       setState(() => _isSyncing = true);
+
       await cbtProvider.syncPendingCompletions(widget.childId);
       await cbtProvider.loadRemoteCBT(widget.parentId, widget.childId);
+
+      if (!mounted) return;
       setState(() => _isSyncing = false);
     }
 
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final cbtProvider = context.watch<CBTProvider>();
-    final currentWeekAssignments = cbtProvider.getCurrentWeekAssignments()
-        .where((a) => a.childId == widget.childId)
-        .toList();
-
     return Scaffold(
       body: Stack(
         children: [
           Positioned.fill(
-            child: Image.asset(
-              'assets/general_bg.png',
-              fit: BoxFit.fill,
-            ),
+            child: Image.asset('assets/general_bg.png', fit: BoxFit.fill),
           ),
           SafeArea(
             child: Column(
@@ -81,9 +83,12 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                 const SizedBox(height: 16),
                 // Power Boosts label
                 Container(
-                  width: double.infinity, // makes it full width
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  margin: const EdgeInsets.symmetric(horizontal: 16), // optional: add margin from edges
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
                     color: const Color(0xFF8657F3),
                     borderRadius: BorderRadius.circular(20),
@@ -122,48 +127,78 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                       style: TextStyle(color: Colors.white, fontSize: 13),
                     ),
                   ),
+                // ------------------- REAL-TIME CBT LIST -------------------
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : currentWeekAssignments.isEmpty
-                          ? const Center(child: Text("No CBT exercises assigned this week."))
-                          : Padding(
+                      : Consumer<CBTProvider>(
+                          builder: (_, cbtProvider, __) {
+                            // Filter only current week's CBTs for this child
+                            final currentWeekAssignments = cbtProvider
+                                .getCurrentWeekAssignments()
+                                .where((a) => a.childId == widget.childId)
+                                .toList();
+
+                            if (currentWeekAssignments.isEmpty) {
+                              return const Center(
+                                child: Text(
+                                  "No CBT exercises assigned this week.",
+                                ),
+                              );
+                            }
+
+                            return Padding(
                               padding: const EdgeInsets.all(16),
                               child: RefreshIndicator(
                                 onRefresh: _loadCBT,
                                 child: ListView.builder(
                                   itemCount: currentWeekAssignments.length,
                                   itemBuilder: (_, index) {
-                                    final assigned = currentWeekAssignments[index];
-                                    final exercise = CBTLibrary.getById(assigned.exerciseId);
+                                    final assigned =
+                                        currentWeekAssignments[index];
+                                    final exercise = CBTLibrary.getById(
+                                      assigned.exerciseId,
+                                    );
 
-                                    if (exercise == null) return const SizedBox.shrink();
+                                    if (exercise == null)
+                                      return const SizedBox.shrink();
 
-                                    final isCompleted =
-                                        cbtProvider.isCompleted(widget.childId, exercise.id);
+                                    final isCompleted = cbtProvider.isCompleted(
+                                      widget.childId,
+                                      exercise.id,
+                                    );
 
                                     return CBTCard(
                                       exercise: exercise,
                                       isParentView: false,
                                       isCompleted: isCompleted,
                                       onStart: () async {
-                                        final assignedEntry = cbtProvider.assigned
-                                            .firstWhereOrNull((a) =>
-                                                a.exerciseId == exercise.id &&
-                                                a.childId == widget.childId);
-
+                                        final assignedEntry = cbtProvider
+                                            .assigned
+                                            .firstWhereOrNull(
+                                              (a) =>
+                                                  a.exerciseId == exercise.id &&
+                                                  a.childId == widget.childId,
+                                            );
                                         if (assignedEntry == null) return;
 
-                                        if (!cbtProvider.canExecute(assignedEntry)) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                        if (!cbtProvider.canExecute(
+                                          assignedEntry,
+                                        )) {
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
                                               content: Text(
-                                                  'You already completed this CBT for now.'),
+                                                'You already completed this CBT for now.',
+                                              ),
                                             ),
                                           );
                                           return;
                                         }
 
+                                        if (!mounted) return;
                                         await Navigator.push(
                                           context,
                                           MaterialPageRoute(
@@ -174,58 +209,66 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                                             ),
                                           ),
                                         );
-
-                                        await _loadCBT();
                                       },
                                       onComplete: () async {
-                                        final assignedEntry = cbtProvider.assigned
-                                            .firstWhereOrNull((a) =>
-                                                a.exerciseId == exercise.id &&
-                                                a.childId == widget.childId);
+                                        final assignedEntry = cbtProvider
+                                            .assigned
+                                            .firstWhereOrNull(
+                                              (a) =>
+                                                  a.exerciseId == exercise.id &&
+                                                  a.childId == widget.childId,
+                                            );
+                                        if (assignedEntry == null) return;
 
-                                        if (assignedEntry == null) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
-                                              content: Text('This exercise is not assigned.'),
-                                            ),
-                                          );
-                                          return;
-                                        }
+                                        final success = await cbtProvider
+                                            .markAsCompleted(
+                                              widget.parentId,
+                                              widget.childId,
+                                              assignedEntry.id,
+                                            );
 
-                                        final success = await cbtProvider.markAsCompleted(
-                                            widget.parentId, widget.childId, assignedEntry.id);
-
+                                        if (!mounted) return;
                                         if (!success) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
                                               content: Text(
-                                                  'Cannot complete again within recurrence window.'),
+                                                'Cannot complete again within recurrence window.',
+                                              ),
                                             ),
                                           );
                                         } else {
-                                          ScaffoldMessenger.of(context).showSnackBar(
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             const SnackBar(
-                                              content: Text('Well done! Exercise completed.'),
+                                              content: Text(
+                                                'Well done! Exercise completed.',
+                                              ),
                                             ),
                                           );
 
-                                          // Sync if online
                                           await _checkConnectivity();
                                           if (!_isOffline) {
+                                            if (!mounted) return;
                                             setState(() => _isSyncing = true);
                                             await cbtProvider
-                                                .syncPendingCompletions(widget.childId);
+                                                .syncPendingCompletions(
+                                                  widget.childId,
+                                                );
+                                            if (!mounted) return;
                                             setState(() => _isSyncing = false);
                                           }
-
-                                          await _loadCBT();
                                         }
                                       },
                                     );
                                   },
                                 ),
                               ),
-                            ),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),

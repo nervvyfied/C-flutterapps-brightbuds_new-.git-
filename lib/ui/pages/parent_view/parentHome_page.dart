@@ -1,6 +1,7 @@
-import 'dart:io';
 import 'dart:ui';
+import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
 import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
+import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -31,6 +32,20 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   bool _loading = true;
   final GlobalKey _childChartKey = GlobalKey();
   final GlobalKey _taskChartKey = GlobalKey();
+  final Set<String> _notifiedTaskIds = {};
+
+  DateTime _startOfWeek() {
+    final now = DateTime.now();
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+  }
+
+  DateTime _endOfWeek() {
+    return _startOfWeek().add(const Duration(days: 6));
+  }
 
   @override
   void initState() {
@@ -39,12 +54,16 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadParentData();
 
-      // 🔹 Watch for child selection change
       final selectedChildProv = Provider.of<SelectedChildProvider>(
         context,
         listen: false,
       );
-      selectedChildProv.addListener(_listenToJournalEntries);
+
+      // Listen to child changes once
+      selectedChildProv.addListener(() {
+        _listenToJournalEntries();
+        _updateCBTListenerForSelectedChild();
+      });
     });
   }
 
@@ -59,9 +78,28 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     super.dispose();
   }
 
+  void _updateCBTListenerForSelectedChild() {
+  final selectedChildProv = Provider.of<SelectedChildProvider>(
+    context,
+    listen: false,
+  );
+  final cbtProv = Provider.of<CBTProvider>(context, listen: false);
+
+  final child = selectedChildProv.selectedChild;
+  if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
+
+  final parentId = _parent?.uid ?? widget.parentId;
+  final childId = child['cid'];
+
+  // ✅ Just listen and load assigned CBTs, not reassign
+  cbtProv.listenToAssignedCBTForChild(parentId, childId);
+}
+
+
   Future<void> _loadParentData() async {
     setState(() => _loading = true);
 
+    _notifiedTaskIds.clear();
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final parentModel = auth.currentUserModel;
     if (parentModel == null || parentModel is! ParentUser) {
@@ -76,7 +114,21 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       _loading = false;
     });
 
-    // 🔹 Start listening to journals for current child
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    // Load CBTs for currently selected child
+    _updateCBTListenerForSelectedChild();
+
+    // Listen for child changes
+    selectedChildProv.addListener(() {
+      _updateCBTListenerForSelectedChild();
+      _listenToJournalEntries();
+    });
+
+    // Start listening to journals for current child
     _listenToJournalEntries();
   }
 
@@ -99,13 +151,42 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     journalProv.loadEntries(parentId: parentId, childId: childId);
   }
 
+  // ---------------- Task Completion Notification ----------------
+  void _showTaskCompletionSnackBar({
+    required String childName,
+    required String taskId, // pass the task id
+    required String taskName,
+  }) {
+    // If already notified, do nothing
+    if (_notifiedTaskIds.contains(taskId)) return;
+
+    final snackBar = SnackBar(
+      content: Text('$childName has completed "$taskName" ✅'),
+      duration: const Duration(seconds: 3),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Colors.deepPurpleAccent,
+      action: SnackBarAction(
+        label: 'Dismiss',
+        textColor: Colors.white,
+        onPressed: () {
+          // Mark as notified if user dismisses
+          _notifiedTaskIds.add(taskId);
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        },
+      ),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(snackBar);
+
+    // Automatically mark as notified so it won't show again after auto-dismiss
+    _notifiedTaskIds.add(taskId);
+  }
+
   Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
     final pdf = pw.Document();
 
-    final cid = childData['cid'] ?? 'Unknown';
     final name = childData['name'] ?? 'Unknown';
     final balance = childData['balance']?.toString() ?? '0';
-    final streak = childData['streak']?.toString() ?? '0';
     final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
     final done = childData['done']?.toString() ?? '0';
     final notDone = childData['notDone']?.toString() ?? '0';
@@ -117,16 +198,15 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                "Child ID: $cid",
+                "$name's Report",
                 style: pw.TextStyle(
-                  fontSize: 20,
+                  fontSize: 24,
                   fontWeight: pw.FontWeight.bold,
                 ),
               ),
               pw.SizedBox(height: 10),
               pw.Text("Child Name: $name"),
               pw.Text("Balance: $balance"),
-              pw.Text("Streak: $streak"),
               pw.SizedBox(height: 20),
               pw.Text(
                 "Mood Counts This Week:",
@@ -252,6 +332,19 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final notDone = childTasks.where((t) => !t.isDone).length;
     final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
+    // ✅ Show SnackBar once per completed task
+    for (var task in childTasks) {
+      if (task.isDone && !task.verified == true) {
+        Future.microtask(() {
+          _showTaskCompletionSnackBar(
+            childName: activeChild['name'] ?? 'Child',
+            taskId: task.id, // pass task id
+            taskName: task.name,
+          );
+        });
+      }
+    }
+
     return [
       const SizedBox(height: 10),
       Card(
@@ -260,13 +353,13 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         elevation: 3,
         child: ListTile(
           title: Text(
-              "${activeChild['name']}'s Report",
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
+            "${activeChild['name']}'s Report",
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
             ),
+          ),
           trailing: IconButton(
             icon: const Icon(Icons.download, color: Colors.white),
             tooltip: "Export to PDF",
@@ -433,7 +526,11 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.auto_awesome, size: 16, color: Colors.white),
+                      icon: const Icon(
+                        Icons.auto_awesome,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                       label: const Text(
                         "Assign Power Boost",
                         style: TextStyle(fontSize: 12, color: Colors.white),
@@ -510,121 +607,214 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   }
 
   @override
-Widget build(BuildContext context) {
-  final journalProv = Provider.of<JournalProvider>(context);
-  final taskProv = Provider.of<TaskProvider>(context);
-  final selectedChildProv = Provider.of<SelectedChildProvider>(context);
+  Widget build(BuildContext context) {
+    final journalProv = Provider.of<JournalProvider>(context);
+    final taskProv = Provider.of<TaskProvider>(context);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(context);
+    final cbtProv = Provider.of<CBTProvider>(context);
 
-  if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-  final activeChild =
-      selectedChildProv.selectedChild ??
-      {
-        "cid": "",
-        "name": "No Child",
-        "balance": 0,
-        "streak": 0,
-        "parentUid": widget.parentId,
-      };
+    // Ensure selected child is not null
+    final activeChild =
+        selectedChildProv.selectedChild ??
+        {
+          "cid": "",
+          "name": "No Child",
+          "balance": 0,
+          "parentUid": widget.parentId,
+        };
 
-  final parentName = _parent?.name ?? "Parent";
-  final parentEmail = _parent?.email ?? "";
+    final parentName = _parent?.name ?? "Parent";
+    final parentEmail = _parent?.email ?? "";
 
-  return Scaffold(
-    backgroundColor: const Color(0xFF8657F3),
-    appBar: AppBar(
+    // Get assigned CBT exercises for the selected child
+    final childId = activeChild['cid'] ?? '';
+    final assignedCBT = childId.isNotEmpty
+        ? cbtProv.getCurrentWeekAssignments(childId: childId)
+        : [];
+
+    return Scaffold(
       backgroundColor: const Color(0xFF8657F3),
-      elevation: 0,
-      title: const Text('Parent Dashboard', style: TextStyle(color: Colors.white)),
-      automaticallyImplyLeading: true,
-      iconTheme: const IconThemeData(
-        color: Colors.white, // <-- sets menu icon color
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF8657F3),
+        elevation: 0,
+        title: const Text(
+          'Parent Dashboard',
+          style: TextStyle(color: Colors.white),
+        ),
+        automaticallyImplyLeading: true,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-    ),
-    drawer: ParentAccountSidebar(parentId: widget.parentId),
-    body: RefreshIndicator(
-      onRefresh: _loadParentData,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ---------------- Greeting Area ----------------
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-                  backgroundColor: Colors.white,
-                  child: Text(
-                    parentName.isNotEmpty ? parentName[0].toUpperCase() : 'P',
-                    style: const TextStyle(
-                      color: Color(0xFF8657F3),
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
+      drawer: ParentAccountSidebar(parentId: widget.parentId),
+      body: RefreshIndicator(
+        onRefresh: _loadParentData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ---------------- Greeting Area ----------------
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 30,
+                    backgroundColor: Colors.white,
+                    child: Text(
+                      parentName.isNotEmpty ? parentName[0].toUpperCase() : 'P',
+                      style: const TextStyle(
+                        color: Color(0xFF8657F3),
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Welcome Back, $parentName!",
-                        style: const TextStyle(
-                          fontSize: 20,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Welcome Back, $parentName!",
+                          style: const TextStyle(
+                            fontSize: 20,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        parentEmail,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.white70,
+                        const SizedBox(height: 4),
+                        Text(
+                          parentEmail,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+                ],
+              ),
+              const SizedBox(height: 16),
 
-            // ---------------- Dashboard Container ----------------
-            Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+              // ---------------- Dashboard Container ----------------
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+
+                    // ---------------- Child Charts ----------------
+                    ..._buildChildCharts(
+                      journalProv,
+                      taskProv,
+                      activeChild,
+                      selectedChildProv,
+                    ),
+
+                    // ---------------- Scrollable CBT Exercises ----------------
+                    const SizedBox(height: 12),
+                    Card(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 3,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Assigned CBT Exercises",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.deepPurpleAccent,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            assignedCBT.isEmpty
+                                ? const Text(
+                                    "No CBT exercises assigned this week.",
+                                    style: TextStyle(color: Colors.black),
+                                  )
+                                : ListView.builder(
+                                    shrinkWrap: true,
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                    itemCount: assignedCBT.length,
+                                    itemBuilder: (context, index) {
+                                      final assigned = assignedCBT[index];
+
+                                      // Look up the full exercise by ID
+                                      final exercise = CBTLibrary.getById(
+                                        assigned.exerciseId,
+                                      );
+
+                                      if (exercise == null)
+                                        return const SizedBox.shrink();
+
+                                      return ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        title: Text(
+                                          exercise.title,
+                                          style: const TextStyle(
+                                            color: Colors.black,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        subtitle: assigned.completed
+                                            ? const Text(
+                                                "Completed ✅",
+                                                style: TextStyle(
+                                                  color: Colors.greenAccent,
+                                                ),
+                                              )
+                                            : const Text(
+                                                "Pending ⏳",
+                                                style: TextStyle(
+                                                  color: Colors.orangeAccent,
+                                                ),
+                                              ),
+                                        trailing: Icon(
+                                          assigned.completed
+                                              ? Icons.check_circle
+                                              : Icons.pending,
+                                          color: assigned.completed
+                                              ? Colors.greenAccent
+                                              : Colors.orangeAccent,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
               ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 16),
-                  ..._buildChildCharts(
-                    journalProv,
-                    taskProv,
-                    activeChild,
-                    selectedChildProv,
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }

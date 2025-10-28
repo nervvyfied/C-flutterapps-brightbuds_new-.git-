@@ -50,7 +50,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   Future<void> _initPage() async {
     _settingsBox = await Hive.openBox('settings');
 
-    // show cached balance immediately
+    // 1️⃣ Show cached balance immediately
     final cachedKey = 'cached_balance_${widget.childId}';
     final cached = _settingsBox.get(cachedKey, defaultValue: 0);
     if (mounted) setState(() => _balance = cached ?? 0);
@@ -68,8 +68,9 @@ await taskProvider.loadTasks(
     taskProvider.startDailyResetScheduler();
 
 
+    // 2️⃣ Start real-time listeners after cached balance is displayed
     _listenToBalance();
-    _listenToTasks(); // real-time task listener
+    _listenToTasks();
 
     // Immediate balance fetch
     try {
@@ -104,6 +105,7 @@ await taskProvider.loadTasks(
           ? (data['balance'] as double).toInt()
           : int.tryParse('${data['balance']}') ?? 0;
 
+      // Update UI and cache instantly
       if (mounted) {
         setState(() => _balance = newBalance);
         _settingsBox.put('cached_balance_${widget.childId}', newBalance);
@@ -155,17 +157,23 @@ await taskProvider.loadTasks(
           .doc(widget.childId)
           .get();
 
-      if (doc.exists && doc.data() != null) {
-        final val = doc['balance'];
-        final fetched = (val is int)
-            ? val
-            : (val is double)
-            ? val.toInt()
-            : int.tryParse('$val') ?? 0;
-        if (mounted) {
-          setState(() => _balance = fetched);
-          _settingsBox.put('cached_balance_${widget.childId}', fetched);
-        }
+      if (!doc.exists || doc.data() == null) return;
+
+      final val = doc['balance'];
+      final fetched = (val is int)
+          ? val
+          : (val is double)
+          ? val.toInt()
+          : int.tryParse('$val') ?? 0;
+
+      // Only update if different from current cached value
+      final cachedKey = 'cached_balance_${widget.childId}';
+      final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+
+      if (fetched != cached) {
+        if (mounted) setState(() => _balance = fetched);
+        _settingsBox.put(cachedKey, fetched);
+        debugPrint('💰 Balance updated from Firestore: $fetched');
       }
     } catch (e) {
       debugPrint('⚠️ Error fetching balance: $e');
