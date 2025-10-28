@@ -130,43 +130,53 @@ class TaskProvider extends ChangeNotifier {
         : await Hive.openBox<TaskModel>('tasksBox');
   }
 
-  Future<void> loadTasks({
+//old
+Future<void> loadTasks({
     required String parentId,
     String? childId,
     bool isParent = false,
   }) async {
-  try {
-    _isLoading = true;
-    notifyListeners();
+    _setLoading(true);
 
-    // Load cached tasks right away so the UI isn't empty
-    _tasks = _taskBox?.values.toList() ?? [];
-    debugPrint('📦 Loaded ${_tasks.length} tasks from Hive.');
+    try {
+      // 1️⃣ Open Hive first
+      await initHive();
 
-    // Sync with Firestore first
-    if (await NetworkHelper.isOnline()) {
-      debugPrint('🌐 Syncing remote tasks...');
-      await mergeRemoteTasks(
-        parentId: parentId,
-        childId: childId,
-        isParent: isParent,
-      );
-      debugPrint('✅ Remote tasks merged: ${_tasks.length}');
+      // 2️⃣ Load tasks from local Hive
+      _tasks = _taskBox?.values.toList() ?? [];
+      notifyListeners();
+
+      // 3️⃣ Start Firestore subscription early for real-time updates
+      if (childId != null && childId.isNotEmpty) {
+        startFirestoreSubscription(parentId: parentId, childId: childId);
+      }
+
+      // 5️⃣ Merge remote tasks if online
+      if (await NetworkHelper.isOnline()) {
+        await mergeRemoteTasks(
+          parentId: parentId,
+          childId: childId,
+          isParent: isParent,
+        );
+      }
+
+      // 4️⃣ Auto-reset if needed (this will trigger Firestore writes if tasks need reset)
+      await autoResetIfNeeded();
+
+      // 6️⃣ Reload tasks from local Hive after merge/reset
+      _tasks = _taskBox?.values.toList() ?? [];
+      notifyListeners();
+
+      // 7️⃣ Schedule alarms for tasks (skip web)
+      if (!kIsWeb) await _scheduleAllAlarms(_tasks);
+
+      // 8️⃣ Start web simulation if needed
+      if (kIsWeb) startWebDebugSimulation();
+    } finally {
+      _setLoading(false);
     }
-
-    // Now that all tasks are present, check for a daily reset
-    await autoResetIfNeeded();
-
-    // Reload from Hive after reset
-    _tasks = _taskBox?.values.toList() ?? [];
-    debugPrint('🔄 Tasks reloaded after reset. Count: ${_tasks.length}');
-  } catch (e, st) {
-    debugPrint('❌ loadTasks error: $e\n$st');
-  } finally {
-    _isLoading = false;
-    notifyListeners();
   }
-}
+  
 
   void _setLoading(bool value) {
     _isLoading = value;
@@ -258,16 +268,18 @@ class TaskProvider extends ChangeNotifier {
 
     _tasks.add(newTask);
     await _taskBox?.put(newTask.id, newTask);
-    notifyListeners();
+   
 
     await _taskRepo.saveTask(newTask);
 
     // Sync to Firestore
     await _syncToFirestore(newTask);
 
+    notifyListeners();
+
     if (!kIsWeb) await scheduleTaskAlarm(newTask);
   }
-
+ 
   Future<void> updateTask(TaskModel updatedFields) async {
     final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
     if (index == -1) return;
@@ -284,10 +296,11 @@ class TaskProvider extends ChangeNotifier {
 
     _tasks[index] = mergedTask;
     await _taskBox?.put(mergedTask.id, mergedTask);
-    notifyListeners();
 
     await _taskRepo.updateTask(mergedTask);
     await _syncToFirestore(mergedTask);
+
+    notifyListeners();
 
     if (!kIsWeb) {
       await cancelTaskAlarm(oldTask);

@@ -59,14 +59,12 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
     await taskProvider.initHive();
-await taskProvider.loadTasks(
-  parentId: widget.parentId,
-  childId: widget.childId,
-);
+    await taskProvider.loadTasks(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
 
-    
     taskProvider.startDailyResetScheduler();
-
 
     // 2️⃣ Start real-time listeners after cached balance is displayed
     _listenToBalance();
@@ -79,9 +77,12 @@ await taskProvider.loadTasks(
       debugPrint('⚠️ _fetchBalance failed: $e');
     }
 
-    final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
-  tokenNotifier.initLastSeen(); // prevent old tasks triggering
-  tokenNotifier.checkAndNotify(); // immediately check for new verified tasks
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+      tokenNotifier.initLastSeen();
+      tokenNotifier.checkAndNotify();
+    });
+
   }
 
   /// Listen to real-time balance updates
@@ -389,6 +390,8 @@ await taskProvider.loadTasks(
   @override
 Widget build(BuildContext context) {
   final unlockManager = Provider.of<UnlockManager>(context, listen: false);
+  final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+
 
   return FutureBuilder(
     future: Hive.openBox('settings'),
