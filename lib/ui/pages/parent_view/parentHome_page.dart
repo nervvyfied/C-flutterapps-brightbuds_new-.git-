@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
 import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
+import 'package:brightbuds_new/cbt/widgets/cbt_card.dart';
+import 'package:brightbuds_new/cbt/widgets/cbt_exercise_viewer.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -69,32 +71,41 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
   @override
   void dispose() {
-    // 🔹 Clean up listener when leaving page
     final selectedChildProv = Provider.of<SelectedChildProvider>(
       context,
       listen: false,
     );
     selectedChildProv.removeListener(_listenToJournalEntries);
+
+    final cbtProv = Provider.of<CBTProvider>(context, listen: false);
+    cbtProv.clear(); // 🧹 optional: clears cache/listeners
+
     super.dispose();
   }
 
-  void _updateCBTListenerForSelectedChild() {
-  final selectedChildProv = Provider.of<SelectedChildProvider>(
-    context,
-    listen: false,
-  );
-  final cbtProv = Provider.of<CBTProvider>(context, listen: false);
+  void _updateCBTListenerForSelectedChild() async {
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+    final cbtProv = Provider.of<CBTProvider>(context, listen: false);
 
-  final child = selectedChildProv.selectedChild;
-  if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
+    final child = selectedChildProv.selectedChild;
+    if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
 
-  final parentId = _parent?.uid ?? widget.parentId;
-  final childId = child['cid'];
+    final parentId = _parent?.uid ?? widget.parentId;
+    final childId = child['cid'];
 
-  // ✅ Just listen and load assigned CBTs, not reassign
-  cbtProv.listenToAssignedCBTForChild(parentId, childId);
-}
+    // Initialize Hive if not yet
+    await cbtProv.initHive();
 
+    // Load and sync CBTs
+    await cbtProv.loadLocalCBT(childId);
+    await cbtProv.loadRemoteCBT(parentId, childId);
+
+    // Start listening for real-time Firestore updates
+    cbtProv.updateRealtimeListenerForChild(parentId, childId);
+  }
 
   Future<void> _loadParentData() async {
     setState(() => _loading = true);
@@ -449,7 +460,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                   journalProv,
                                   activeChild['cid'],
                                 ),
-                                centerSpaceRadius: 20,
+                                centerSpaceRadius: 25,
                                 startDegreeOffset: 180,
                                 sectionsSpace: 2,
                                 borderData: FlBorderData(show: false),
@@ -565,7 +576,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   children: [
                     SizedBox(
                       width: double.infinity,
-                      height: 120,
+                      height: 180,
                       child: Center(
                         child: PieChart(
                           PieChartData(
@@ -576,13 +587,13 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                               PieChartSectionData(
                                 value: notDone.toDouble(),
                                 color: Colors.yellow,
-                                radius: 30,
+                                radius: 50,
                                 showTitle: false,
                               ),
                               PieChartSectionData(
                                 value: done.toDouble(),
                                 color: Colors.deepPurpleAccent,
-                                radius: 30,
+                                radius: 50,
                                 showTitle: false,
                               ),
                             ],
@@ -807,7 +818,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
                   ],
                 ),
               ),
