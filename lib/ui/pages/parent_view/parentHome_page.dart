@@ -576,7 +576,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   children: [
                     SizedBox(
                       width: double.infinity,
-                      height: 180,
+                      height: 200,
                       child: Center(
                         child: PieChart(
                           PieChartData(

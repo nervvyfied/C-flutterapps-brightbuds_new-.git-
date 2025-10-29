@@ -617,27 +617,26 @@ class _TaskFormModalState extends State<TaskFormModal> {
                 ),
                 const SizedBox(height: 12),
 
-                // Alarm
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text("Alarm Reminder"),
-                  subtitle: Text(
-                    alarmDateTime != null
-                        ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2, '0')}:${alarmDateTime!.minute.toString().padLeft(2, '0')}"
-                        : "No alarm set",
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.access_time),
-                    onPressed: _pickAlarmTime,
-                  ),
-                ),
-                if (alarmDateTime != null)
-                  TextButton.icon(
-                    icon: const Icon(Icons.delete_forever, color: Colors.red),
-                    label: const Text("Remove Alarm"),
-                    onPressed: () => setState(() => alarmDateTime = null),
-                  ),
-
+                // // Alarm
+                // ListTile(
+                //   contentPadding: EdgeInsets.zero,
+                //   title: const Text("Alarm Reminder"),
+                //   subtitle: Text(
+                //     alarmDateTime != null
+                //         ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2, '0')}:${alarmDateTime!.minute.toString().padLeft(2, '0')}"
+                //         : "No alarm set",
+                //   ),
+                //   trailing: IconButton(
+                //     icon: const Icon(Icons.access_time),
+                //     onPressed: _pickAlarmTime,
+                //   ),
+                // ),
+                // if (alarmDateTime != null)
+                //   TextButton.icon(
+                //     icon: const Icon(Icons.delete_forever, color: Colors.red),
+                //     label: const Text("Remove Alarm"),
+                //     onPressed: () => setState(() => alarmDateTime = null),
+                //   ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
