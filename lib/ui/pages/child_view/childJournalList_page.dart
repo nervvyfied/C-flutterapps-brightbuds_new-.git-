@@ -43,7 +43,10 @@ class _JournalListPageState extends State<JournalListPage> {
   }
 
   Future<void> _initializeData() async {
-    final journalProvider = Provider.of<JournalProvider>(context, listen: false);
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
     setState(() => _isLoading = true);
 
     await _checkConnectivity();
@@ -55,7 +58,10 @@ class _JournalListPageState extends State<JournalListPage> {
 
     final entries = journalProvider.getEntries(widget.childId);
     if (entries.isNotEmpty) {
-      _selectedMonth = DateTime(entries.first.entryDate.year, entries.first.entryDate.month);
+      _selectedMonth = DateTime(
+        entries.first.entryDate.year,
+        entries.first.entryDate.month,
+      );
     }
 
     if (!mounted) return;
@@ -63,14 +69,20 @@ class _JournalListPageState extends State<JournalListPage> {
   }
 
   Future<void> _syncWithCloud() async {
-    final journalProvider = Provider.of<JournalProvider>(context, listen: false);
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
     setState(() => _isSyncing = true);
 
     await _checkConnectivity();
 
     if (!_isOffline) {
       try {
-        await journalProvider.pushPendingChanges(widget.parentId, widget.childId);
+        await journalProvider.pushPendingChanges(
+          widget.parentId,
+          widget.childId,
+        );
         await journalProvider.getMergedEntries(
           parentId: widget.parentId,
           childId: widget.childId,
@@ -94,12 +106,14 @@ class _JournalListPageState extends State<JournalListPage> {
         return matchMonth && entry.entryDate.day == _selectedDay!.day;
       }
       return matchMonth;
-    }).toList()
-      ..sort((a, b) => b.entryDate.compareTo(a.entryDate));
+    }).toList()..sort((a, b) => b.entryDate.compareTo(a.entryDate));
   }
 
   void _pickMonth() {
-    final journalProvider = Provider.of<JournalProvider>(context, listen: false);
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
     final entries = journalProvider.getEntries(widget.childId);
 
     showModalBottomSheet(
@@ -111,7 +125,10 @@ class _JournalListPageState extends State<JournalListPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text("Select Day", style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                "Select Day",
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               SizedBox(
                 height: 400,
                 child: TableCalendar(
@@ -122,16 +139,21 @@ class _JournalListPageState extends State<JournalListPage> {
                   selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                   eventLoader: (day) {
                     return entries
-                        .where((e) =>
-                            e.entryDate.year == day.year &&
-                            e.entryDate.month == day.month &&
-                            e.entryDate.day == day.day)
+                        .where(
+                          (e) =>
+                              e.entryDate.year == day.year &&
+                              e.entryDate.month == day.month &&
+                              e.entryDate.day == day.day,
+                        )
                         .toList();
                   },
                   onDaySelected: (selectedDay, focusedDay) {
                     setState(() {
                       _selectedDay = selectedDay;
-                      _selectedMonth = DateTime(selectedDay.year, selectedDay.month);
+                      _selectedMonth = DateTime(
+                        selectedDay.year,
+                        selectedDay.month,
+                      );
                     });
                     Navigator.pop(context);
                   },
@@ -155,7 +177,10 @@ class _JournalListPageState extends State<JournalListPage> {
                   ),
                 ),
               ),
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
             ],
           ),
         );
@@ -191,7 +216,10 @@ class _JournalListPageState extends State<JournalListPage> {
   }
 
   Future<void> _showPreviewDialog(JournalEntry entry) async {
-    final journalProvider = Provider.of<JournalProvider>(context, listen: false);
+    final journalProvider = Provider.of<JournalProvider>(
+      context,
+      listen: false,
+    );
 
     await showDialog(
       context: context,
@@ -241,7 +269,10 @@ class _JournalListPageState extends State<JournalListPage> {
             },
             child: const Text("Edit"),
           ),
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
         ],
       ),
     );
@@ -251,7 +282,9 @@ class _JournalListPageState extends State<JournalListPage> {
   Widget build(BuildContext context) {
     return Consumer<JournalProvider>(
       builder: (context, journalProvider, _) {
-        final entries = _filterEntries(journalProvider.getEntries(widget.childId));
+        final entries = _filterEntries(
+          journalProvider.getEntries(widget.childId),
+        );
 
         return Scaffold(
           appBar: AppBar(
@@ -262,7 +295,10 @@ class _JournalListPageState extends State<JournalListPage> {
                 IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: () => setState(() {
-                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+                    _selectedMonth = DateTime(
+                      _selectedMonth.year,
+                      _selectedMonth.month - 1,
+                    );
                     _selectedDay = null;
                   }),
                 ),
@@ -272,15 +308,37 @@ class _JournalListPageState extends State<JournalListPage> {
                     _selectedDay != null
                         ? "${DateFormat.yMMMd().format(_selectedDay!)} ▼"
                         : "${DateFormat.yMMM().format(_selectedMonth)} ▼",
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.arrow_forward),
-                  onPressed: () => setState(() {
-                    _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
-                    _selectedDay = null;
-                  }),
+                Builder(
+                  builder: (context) {
+                    final now = DateTime.now();
+                    final isAtCurrentMonth =
+                        _selectedMonth.year == now.year &&
+                        _selectedMonth.month == now.month;
+
+                    return IconButton(
+                      icon: Icon(
+                        Icons.arrow_forward,
+                        color: isAtCurrentMonth
+                            ? Colors.grey
+                            : const Color.fromARGB(255, 0, 0, 0),
+                      ),
+                      onPressed: isAtCurrentMonth
+                          ? null
+                          : () => setState(() {
+                              _selectedMonth = DateTime(
+                                _selectedMonth.year,
+                                _selectedMonth.month + 1,
+                              );
+                              _selectedDay = null;
+                            }),
+                    );
+                  },
                 ),
               ],
             ),
@@ -289,12 +347,26 @@ class _JournalListPageState extends State<JournalListPage> {
                 const Padding(
                   padding: EdgeInsets.only(right: 16),
                   child: Center(
-                    child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
                 ),
-              IconButton(icon: const Icon(Icons.sync), onPressed: _syncWithCloud),
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: () async {
+                  setState(() {
+                    _selectedMonth = DateTime.now();
+                    _selectedDay = null;
+                  });
+                  await _initializeData(); // refresh entries & reset month
+                },
+              ),
             ],
           ),
+
           body: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
@@ -316,7 +388,10 @@ class _JournalListPageState extends State<JournalListPage> {
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.add, color: Colors.white),
-                          label: const Text("Add New Entry", style: TextStyle(color: Colors.white),),
+                          label: const Text(
+                            "Add New Entry",
+                            style: TextStyle(color: Colors.white),
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF8657F3),
                           ),
@@ -352,15 +427,26 @@ class _JournalListPageState extends State<JournalListPage> {
                                 itemBuilder: (_, index) {
                                   final entry = entries[index];
                                   return Card(
-                                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
                                     child: ListTile(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 8,
+                                          ),
                                       leading: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           _buildMoodIcon(entry.mood),
                                           const SizedBox(width: 8),
-                                          Text(DateFormat('yMMMd').format(entry.entryDate)),
+                                          Text(
+                                            DateFormat(
+                                              'yMMMd',
+                                            ).format(entry.entryDate),
+                                          ),
                                         ],
                                       ),
                                       trailing: Row(
@@ -368,7 +454,10 @@ class _JournalListPageState extends State<JournalListPage> {
                                         children: [
                                           Text("${entry.stars}"),
                                           const SizedBox(width: 4),
-                                          const Icon(Icons.star, color: Colors.amber),
+                                          const Icon(
+                                            Icons.star,
+                                            color: Colors.amber,
+                                          ),
                                         ],
                                       ),
                                       onTap: () => _showPreviewDialog(entry),

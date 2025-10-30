@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use, avoid_types_as_parameter_names
+
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';

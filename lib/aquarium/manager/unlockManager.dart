@@ -1,3 +1,5 @@
+// ignore_for_file: file_names, avoid_types_as_parameter_names
+
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../providers/fish_provider.dart';
@@ -58,7 +60,9 @@ class UnlockManager {
 
   for (var fishDef in FishCatalog.all) {
     if (fishDef.type != FishType.unlockable ||
-        fishProvider.isOwned(fishDef.id)) continue;
+        fishProvider.isOwned(fishDef.id)) {
+      continue;
+    }
 
     bool shouldUnlock = false;
 

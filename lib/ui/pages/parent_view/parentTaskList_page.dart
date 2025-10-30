@@ -1,3 +1,5 @@
+// ignore_for_file: file_names, deprecated_member_use, use_build_context_synchronously
+
 import 'dart:async';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
@@ -201,12 +203,12 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                             ),
                             decoration: BoxDecoration(
                               color: _getDifficultyColor(
-                                task.difficulty ?? 'Easy',
+                                task.difficulty,
                               ),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              task.difficulty ?? 'Easy',
+                              task.difficulty,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -222,7 +224,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                                 height: 16,
                               ),
                               const SizedBox(width: 4),
-                              Text('${task.reward ?? 0}'),
+                              Text('${task.reward}'),
                             ],
                           ),
                         ],
@@ -336,12 +338,14 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                                 .toList()
                           : <TaskModel>[];
 
-                      if (taskProvider.isLoading)
+                      if (taskProvider.isLoading) {
                         return const Center(child: CircularProgressIndicator());
-                      if (childTasks.isEmpty)
+                      }
+                      if (childTasks.isEmpty) {
                         return Center(
                           child: Text("No quests assigned to $childName."),
                         );
+                      }
 
                       final grouped = _groupTasksByTime(childTasks);
 
@@ -423,24 +427,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
     super.dispose();
   }
 
-  Future<void> _pickAlarmTime() async {
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(alarmDateTime ?? DateTime.now()),
-    );
-    if (pickedTime != null) {
-      if (!mounted) return; // safety check
-      {
-        alarmDateTime = DateTime(
-          DateTime.now().year,
-          DateTime.now().month,
-          DateTime.now().day,
-          pickedTime.hour,
-          pickedTime.minute,
-        );
-      }
-    }
-  }
 
   Widget _buildDifficultyButton(String value, Color color) {
     final selected = difficulty == value;

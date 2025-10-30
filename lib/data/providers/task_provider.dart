@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
@@ -375,7 +374,7 @@ Future<void> loadTasks({
       longestStreak: newActiveStreak > (task.longestStreak)
           ? newActiveStreak
           : task.longestStreak,
-      totalDaysCompleted: (task.totalDaysCompleted ?? 0) + 1,
+      totalDaysCompleted: (task.totalDaysCompleted) + 1,
       lastUpdated: now,
     );
 
@@ -558,7 +557,7 @@ Future<void> loadTasks({
 
     // ✅ Update child's balance after verification
     final userRepo = UserRepository();
-    final rewardAmount = (task.reward ?? 0).toInt(); // ensure integer
+    final rewardAmount = (task.reward).toInt(); // ensure integer
     await userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
 
     // ✅ Only sync to Firestore if online
@@ -599,8 +598,9 @@ Future<void> loadTasks({
       task.alarm!.minute,
     );
 
-    if (scheduledDate.isBefore(now))
+    if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
 
     await NotificationService().scheduleDailyNotification(
       id: alarmId,

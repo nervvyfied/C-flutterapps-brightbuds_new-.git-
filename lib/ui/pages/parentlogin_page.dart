@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously, deprecated_member_use
+
 import 'package:brightbuds_new/ui/pages/parent_view/parentForgotPass_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentVerification_page.dart';
@@ -42,8 +44,9 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
           _passwordController.text.trim(),
         );
         await auth.saveFcmToken();
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Login successful')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Login successful')));
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
@@ -56,13 +59,17 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
 
         if (password != confirmPassword) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Passwords do not match")));
+            const SnackBar(content: Text("Passwords do not match")),
+          );
           setState(() => isLoading = false);
           return;
         }
         if (password.length < 6) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("Password must be at least 6 characters")));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Password must be at least 6 characters"),
+            ),
+          );
           setState(() => isLoading = false);
           return;
         }
@@ -70,14 +77,13 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
         await auth.signUpParent(name, email, password);
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => VerifyEmailScreen(email: email),
-          ),
+          MaterialPageRoute(builder: (_) => VerifyEmailScreen(email: email)),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       setState(() => isLoading = false);
     }
@@ -90,9 +96,41 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
     );
   }
 
+  Future<void> signInWithGoogle() async {
+    final auth = context.read<AuthProvider>();
+    setState(() => isLoading = true);
+
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        setState(() => isLoading = false);
+        return; // User canceled the sign-in
+      }
+
+      await googleUser.authentication;
+
+      await auth.signInWithGoogle();
+      await auth.saveFcmToken();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google sign-in successful')),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Google sign-in failed: $e')));
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    Theme.of(context);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -103,11 +141,7 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // App logo
-              Image.asset(
-                'assets/bb2.png',
-                width: 150,
-                height: 150,
-              ),
+              Image.asset('assets/bb2.png', width: 150, height: 150),
               const SizedBox(height: 20),
 
               Text(
@@ -134,8 +168,10 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
 
               // Card container
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(18),
@@ -177,9 +213,11 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                           labelText: "Password",
                           prefixIcon: const Icon(Icons.lock_outline),
                           suffixIcon: IconButton(
-                            icon: Icon(_obscurePassword
-                                ? Icons.visibility_off
-                                : Icons.visibility),
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
                             onPressed: () => setState(() {
                               _obscurePassword = !_obscurePassword;
                             }),
@@ -195,9 +233,11 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                             labelText: "Confirm Password",
                             prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
-                              icon: Icon(_obscureConfirmPassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility),
+                              icon: Icon(
+                                _obscureConfirmPassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
                               onPressed: () => setState(() {
                                 _obscureConfirmPassword =
                                     !_obscureConfirmPassword;
@@ -241,7 +281,8 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                           ),
                           child: isLoading
                               ? const CircularProgressIndicator(
-                                  color: Colors.white)
+                                  color: Colors.white,
+                                )
                               : Text(isLogin ? "Login" : "Sign Up"),
                         ),
                       ),
@@ -254,7 +295,7 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                           width: double.infinity,
                           height: 48,
                           child: ElevatedButton(
-                            onPressed: () {}, // handleGoogleSignUp()
+                            onPressed: signInWithGoogle,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: Colors.black,
@@ -266,8 +307,10 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Image.asset('assets/images/g-logo.png',
-                                    height: 22),
+                                Image.asset(
+                                  'assets/images/g-logo.png',
+                                  height: 22,
+                                ),
                                 const SizedBox(width: 10),
                                 const Text(
                                   "Continue with Google",

@@ -179,9 +179,9 @@ class JournalRepository {
 
           // Compare timestamps to see which is newer
           final localTime =
-              entry.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              entry.createdAt;
           final remoteTime =
-              remoteEntry.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              remoteEntry.createdAt;
 
           if (localTime.isAfter(remoteTime)) {
             await saveEntryRemote(parentId, childId, entry);

@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:collection/collection.dart'; // for firstWhereOrNull
@@ -58,9 +60,9 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
       if (!mounted) return;
       setState(() => _isSyncing = true);
 
-      await cbtProvider.syncPendingCompletions(widget.childId);
+      
       await cbtProvider.loadRemoteCBT(widget.parentId, widget.childId);
-
+      await cbtProvider.syncPendingCompletions( widget.parentId, widget.childId);
       if (!mounted) return;
       setState(() => _isSyncing = false);
     }
@@ -159,15 +161,10 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                                     final exercise = CBTLibrary.getById(
                                       assigned.exerciseId,
                                     );
-
-                                    if (exercise == null)
-                                      return const SizedBox.shrink();
-
                                     final isCompleted = cbtProvider.isCompleted(
                                       widget.childId,
                                       exercise.id,
                                     );
-
                                     return CBTCard(
                                       exercise: exercise,
                                       isParentView: false,
@@ -240,6 +237,7 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                                           );
                                         } else {
                                           ScaffoldMessenger.of(
+                                            // ignore:
                                             context,
                                           ).showSnackBar(
                                             const SnackBar(
@@ -255,7 +253,7 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                                             setState(() => _isSyncing = true);
                                             await cbtProvider
                                                 .syncPendingCompletions(
-                                                  widget.childId,
+                                                  widget.childId, widget.parentId,
                                                 );
                                             if (!mounted) return;
                                             setState(() => _isSyncing = false);

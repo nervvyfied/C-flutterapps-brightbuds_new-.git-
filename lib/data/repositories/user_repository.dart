@@ -36,7 +36,6 @@ String? getCachedParentId() {
       await cacheParent(parent);
       return parent;
     } catch (e) {
-      print('Error fetching parent: $e');
       return null;
     }
   }
@@ -173,9 +172,13 @@ String? getCachedParentId() {
 
       return null;
     } catch (e) {
-      print("Error fetching child by id: $e");
       return null;
     }
+  }
+ 
+  Future<void> clearAllCachedData() async {
+    await _parentBox.clear();
+    await _childBox.clear();
   }
 
   Future<void> updateChildBalance(

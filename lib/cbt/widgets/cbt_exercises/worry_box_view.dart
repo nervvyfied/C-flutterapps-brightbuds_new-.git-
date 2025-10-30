@@ -26,7 +26,6 @@ class _WorryBoxViewState extends State<WorryBoxView> with TickerProviderStateMix
   bool _showNoteDrop = false;
   bool _showLid = false;
   bool _showLockModal = false;
-  bool _completed = false;
 
   @override
   void initState() {
@@ -83,7 +82,6 @@ class _WorryBoxViewState extends State<WorryBoxView> with TickerProviderStateMix
 
   await provider.markAsCompleted(widget.parentId, widget.childId, assigned.id);
 
-    setState(() => _completed = true);
     _showCompletionDialog();
   }
 

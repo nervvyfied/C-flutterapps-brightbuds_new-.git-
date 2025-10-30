@@ -33,17 +33,14 @@ class _NotificationHandlerState extends State<NotificationHandler> {
     final settings = await _messaging.requestPermission(alert: true, badge: true, sound: true);
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      print('✅ Notification permission granted');
 
       // Save FCM token
       final token = await _messaging.getToken();
       if (token != null) await _saveTokenToFirestore(token);
-      print("🔹 ${widget.role} FCM Token: $token");
 
       FirebaseMessaging.onMessage.listen(_handleIncomingMessage);
       FirebaseMessaging.onMessageOpenedApp.listen(_handleNotificationTap);
     } else {
-      print('⚠️ Notification permission denied');
     }
   }
 
@@ -60,7 +57,6 @@ class _NotificationHandlerState extends State<NotificationHandler> {
             .update({'fcmToken': token});
       }
     } catch (e) {
-      print('⚠️ Failed to save FCM token: $e');
     }
   }
 
@@ -114,8 +110,6 @@ class _NotificationHandlerState extends State<NotificationHandler> {
   }
 
   void _handleNotificationTap(RemoteMessage message) {
-    final type = message.data['type'];
-    print("🔹 Notification tapped: $type");
     // Navigate if needed
   }
 

@@ -71,8 +71,8 @@ class _StepStoneViewState extends State<StepStoneView> with TickerProviderStateM
     if (!_canProceed) return; // Do nothing if empty
 
     // Here you can store _controllers[_currentStone].text into database
-    final answer = _controllers[_currentStone].text.trim();
-    print("Answer for stone $_currentStone: $answer"); // example
+    _controllers[_currentStone].text.trim();
+    // example
 
     if (_currentStone < 2) {
       _hopController.forward(from: 0).then((_) {

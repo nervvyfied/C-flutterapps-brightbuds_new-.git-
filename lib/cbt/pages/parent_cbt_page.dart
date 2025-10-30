@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:brightbuds_new/cbt/models/assigned_cbt_model.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -30,7 +32,10 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<CBTProvider>().loadLocalCBT(widget.parentId);
-      context.read<CBTProvider>().syncPendingCompletions(widget.parentId);
+      context.read<CBTProvider>().syncPendingCompletions(
+        widget.parentId,
+        widget.childId,
+      );
     });
   }
 
@@ -239,8 +244,9 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                           isSuggested: isSuggested,
                           onAssign: () async {
                             if (isAssigned ||
-                                assigningSet.contains(exercise.id))
+                                assigningSet.contains(exercise.id)) {
                               return;
+                            }
 
                             // Mark as assigning
                             assigningSet.add(exercise.id);
@@ -260,14 +266,15 @@ class _ParentCBTPageState extends State<ParentCBTPage> {
                           },
                           onUnassign: () async {
                             if (!isAssigned ||
-                                assigningSet.contains(exercise.id))
+                                assigningSet.contains(exercise.id)) {
                               return;
+                            }
 
                             assigningSet.add(exercise.id);
                             await cbtProvider.unassignCBT(
                               widget.parentId,
                               widget.childId,
-                              assignedEntry!.id,
+                              assignedEntry.id,
                             );
                             assigningSet.remove(exercise.id);
 

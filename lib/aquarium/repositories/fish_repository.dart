@@ -43,7 +43,6 @@ class FishRepository {
 
       return mergedList;
     } catch (e) {
-      print("⚠️ getOwnedFishes fallback to local: $e");
       return localFishes;
     }
   }
@@ -69,9 +68,7 @@ class FishRepository {
         childId,
         child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList(),
       );
-      print("✅ Firestore sync success (addOwnedFish)");
     } catch (e) {
-      print("❌ Firestore sync failed (addOwnedFish): $e");
     }
   }
 
@@ -100,9 +97,7 @@ class FishRepository {
         childId,
         child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList(),
       );
-      print("✅ Firestore sync success (updateOwnedFish)");
     } catch (e) {
-      print("❌ Firestore sync failed (updateOwnedFish): $e");
     }
   }
 
@@ -121,9 +116,7 @@ class FishRepository {
 
     try {
       await _service.removeOwnedFish(parentUid, childId, fishId);
-      print("✅ Firestore fish removed: $fishId");
     } catch (e) {
-      print("❌ Firestore removeOwnedFish failed: $e");
     }
   }
 
@@ -150,9 +143,7 @@ class FishRepository {
         childId,
         child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
       );
-      print("✅ Firestore sync success (storeFish)");
     } catch (e) {
-      print("❌ Firestore sync failed (storeFish): $e");
     }
   }
 
@@ -172,9 +163,7 @@ class FishRepository {
 
     try {
       await _service.updateBalance(parentUid, childId, newBalance);
-      print("✅ Firestore balance updated to $newBalance");
     } catch (e) {
-      print("❌ Firestore updateBalance failed: $e");
     }
   }
 

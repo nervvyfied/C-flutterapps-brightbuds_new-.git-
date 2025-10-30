@@ -22,9 +22,7 @@ class FishService {
         "ownedFishes": fishes.map((f) => f.toMap()).toList(),
       }, SetOptions(merge: true));
 
-      print("✅ Firestore: ownedFishes successfully synced (${fishes.length})");
     } catch (e) {
-      print("❌ Firestore syncOwnedFishes failed: $e");
       rethrow;
     }
   }
@@ -45,7 +43,6 @@ class FishService {
       final snapshot = await docRef.get();
 
       if (!snapshot.exists || snapshot.data() == null) {
-        print("ℹ️ Firestore: no fishes found remotely");
         return [];
       }
 
@@ -56,7 +53,6 @@ class FishService {
           .map((map) => OwnedFish.fromMap(Map<String, dynamic>.from(map)))
           .toList();
     } catch (e) {
-      print("❌ Firestore fetchOwnedFishes failed: $e");
       return [];
     }
   }
@@ -70,13 +66,11 @@ class FishService {
     try {
       final snapshot = await childRef.get();
       if (!snapshot.exists) {
-        print("⚠️ Firestore: child doc missing for balance fetch");
         return 0;
       }
       final data = snapshot.data();
       return data?["balance"] ?? 0;
     } catch (e) {
-      print("❌ Firestore fetchBalance failed: $e");
       return 0;
     }
   }
@@ -94,9 +88,7 @@ class FishService {
 
     try {
       await childRef.set({"balance": balance}, SetOptions(merge: true));
-      print("✅ Firestore: balance updated to $balance");
     } catch (e) {
-      print("❌ Firestore updateBalance failed: $e");
       rethrow;
     }
   }
@@ -124,9 +116,7 @@ class FishService {
       fishes.removeWhere((f) => f["id"] == fishId);
 
       await docRef.set({"ownedFishes": fishes}, SetOptions(merge: true));
-      print("✅ Firestore: fish $fishId removed");
     } catch (e) {
-      print("❌ Firestore removeOwnedFish failed: $e");
       rethrow;
     }
   }

@@ -1,4 +1,5 @@
-import 'dart:io';
+// ignore_for_file: file_names, unused_local_variable, use_build_context_synchronously, await_only_futures, avoid_print, deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,7 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../data/providers/auth_provider.dart' as app_auth;
 import '../../../data/providers/selected_child_provider.dart';
 import '../../../data/providers/journal_provider.dart';
-import '../../../data/repositories/user_repository.dart';
 import '../../pages/role_page.dart';
 
 class ParentAccountSidebar extends StatefulWidget {
@@ -19,7 +19,6 @@ class ParentAccountSidebar extends StatefulWidget {
 }
 
 class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
-  final UserRepository _userRepo = UserRepository();
   Map<String, dynamic>? parentData;
   List<Map<String, dynamic>> childrenList = [];
   bool isLoading = true;
@@ -109,8 +108,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         return;
       }
 
-      Map<String, dynamic> data =
-          parentSnapshot.data() as Map<String, dynamic>? ?? {};
+      Map<String, dynamic> data = parentSnapshot.data() ?? {};
       Map<String, dynamic> accessCodes =
           (data['childrenAccessCodes'] ?? {}) as Map<String, dynamic>;
 
@@ -123,7 +121,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
       List<Map<String, dynamic>> tempChildren = childrenSnapshot.docs.map((
         doc,
       ) {
-        var c = doc.data() as Map<String, dynamic>;
+        var c = doc.data();
         String code = accessCodes[doc.id]?.toString() ?? "—";
         return {
           "cid": doc.id,
@@ -255,9 +253,9 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
   Future<void> _showParentSettingsDialog() async {
     _newName = parentData!['name'];
     _newEmail = parentData!['email'];
-    String? _newPasswordConfirm;
-    bool _obscureNewPassword = true;
-    bool _obscureConfirmPassword = true;
+    String? newPasswordConfirm;
+    bool obscureNewPassword = true;
+    bool obscureConfirmPassword = true;
 
     final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
 
@@ -308,19 +306,19 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     labelStyle: const TextStyle(fontWeight: FontWeight.bold),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscureNewPassword
+                        obscureNewPassword
                             ? Icons.visibility
                             : Icons.visibility_off,
                       ),
                       onPressed: () {
                         setStateDialog(() {
-                          _obscureNewPassword = !_obscureNewPassword;
+                          obscureNewPassword = !obscureNewPassword;
                         });
                       },
                     ),
                   ),
                   onSaved: (val) => _newPassword = val,
-                  obscureText: _obscureNewPassword,
+                  obscureText: obscureNewPassword,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -329,19 +327,19 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     labelStyle: const TextStyle(fontWeight: FontWeight.bold),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscureConfirmPassword
+                        obscureConfirmPassword
                             ? Icons.visibility
                             : Icons.visibility_off,
                       ),
                       onPressed: () {
                         setStateDialog(() {
-                          _obscureConfirmPassword = !_obscureConfirmPassword;
+                          obscureConfirmPassword = !obscureConfirmPassword;
                         });
                       },
                     ),
                   ),
-                  onSaved: (val) => _newPasswordConfirm = val,
-                  obscureText: _obscureConfirmPassword,
+                  onSaved: (val) => newPasswordConfirm = val,
+                  obscureText: obscureConfirmPassword,
                   validator: (val) {
                     if ((_newPassword != null && _newPassword!.isNotEmpty) &&
                         val != _newPassword) {
@@ -434,13 +432,13 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
   }
 
   Future<void> _logout() async {
-    final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
-    Provider.of<SelectedChildProvider>(
+    final authProvider = Provider.of<app_auth.AuthProvider>(
       context,
       listen: false,
-    ).clearSelectedChild();
-    await auth.signOut();
-    Navigator.of(context).pushAndRemoveUntil(
+    );
+    await authProvider.signOut();
+    Navigator.pushAndRemoveUntil(
+      context,
       MaterialPageRoute(builder: (_) => const ChooseRolePage()),
       (route) => false,
     );
@@ -449,8 +447,9 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
-    if (parentData == null)
+    if (parentData == null) {
       return const Center(child: Text("Parent data not found."));
+    }
 
     final activeChild = Provider.of<SelectedChildProvider>(
       context,

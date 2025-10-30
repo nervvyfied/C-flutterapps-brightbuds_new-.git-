@@ -168,7 +168,6 @@ class TaskRepository {
 
       await taskRef.delete();
     } catch (e) {
-      print("Error deleting task: $e");
       rethrow;
     }
   }

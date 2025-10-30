@@ -1,5 +1,5 @@
+// ignore_for_file: file_names
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
@@ -23,6 +23,7 @@ class TokenDialog extends StatelessWidget {
         // Blur background
         BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+          // ignore: deprecated_member_use
           child: Container(color: Colors.black.withOpacity(0.3)),
         ),
         AlertDialog(
@@ -70,7 +71,7 @@ class TokenDialog extends StatelessWidget {
                         leading: Image.asset('assets/coin.png', width: 24, height: 24),
                         title: Text(task.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                         trailing: Text(
-                          '${task.reward ?? 0} token(s)',
+                          '${task.reward} token(s)',
                           style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                         ),
                       ),

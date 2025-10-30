@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -120,11 +119,11 @@ class FishProvider extends ChangeNotifier {
 
             if (newBalance != currentChild.balance) {
               // Update provider state from authoritative Firestore value
-              if (kDebugMode)
+              if (kDebugMode) {
                 debugPrint('🔁 Balance updated in Firestore: $newBalance');
 
-              currentChild = currentChild.copyWith(balance: newBalance);
-
+                currentChild = currentChild.copyWith(balance: newBalance);
+              }
               // persist to Hive (if child exists)
               try {
                 final child = _childBox.get(currentChild.cid);
@@ -183,20 +182,27 @@ class FishProvider extends ChangeNotifier {
       // Restore balance
       currentChild = currentChild.copyWith(balance: child.balance);
 
-      // Restore owned fishes
+      // Restore owned fishes safely
       try {
-        ownedFishes = child.ownedFish
+        final hiveFishes = child.ownedFish
             .map((map) => OwnedFish.fromMap(Map<String, dynamic>.from(map)))
             .toList();
-      } catch (e) {
-        ownedFishes = [];
-        debugPrint('⚠️ Failed to restore ownedFishes from Hive: $e');
-      }
 
-      if (kDebugMode) {
-        print(
-          "📦 Restored ${ownedFishes.length} fishes from Hive for ${currentChild.cid}",
-        );
+        // Merge Hive fishes with current in-memory list (avoid duplicates)
+        final existingIds = ownedFishes.map((f) => f.id).toSet();
+        for (var fish in hiveFishes) {
+          if (!existingIds.contains(fish.id)) {
+            ownedFishes.add(fish);
+          }
+        }
+
+        if (kDebugMode) {
+          print(
+            "📦 Restored ${hiveFishes.length} fishes from Hive for ${currentChild.cid} (merged with ${ownedFishes.length - hiveFishes.length} local)",
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️ Failed to restore ownedFishes from Hive: $e');
       }
     }
 
@@ -206,23 +212,41 @@ class FishProvider extends ChangeNotifier {
   // ---------- Initialization (remote sync) ----------
   Future<void> _init() async {
     try {
+      // Fetch remote fishes
       final remoteFishes = await _repo.getOwnedFishes(
         currentChild.parentUid,
         currentChild.cid,
       );
 
-      // Merge remote with local (avoid duplicates)
+      // Merge remote with local Hive + in-memory ownedFishes
       final localIds = ownedFishes.map((f) => f.id).toSet();
+
       for (var fish in remoteFishes) {
         if (!localIds.contains(fish.id)) {
           ownedFishes.add(fish);
         }
       }
 
+      // Persist merged list back to Hive
+      try {
+        final child = _childBox.get(currentChild.cid);
+        if (child != null) {
+          final updatedList = ownedFishes.map((f) => f.toMap()).toList();
+          await _childBox.put(
+            currentChild.cid,
+            child.copyWith(ownedFish: updatedList),
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️ Failed to persist merged fishes to Hive: $e');
+      }
+
       notifyListeners();
 
       if (kDebugMode) {
-        print("🌐 Synced ${ownedFishes.length} fishes from Firestore");
+        print(
+          "🌐 Synced ${ownedFishes.length} fishes (offline + remote merged)",
+        );
       }
     } catch (e) {
       if (kDebugMode) print("⚠️ Remote fetch failed, using local data: $e");
@@ -365,9 +389,11 @@ class FishProvider extends ChangeNotifier {
   // ---------- Purchase ----------
   Future<bool> purchaseFish(FishDefinition fish) async {
     if (!canPurchase(fish)) return false;
-    if (ownedFishes.where((f) => f.fishId == fish.id).length >= 15)
+    if (ownedFishes.where((f) => f.fishId == fish.id).length >= 15) {
       return false;
+    }
 
+    // 1️⃣ Create new fish
     final newFish = OwnedFish(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       fishId: fish.id,
@@ -377,58 +403,60 @@ class FishProvider extends ChangeNotifier {
       isUnlocked: fish.type != FishType.unlockable,
     );
 
+    // 2️⃣ Deduct balance locally and persist
     final newBalance = currentChild.balance - fish.price;
-
-    // update local & remote balance (awaited)
     await _updateLocalBalance(newBalance);
 
+    // 3️⃣ Add fish to local list immediately
     ownedFishes.add(newFish);
 
-    // Persist to Hive
+    // 4️⃣ Persist updated list to Hive
     try {
       final child = _childBox.get(currentChild.cid);
       if (child != null) {
-        child.ownedFish.add(newFish.toMap());
-        await _childBox.put(currentChild.cid, child);
+        final updatedOwnedFishes = List<Map<String, dynamic>>.from(
+          child.ownedFish,
+        )..add(newFish.toMap()); // create a new list so Hive sees the change
+        final updatedChild = child.copyWith(ownedFish: updatedOwnedFishes);
+        await _childBox.put(currentChild.cid, updatedChild);
       }
     } catch (e) {
       debugPrint('⚠️ Failed to persist new fish to Hive: $e');
     }
 
+    // 5️⃣ Notify listeners so UI updates immediately
     notifyListeners();
 
-    // Remote sync of owned fish (use addOwnedFish which should merge)
-    try {
-      await _repo.addOwnedFish(
-        currentChild.parentUid,
-        currentChild.cid,
-        newFish,
-      );
-    } catch (e) {
-      debugPrint('⚠️ addOwnedFish failed: $e');
-    }
-    try {
-      // Add owned fish to Firestore directly (always merge)
-      final docRef = _firestore
-          .collection('users')
-          .doc(currentChild.parentUid)
-          .collection('children')
-          .doc(currentChild.cid)
-          .collection('aquarium')
-          .doc('fishes');
+    // 6️⃣ Firestore sync asynchronously (does not block offline purchase)
+    Future.microtask(() async {
+      try {
+        await _repo.addOwnedFish(
+          currentChild.parentUid,
+          currentChild.cid,
+          newFish,
+        );
 
-      await docRef.set({
-        'ownedFishes': FieldValue.arrayUnion([newFish.toMap()]),
-      }, SetOptions(merge: true));
+        final docRef = _firestore
+            .collection('users')
+            .doc(currentChild.parentUid)
+            .collection('children')
+            .doc(currentChild.cid)
+            .collection('aquarium')
+            .doc('fishes');
 
-      debugPrint('✅ Firestore sync success (purchaseFish)');
-    } catch (e) {
-      debugPrint('⚠️ Firestore sync failed (purchaseFish): $e');
-    }
+        await docRef.set({
+          'ownedFishes': FieldValue.arrayUnion([newFish.toMap()]),
+        }, SetOptions(merge: true));
+
+        if (kDebugMode) debugPrint('✅ Firestore sync success (purchaseFish)');
+      } catch (e) {
+        if (kDebugMode) debugPrint('⚠️ Firestore sync failed (offline): $e');
+      }
+    });
 
     if (kDebugMode) {
       print(
-        "🟢 Purchased fish ${fish.name} (offline-ready, balance $newBalance)",
+        "🟢 Purchased fish ${fish.name} offline-ready, balance $newBalance",
       );
     }
 
@@ -471,10 +499,11 @@ class FishProvider extends ChangeNotifier {
       debugPrint('⚠️ updateOwnedFish failed: $e');
     }
 
-    if (kDebugMode)
+    if (kDebugMode) {
       print(
-        "🟢 Fish ${fishId} state updated: isActive=$isActive (offline-ready)",
+        "🟢 Fish $fishId state updated: isActive=$isActive (offline-ready)",
       );
+    }
   }
 
   // ---------- Sell ----------
@@ -629,7 +658,9 @@ class FishProvider extends ChangeNotifier {
 
   void enterEditMode({String? focusFishId}) {
     _editingBuffer = ownedFishes.map((f) => f.copyWith()).toList();
-    for (var f in _editingBuffer) f.isSelected = false;
+    for (var f in _editingBuffer) {
+      f.isSelected = false;
+    }
 
     if (focusFishId != null) {
       final idx = _editingBuffer.indexWhere((f) => f.id == focusFishId);
@@ -669,14 +700,17 @@ class FishProvider extends ChangeNotifier {
     movingFishId = null;
     notifyListeners();
 
-    if (kDebugMode)
+    if (kDebugMode) {
       print("✅ Edit mode saved. ${ownedFishes.length} fishes synced.");
+    }
   }
 
   void toggleFishSelection(String fishId) {
     if (!isInEditMode) enterEditMode(focusFishId: fishId);
 
-    for (var f in _editingBuffer) f.isSelected = false;
+    for (var f in _editingBuffer) {
+      f.isSelected = false;
+    }
     final idx = _editingBuffer.indexWhere((f) => f.id == fishId);
     if (idx != -1) _editingBuffer[idx].isSelected = true;
     notifyListeners();

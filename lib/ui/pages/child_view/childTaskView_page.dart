@@ -1,17 +1,15 @@
-import 'package:brightbuds_new/data/managers/token_manager.dart';
+// ignore_for_file: file_names, use_build_context_synchronously, deprecated_member_use
+
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
-import 'package:brightbuds_new/data/notifiers/token_listener.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hive/hive.dart';
@@ -35,9 +33,7 @@ class ChildQuestsPage extends StatefulWidget {
 
 class _ChildQuestsPageState extends State<ChildQuestsPage> {
   bool _isOffline = false;
-  bool _isSyncing = false;
   int _balance = 0;
-  bool _tokenCheckDone = false;
   late Box _settingsBox;
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
   StreamSubscription<QuerySnapshot>? _taskSubscription;
@@ -49,85 +45,94 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   Future<void> _initPage() async {
-  _settingsBox = await Hive.openBox('settings');
+    _settingsBox = await Hive.openBox('settings');
 
-  // 1️⃣ Show cached balance immediately
-  final cachedKey = 'cached_balance_${widget.childId}';
-  final cached = _settingsBox.get(cachedKey, defaultValue: 0);
-  if (mounted) setState(() => _balance = cached ?? 0);
+    // 1️⃣ Show cached balance immediately
+    final cachedKey = 'cached_balance_${widget.childId}';
+    final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+    if (mounted) setState(() => _balance = cached ?? 0);
 
-  await _checkConnectivity();
-
-  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-  await taskProvider.initHive();
-  await taskProvider.loadTasks(
-    parentId: widget.parentId,
-    childId: widget.childId,
-  );
-
-  taskProvider.startDailyResetScheduler();
-
-  // 2️⃣ Start real-time listeners
-  _listenToBalance();
-  _listenToTasks();
-
-  // 3️⃣ Fetch balance from Firestore
-  try {
-    await _fetchBalance();
-  } catch (e) {
-    debugPrint('⚠️ _fetchBalance failed: $e');
-  }
-}
-
-  /// Real-time task listener — reloads provider tasks and checks for new tokens
-  void _listenToTasks() {
-  _taskSubscription?.cancel();
-
-  final stream = FirebaseFirestore.instance
-      .collection('users')
-      .doc(widget.parentId)
-      .collection('children')
-      .doc(widget.childId)
-      .collection('tasks')
-      .snapshots();
-
-   _taskSubscription = stream.listen((snapshot) async {
-    if (!mounted) return;
+    await _checkConnectivity();
 
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
-
-    // Reload tasks from Firestore
+    await taskProvider.initHive();
     await taskProvider.loadTasks(
       parentId: widget.parentId,
       childId: widget.childId,
     );
 
-    // Find any verified tasks that haven't been shown yet
-    final newlyVerifiedTasks = taskProvider.tasks.where((t) {
-      if (t.verified != true) return false;
+    taskProvider.startDailyResetScheduler();
 
-      final seenIds = List<String>.from(
-        _settingsBox.get('seen_verified_tasks_${widget.childId}', defaultValue: []),
-      );
+    // 2️⃣ Start real-time listeners
+    _listenToBalance();
+    _listenToTasks();
 
-      return !seenIds.contains(t.id);
-    }).toList();
-
-    if (newlyVerifiedTasks.isNotEmpty) {
-      // mark them as seen immediately
-      final seenIds = List<String>.from(
-        _settingsBox.get('seen_verified_tasks_${widget.childId}', defaultValue: []),
-      );
-      seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
-      await _settingsBox.put('seen_verified_tasks_${widget.childId}', seenIds);
-
-      tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
+    // 3️⃣ Fetch balance from Firestore
+    try {
+      await _fetchBalance();
+    } catch (e) {
+      debugPrint('⚠️ _fetchBalance failed: $e');
     }
-  }, onError: (e) => debugPrint('❌ Task stream error: $e'));
-}
+  }
 
-/// Listen to real-time balance updates
+  /// Real-time task listener — reloads provider tasks and checks for new tokens
+  void _listenToTasks() {
+    _taskSubscription?.cancel();
+
+    final stream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(widget.childId)
+        .collection('tasks')
+        .snapshots();
+
+    _taskSubscription = stream.listen((snapshot) async {
+      if (!mounted) return;
+
+      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+
+      // Reload tasks from Firestore
+      await taskProvider.loadTasks(
+        parentId: widget.parentId,
+        childId: widget.childId,
+      );
+
+      // Find any verified tasks that haven't been shown yet
+      final newlyVerifiedTasks = taskProvider.tasks.where((t) {
+        if (t.verified != true) return false;
+
+        final seenIds = List<String>.from(
+          _settingsBox.get(
+            'seen_verified_tasks_${widget.childId}',
+            defaultValue: [],
+          ),
+        );
+
+        return !seenIds.contains(t.id);
+      }).toList();
+
+      if (newlyVerifiedTasks.isNotEmpty) {
+        // mark them as seen immediately
+        final seenIds = List<String>.from(
+          _settingsBox.get(
+            'seen_verified_tasks_${widget.childId}',
+            defaultValue: [],
+          ),
+        );
+        seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
+        await _settingsBox.put(
+          'seen_verified_tasks_${widget.childId}',
+          seenIds,
+        );
+
+        tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
+      }
+    }, onError: (e) => debugPrint('❌ Task stream error: $e'));
+  }
+
+  /// Listen to real-time balance updates
   void _listenToBalance() {
     _balanceSubscription?.cancel();
     final stream = FirebaseFirestore.instance
@@ -253,7 +258,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           Column(
             children: tasks.map((task) {
               final isDone = task.isDone;
-              final isVerified = task.verified ?? false;
+              final isVerified = task.verified;
 
               Color cardColor = Colors.white;
               if (isVerified) {
@@ -278,11 +283,11 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: _getDifficultyColor(task.difficulty ?? 'easy'),
+                          color: _getDifficultyColor(task.difficulty),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          task.difficulty ?? 'Easy',
+                          task.difficulty,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -294,7 +299,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                         children: [
                           Image.asset('assets/coin.png', width: 16, height: 16),
                           const SizedBox(width: 4),
-                          Text('${task.reward ?? 0}'),
+                          Text('${task.reward}'),
                         ],
                       ),
                     ],
@@ -367,11 +372,11 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                           },
                           checkColor: Colors.white,
                           activeColor: _getDifficultyColor(
-                            task.difficulty ?? 'easy',
+                            task.difficulty,
                           ),
                           side: BorderSide(
                             color: _getDifficultyColor(
-                              task.difficulty ?? 'easy',
+                              task.difficulty,
                             ),
                             width: 2,
                           ),
@@ -385,8 +390,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     );
   }
 
-  
-
   @override
   void dispose() {
     _balanceSubscription?.cancel();
@@ -395,274 +398,276 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   @override
-Widget build(BuildContext context) {
-  final unlockManager = Provider.of<UnlockManager>(context, listen: false);
+  Widget build(BuildContext context) {
+    final unlockManager = Provider.of<UnlockManager>(context, listen: false);
 
-  return FutureBuilder(
-    future: Hive.openBox('settings'),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState != ConnectionState.done) {
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
-      }
+    return FutureBuilder(
+      future: Hive.openBox('settings'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
 
-    return Scaffold(
-            body: Stack(
-              children: [
-                Image.asset(
-                  'assets/general_bg.png',
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                ),
-                Column(
-                  children: [
-                    const SizedBox(height: 40),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '${_getGreeting()}, ${widget.childName}!',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.logout, color: Colors.black),
-                            onPressed: () async {
-                              final auth = Provider.of<AuthProvider>(
-                                context,
-                                listen: false,
-                              );
-                              final fish = Provider.of<FishProvider>(
-                                context,
-                                listen: false,
-                              );
-                              final decor = Provider.of<DecorProvider>(
-                                context,
-                                listen: false,
-                              );
-                              await auth.logoutChild();
-                              fish.clearData();
-                              decor.clearData();
-                              if (!mounted) return;
-                              Navigator.pushAndRemoveUntil(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const ChooseRolePage(),
-                                ),
-                                (r) => false,
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: const BoxDecoration(
-                          color: Color.fromARGB(235, 255, 255, 255),
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(24),
+        return Scaffold(
+          body: Stack(
+            children: [
+              Image.asset(
+                'assets/general_bg.png',
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+              ),
+              Column(
+                children: [
+                  const SizedBox(height: 40),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${_getGreeting()}, ${widget.childName}!',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
                           ),
                         ),
-                        child: Consumer<TaskProvider>(
-                          builder: (context, taskProvider, _) {
-                            final childTasks = taskProvider.tasks
-                                .where(
-                                  (t) =>
-                                      t.childId == widget.childId &&
-                                      t.name.isNotEmpty,
-                                )
-                                .toList();
-
-                            if (childTasks.isEmpty) {
-                              return const Center(
-                                child: Text("No tasks to display"),
-                              );
-                            }
-
-                            final grouped = {
-                              'Morning': <TaskModel>[],
-                              'Afternoon': <TaskModel>[],
-                              'Evening': <TaskModel>[],
-                              'Anytime': <TaskModel>[],
-                            };
-
-                            for (var task in childTasks) {
-                              switch (task.routine.toLowerCase()) {
-                                case 'morning':
-                                  grouped['Morning']!.add(task);
-                                  break;
-                                case 'afternoon':
-                                  grouped['Afternoon']!.add(task);
-                                  break;
-                                case 'evening':
-                                  grouped['Evening']!.add(task);
-                                  break;
-                                default:
-                                  grouped['Anytime']!.add(task);
-                              }
-                            }
-
-                            final total = childTasks.length;
-                            final done =
-                                childTasks.where((t) => t.isDone).length;
-                            final progress = total == 0 ? 0.0 : done / total;
-
-                            return RefreshIndicator(
-                              onRefresh: _initPage,
-                              child: ListView(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12),
-                                children: [
-                                  const Text(
-                                    "Complete your daily tasks to earn tokens!",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                      horizontal: 16,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.05),
-                                          blurRadius: 5,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              const Text(
-                                                "Daily Progress",
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.black87,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 6),
-                                              ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                child: LinearProgressIndicator(
-                                                  value: progress,
-                                                  minHeight: 10,
-                                                  backgroundColor:
-                                                      Colors.grey[300],
-                                                  valueColor:
-                                                      const AlwaysStoppedAnimation<
-                                                          Color>(Colors.green),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 6,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF8657F3),
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Image.asset(
-                                                'assets/coin.png',
-                                                width: 20,
-                                                height: 20,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                '$_balance',
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  _buildTaskGroup(
-                                    'Morning',
-                                    grouped['Morning']!,
-                                    unlockManager,
-                                    _isOffline,
-                                  ),
-                                  _buildTaskGroup(
-                                    'Afternoon',
-                                    grouped['Afternoon']!,
-                                    unlockManager,
-                                    _isOffline,
-                                  ),
-                                  _buildTaskGroup(
-                                    'Evening',
-                                    grouped['Evening']!,
-                                    unlockManager,
-                                    _isOffline,
-                                  ),
-                                  _buildTaskGroup(
-                                    'Anytime',
-                                    grouped['Anytime']!,
-                                    unlockManager,
-                                    _isOffline,
-                                  ),
-                                ],
+                        IconButton(
+                          icon: const Icon(Icons.logout, color: Colors.black),
+                          onPressed: () async {
+                            final auth = Provider.of<AuthProvider>(
+                              context,
+                              listen: false,
+                            );
+                            final fish = Provider.of<FishProvider>(
+                              context,
+                              listen: false,
+                            );
+                            final decor = Provider.of<DecorProvider>(
+                              context,
+                              listen: false,
+                            );
+                            await auth.signOut();
+                            fish.clearData();
+                            decor.clearData();
+                            if (!mounted) return;
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ChooseRolePage(),
                               ),
+                              (r) => false,
                             );
                           },
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-                if (_isOffline)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
                     child: Container(
-                      color: Colors.redAccent,
-                      padding: const EdgeInsets.all(8),
-                      child: const Text(
-                        "You're offline. Changes will sync automatically when online.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: const BoxDecoration(
+                        color: Color.fromARGB(235, 255, 255, 255),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(24),
+                        ),
+                      ),
+                      child: Consumer<TaskProvider>(
+                        builder: (context, taskProvider, _) {
+                          final childTasks = taskProvider.tasks
+                              .where(
+                                (t) =>
+                                    t.childId == widget.childId &&
+                                    t.name.isNotEmpty,
+                              )
+                              .toList();
+
+                          if (childTasks.isEmpty) {
+                            return const Center(
+                              child: Text("No tasks to display"),
+                            );
+                          }
+
+                          final grouped = {
+                            'Morning': <TaskModel>[],
+                            'Afternoon': <TaskModel>[],
+                            'Evening': <TaskModel>[],
+                            'Anytime': <TaskModel>[],
+                          };
+
+                          for (var task in childTasks) {
+                            switch (task.routine.toLowerCase()) {
+                              case 'morning':
+                                grouped['Morning']!.add(task);
+                                break;
+                              case 'afternoon':
+                                grouped['Afternoon']!.add(task);
+                                break;
+                              case 'evening':
+                                grouped['Evening']!.add(task);
+                                break;
+                              default:
+                                grouped['Anytime']!.add(task);
+                            }
+                          }
+
+                          final total = childTasks.length;
+                          final done = childTasks.where((t) => t.isDone).length;
+                          final progress = total == 0 ? 0.0 : done / total;
+
+                          return RefreshIndicator(
+                            onRefresh: _initPage,
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              children: [
+                                const Text(
+                                  "Complete your daily tasks to earn tokens!",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                    horizontal: 16,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 5,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              "Daily Progress",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              child: LinearProgressIndicator(
+                                                value: progress,
+                                                minHeight: 10,
+                                                backgroundColor:
+                                                    Colors.grey[300],
+                                                valueColor:
+                                                    const AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(Colors.green),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF8657F3),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Image.asset(
+                                              'assets/coin.png',
+                                              width: 20,
+                                              height: 20,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '$_balance',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                _buildTaskGroup(
+                                  'Morning',
+                                  grouped['Morning']!,
+                                  unlockManager,
+                                  _isOffline,
+                                ),
+                                _buildTaskGroup(
+                                  'Afternoon',
+                                  grouped['Afternoon']!,
+                                  unlockManager,
+                                  _isOffline,
+                                ),
+                                _buildTaskGroup(
+                                  'Evening',
+                                  grouped['Evening']!,
+                                  unlockManager,
+                                  _isOffline,
+                                ),
+                                _buildTaskGroup(
+                                  'Anytime',
+                                  grouped['Anytime']!,
+                                  unlockManager,
+                                  _isOffline,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
-              ],
-            ),
-          );
+                ],
+              ),
+              if (_isOffline)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    color: Colors.redAccent,
+                    padding: const EdgeInsets.all(8),
+                    child: const Text(
+                      "You're offline. Changes will sync automatically when online.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
       },
     );
   }

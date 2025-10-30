@@ -17,9 +17,6 @@ import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
-import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
-import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
 import 'package:brightbuds_new/ui/pages/childlogin_page.dart';
 import 'package:brightbuds_new/ui/widgets/splash_screen.dart';
@@ -57,43 +54,44 @@ Future<void> _initFlutterLocalNotifications() async {
   const AndroidInitializationSettings initializationSettingsAndroid =
       AndroidInitializationSettings('@mipmap/ic_launcher');
 
-  const InitializationSettings initSettings =
-      InitializationSettings(android: initializationSettingsAndroid);
+  const InitializationSettings initSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+  );
 
-  await flutterLocalNotificationsPlugin.initialize(initSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-    debugPrint('🔔 Local notification tapped: ${response.payload}');
-  });
+  await flutterLocalNotificationsPlugin.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: (NotificationResponse response) {
+      debugPrint('🔔 Local notification tapped: ${response.payload}');
+    },
+  );
 
   // ✅ Request permission for notifications
   final bool? granted = await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
+        AndroidFlutterLocalNotificationsPlugin
+      >()
       ?.requestNotificationsPermission();
 
   if (granted ?? false) {
-    print("✅ Notification permission granted!");
-  } else {
-    print("❌ Notification permission denied!");
+    final dailyChannel = AndroidNotificationChannel(
+      'daily_reminder_channel',
+      'Daily Task Reminders',
+      description: 'Daily reminders for tasks',
+      importance: Importance.high,
+    );
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(dailyChannel);
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(_androidChannel);
   }
-
-  final dailyChannel = AndroidNotificationChannel(
-    'daily_reminder_channel',
-    'Daily Task Reminders',
-    description: 'Daily reminders for tasks',
-    importance: Importance.high,
-  );
-
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(dailyChannel);
-
-
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(_androidChannel);
 }
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -115,7 +113,9 @@ void main() async {
 
   // ✅ Enable Firestore offline caching (optional but good)
   try {
-    FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+    );
     debugPrint('✅ Firestore offline persistence enabled');
   } catch (e) {
     debugPrint('⚠️ Failed to enable Firestore persistence: $e');
@@ -162,71 +162,69 @@ void main() async {
   runApp(const MyApp());
 }
 
-
 /// ------------------ APP ------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   Future<void> _initializeFCM() async {
-  final FirebaseMessaging messaging = FirebaseMessaging.instance;
+    final FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-  // Request permission
-  final settings = await messaging.requestPermission(
-    alert: true,
-    badge: true,
-    sound: true,
-  );
-  if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-    debugPrint('❌ Notifications not authorized!');
+    // Request permission
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+      debugPrint('❌ Notifications not authorized!');
+    }
+
+    // Get FCM token
+    try {
+      final token = await messaging.getToken();
+      debugPrint('🔹 FCM token: $token');
+    } catch (e) {
+      debugPrint('⚠️ Failed to get FCM token: $e');
+    }
+
+    // Single listener for foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      debugPrint('📩 [FCM] Foreground message received!');
+      debugPrint('Title: ${message.notification?.title}');
+      debugPrint('Body: ${message.notification?.body}');
+      debugPrint('Data: ${message.data}');
+
+      final notification = message.notification;
+      final androidDetails = AndroidNotificationDetails(
+        _androidChannel.id,
+        _androidChannel.name,
+        channelDescription: _androidChannel.description,
+        importance: Importance.high,
+        priority: Priority.high,
+      );
+
+      // 🔔 Show local notification to confirm reception
+      await flutterLocalNotificationsPlugin.show(
+        message.hashCode,
+        notification?.title ?? 'BrightBuds',
+        notification?.body ?? 'You have a new update!',
+        NotificationDetails(android: androidDetails),
+      );
+    });
+
+    // When notification is tapped and app opens
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      debugPrint('🔹 Notification opened app: ${message.notification?.title}');
+    });
+
+    // Handle app launch from terminated state
+    final initialMessage = await messaging.getInitialMessage();
+    if (initialMessage != null) {
+      debugPrint(
+        '🔹 App opened from terminated state: ${initialMessage.notification?.title}',
+      );
+    }
   }
-
-  // Get FCM token
-  try {
-    final token = await messaging.getToken();
-    debugPrint('🔹 FCM token: $token');
-  } catch (e) {
-    debugPrint('⚠️ Failed to get FCM token: $e');
-  }
-
-  // Single listener for foreground messages
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-  debugPrint('📩 [FCM] Foreground message received!');
-  debugPrint('Title: ${message.notification?.title}');
-  debugPrint('Body: ${message.notification?.body}');
-  debugPrint('Data: ${message.data}');
-
-  final notification = message.notification;
-  final androidDetails = AndroidNotificationDetails(
-    _androidChannel.id,
-    _androidChannel.name,
-    channelDescription: _androidChannel.description,
-    importance: Importance.high,
-    priority: Priority.high,
-  );
-
-  // 🔔 Show local notification to confirm reception
-  await flutterLocalNotificationsPlugin.show(
-    message.hashCode,
-    notification?.title ?? 'BrightBuds',
-    notification?.body ?? 'You have a new update!',
-    NotificationDetails(android: androidDetails),
-  );
-});
-
-
-  // When notification is tapped and app opens
-  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-    debugPrint('🔹 Notification opened app: ${message.notification?.title}');
-  });
-
-  // Handle app launch from terminated state
-  final initialMessage = await messaging.getInitialMessage();
-  if (initialMessage != null) {
-    debugPrint(
-        '🔹 App opened from terminated state: ${initialMessage.notification?.title}');
-  }
-}
-
 
   @override
   Widget build(BuildContext context) {
@@ -267,17 +265,17 @@ class MyApp extends StatelessWidget {
                 primarySwatch: Colors.blue,
               ),
               home: Builder(
-  builder: (context) {
-    if (auth.isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+                builder: (context) {
+                  if (auth.isLoading) {
+                    return const Scaffold(
+                      body: Center(child: CircularProgressIndicator()),
+                    );
+                  }
 
-    // Show splash screen first
-    return const SplashScreen(); 
-  },
-),
+                  // Show splash screen first
+                  return const SplashScreen();
+                },
+              ),
 
               routes: {
                 '/parentAuth': (context) => const ParentAuthPage(),

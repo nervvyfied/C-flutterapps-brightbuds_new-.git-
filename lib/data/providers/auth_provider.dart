@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -7,12 +9,10 @@ import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
 import '/data/services/auth_service.dart';
 import '/data/repositories/user_repository.dart';
-import '/data/repositories/task_repository.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _auth = AuthService();
   final UserRepository _userRepo = UserRepository();
-  late final TaskRepository _taskRepo;
 
   dynamic currentUserModel; // ParentUser or ChildUser
   User? firebaseUser;
@@ -22,101 +22,127 @@ class AuthProvider extends ChangeNotifier {
 
   bool isLoading = true;
 
+  StreamSubscription<User?>? _authStateSub;
+
   AuthProvider() {
-    _taskRepo = TaskRepository();
+
+    // IMPORTANT: Assume caller has opened boxes already (same as before).
+    // If boxes may not be open, you should open them before constructing provider.
     _parentBox = Hive.box<ParentUser>('parentBox');
     _childBox = Hive.box<ChildUser>('childBox');
 
-    // Restore local session first (offline safe)
-    restoreSession();
+    // Use an async initializer to avoid races
+    _init();
+  }
 
-    // Listen for Firebase auth state only when online or signed in
-    _auth.authStateChanges.listen(_onAuthStateChanged);
+  Future<void> _init() async {
+    // 1) Restore local session (synchronous UI update)
+    await restoreSession();
+
+    // 2) Attach auth state listener AFTER restoreSession to avoid races
+    _authStateSub = _auth.authStateChanges.listen(_onAuthStateChanged);
   }
 
   // ---------------- AUTH STATE LISTENER ----------------
   Future<void> _onAuthStateChanged(User? user) async {
+    // Save previous state to detect changes
+    final previousUserModel = currentUserModel;
     firebaseUser = user;
 
-    // 🟢 Only handle if parent is logged in via Firebase
     if (user != null) {
-      // If already loaded from cache, don’t refetch unnecessarily
+      // If parent is already loaded from cache and matches uid, do nothing
       if (currentUserModel is ParentUser &&
-          (currentUserModel as ParentUser).uid == user.uid) return;
+          (currentUserModel as ParentUser).uid == user.uid) {
+        // still update firebaseUser and return
+        firebaseUser = user;
+        notifyListeners();
+        return;
+      }
 
       try {
+        // Try to load cached parent first
         final cachedParent = _userRepo.getCachedParent(user.uid);
         if (cachedParent != null) {
           currentUserModel = cachedParent;
         } else {
+          // Fetch and cache remotely if not present locally
           final fetchedParent = await _userRepo.fetchParentAndCache(user.uid);
           if (fetchedParent != null) currentUserModel = fetchedParent;
         }
 
-        // Clear cached children (safety)
+        // Clear local child session when a parent signed-in is detected
         await _childBox.clear();
-      } catch (e) {
-        debugPrint("Auth state sync failed: $e");
+      } catch (e, st) {
+        debugPrint("Auth state sync failed: $e\n$st");
       }
     } else {
-      // Signed out or Firebase lost connection
+      // Firebase says no authenticated user
       firebaseUser = null;
-      // Keep offline child session intact
-      if (!(currentUserModel is ChildUser)) {
+
+      // Keep the offline child session intact if it exists.
+      // Only clear Parent sessions — avoid wiping a child session that may be offline
+      if (currentUserModel is ParentUser) {
         currentUserModel = null;
       }
+      // If currentUserModel is ChildUser, keep it (offline child stays signed-in)
     }
 
-    notifyListeners();
+    // Only notify if the model actually changed (to avoid excessive rebuilds)
+    if (previousUserModel != currentUserModel ||
+        previousUserModel is! ParentUser) {
+      notifyListeners();
+    }
   }
 
   // ---------------- RESTORE SESSION ----------------
- Future<void> restoreSession() async {
-  isLoading = true;
+  Future<void> restoreSession() async {
+    isLoading = true;
+    notifyListeners();
 
-  // 1️⃣ Load any cached session immediately (offline first)
-  final cachedChild = _childBox.values.isNotEmpty ? _childBox.values.first : null;
-  final cachedParent = _parentBox.values.isNotEmpty ? _parentBox.values.first : null;
+    try {
+      // 1️⃣ Load offline cache first
+      final cachedChild = _childBox.values.isNotEmpty
+          ? _childBox.values.first
+          : null;
+      final cachedParent = _parentBox.values.isNotEmpty
+          ? _parentBox.values.first
+          : null;
 
-  if (cachedChild != null) {
-    // Instant offline restore for child
-    currentUserModel = cachedChild;
-    firebaseUser = null;
-  } else if (cachedParent != null) {
-    // Instant offline restore for parent
-    currentUserModel = cachedParent;
-    firebaseUser = null;
-  } else {
-    currentUserModel = null;
-    firebaseUser = null;
-  }
-
-  notifyListeners(); // Immediate UI update
-
-  // 2️⃣ Verify Firebase session asynchronously
-  try {
-    final fbUser = _auth.currentUser;
-    if (fbUser != null) {
-      firebaseUser = fbUser;
-      // Try cached parent first
-      var parent = _userRepo.getCachedParent(fbUser.uid);
-      if (parent == null) {
-        parent = await _userRepo.fetchParentAndCache(fbUser.uid);
+      if (cachedChild != null) {
+        currentUserModel = cachedChild;
+        firebaseUser = null;
+      } else if (cachedParent != null) {
+        currentUserModel = cachedParent;
+        firebaseUser = null;
+      } else {
+        currentUserModel = null;
+        firebaseUser = null;
       }
 
-      if (parent != null) {
-        currentUserModel = parent;
-        await _parentBox.put(parent.uid, parent);
-        await _childBox.clear(); // Clear old child session
+      notifyListeners();
+
+      // 2️⃣ Async Firebase session validation (parent only)
+      final fbUser = _auth.currentUser;
+      if (fbUser != null) {
+        var parent = _userRepo.getCachedParent(fbUser.uid);
+        parent ??= await _userRepo.fetchParentAndCache(fbUser.uid);
+
+        if (parent != null) {
+          currentUserModel = parent;
+          await _parentBox.put(parent.uid, parent);
+          await _childBox.clear(); // clear old child cache
+        }
+
+        firebaseUser = fbUser;
+        notifyListeners();
       }
+    } catch (e, st) {
+      debugPrint("Restore session failed: $e\n$st");
+    } finally {
+      isLoading = false;
+      notifyListeners();
     }
-  } catch (e) {
-    debugPrint("Restore session verification failed: $e");
   }
-
-  isLoading = false;
-  notifyListeners(); // Update UI after verification
-}
 
   // ---------------- PARENT METHODS ----------------
   Future<void> signUpParent(String name, String email, String password) async {
@@ -214,7 +240,9 @@ class AuthProvider extends ChangeNotifier {
 
   // ---------------- CHILD METHODS ----------------
   Future<ChildUser?> addChild(String name) async {
-    if (currentUserModel == null || currentUserModel is! ParentUser) return null;
+    if (currentUserModel == null || currentUserModel is! ParentUser) {
+      return null;
+    }
 
     final parent = currentUserModel as ParentUser;
     final code = _auth.generateChildAccessCode();
@@ -244,31 +272,40 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> loginChild(String accessCode) async {
     final child = await _auth.childLogin(accessCode);
-    if (child != null) {
-      currentUserModel = child;
-      await _userRepo.cacheChild(child);
-      await _childBox.put(child.cid, child);
-      firebaseUser = null;
-      notifyListeners();
-    }
-  }
-
-  // ---------------- SIGN OUT / LOGOUT ----------------
-  Future<void> signOut() async {
-    await _auth.signOut();
+    currentUserModel = child;
+    await _userRepo.cacheChild(child);
+    await _childBox.put(child.cid, child);
     firebaseUser = null;
-    currentUserModel = null;
-    await _childBox.clear();
-    await _parentBox.clear();
     notifyListeners();
-  }
+    }
 
-  Future<void> logoutChild() async {
-    if (currentUserModel is ChildUser) {
-      final child = currentUserModel as ChildUser;
-      await _childBox.delete(child.cid);
+  Future<void> signOut() async {
+    try {
+      // 1️⃣ Prevent race conditions by cancelling the listener first
+      await _authStateSub?.cancel();
+      _authStateSub = null;
+
+      // 2️⃣ Sign out from Firebase and Google
+      await _auth.signOut();
+
+      // 3️⃣ Clear cached user data after auth sign-out
+      await _userRepo.clearAllCachedData();
+      await _parentBox.clear();
+      await _childBox.clear();
+
+      // 4️⃣ Reset provider state
+      firebaseUser = null;
       currentUserModel = null;
+
       notifyListeners();
+
+      // 5️⃣ Reattach authState listener
+      _authStateSub = _auth.authStateChanges.listen(_onAuthStateChanged);
+
+      debugPrint("✅ Sign-out completed successfully.");
+    } catch (e, st) {
+      debugPrint("⚠️ Error during sign-out: $e\n$st");
+      rethrow;
     }
   }
 
@@ -287,39 +324,43 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ---------------- FCM TOKEN HANDLING ----------------
-Future<void> saveFcmToken() async {
-  final token = await FirebaseMessaging.instance.getToken();
-  if (token == null) return;
+  Future<void> saveFcmToken() async {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null) return;
 
-  try {
-    if (currentUserModel is ParentUser) {
-      final parent = currentUserModel as ParentUser;
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(parent.uid)
-          .update({'fcmToken': token});
+    try {
+      if (currentUserModel is ParentUser) {
+        final parent = currentUserModel as ParentUser;
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(parent.uid)
+            .update({'fcmToken': token});
 
-      debugPrint('✅ Parent FCM token saved: $token');
+        debugPrint('✅ Parent FCM token saved: $token');
+      } else if (currentUserModel is ChildUser) {
+        final child = currentUserModel as ChildUser;
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(child.parentUid)
+            .collection('children')
+            .doc(child.cid)
+            .set({'fcmToken': token}, SetOptions(merge: true));
 
-    } else if (currentUserModel is ChildUser) {
-      final child = currentUserModel as ChildUser;
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(child.parentUid)
-          .collection('children')
-          .doc(child.cid)
-          .set({'fcmToken': token}, SetOptions(merge: true));
-
-      debugPrint('✅ Child FCM token saved: $token');
+        debugPrint('✅ Child FCM token saved: $token');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to save FCM token: $e');
     }
-  } catch (e) {
-    debugPrint('⚠️ Failed to save FCM token: $e');
   }
-}
-
 
   // ---------------- HELPERS ----------------
   bool get isLoggedIn => currentUserModel != null;
   bool get isParent => currentUserModel is ParentUser;
   bool get isChild => currentUserModel is ChildUser;
+
+  @override
+  void dispose() {
+    _authStateSub?.cancel();
+    super.dispose();
+  }
 }

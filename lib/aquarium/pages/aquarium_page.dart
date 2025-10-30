@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously, curly_braces_in_flow_control_structures
+
 import 'dart:async';
 import 'dart:math';
 import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
@@ -13,7 +15,6 @@ import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:brightbuds_new/aquarium/pages/aquarium_tutorial_modal.dart';
@@ -228,7 +229,7 @@ class _AquariumPageState extends State<AquariumPage>
           }
         }
 
-        final childId = child.cid; // already have child
+       
         await _maybeShowTutorial();
       }
 
@@ -610,11 +611,6 @@ class _AquariumPageState extends State<AquariumPage>
     });
   }
 
-  void dispose() {
-    decorProvider.saveEditMode(); // final sync in case some moves are unsaved
-    _animController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -782,7 +778,7 @@ class _AquariumPageState extends State<AquariumPage>
                         ),
                       ),
                     );
-                  }).toList(),
+                  }),
                   // ----- Edit Mode Banner -----
                   if (decorProvider.isInEditMode)
                     Positioned(
@@ -862,7 +858,6 @@ class _AquariumPageState extends State<AquariumPage>
                           ),
                         );
                       })
-                      .toList(),
                 ],
               ),
 

@@ -30,12 +30,9 @@ class FCMService {
       final response = await http.post(url, headers: headers, body: jsonEncode(payload));
 
       if (response.statusCode == 200) {
-        print('✅ Notification sent successfully!');
       } else {
-        print('❌ Failed to send notification: ${response.body}');
       }
     } catch (e) {
-      print('⚠️ Error sending notification: $e');
     }
   }
 }

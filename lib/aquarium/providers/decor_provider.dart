@@ -82,8 +82,9 @@ class DecorProvider extends ChangeNotifier {
 
   // ---------- PURCHASE (offline-first) ----------
   Future<bool> purchaseDecor(DecorDefinition decor) async {
-    if (isAlreadyPlaced(decor.id) || isOwnedButNotPlaced(decor.id))
+    if (isAlreadyPlaced(decor.id) || isOwnedButNotPlaced(decor.id)) {
       return false;
+    }
     if (currentChild.balance < decor.price) return false;
 
     _updateLocalBalance(currentChild.balance - decor.price);
@@ -236,7 +237,9 @@ class DecorProvider extends ChangeNotifier {
         .map((d) => PlacedDecor.fromMap(d.toMap()))
         .toList();
     isInEditMode = true;
-    for (var d in _editingBuffer) d.isSelected = false;
+    for (var d in _editingBuffer) {
+      d.isSelected = false;
+    }
 
     if (focusDecorId != null) {
       final idx = _editingBuffer.indexWhere((d) => d.id == focusDecorId);
@@ -256,7 +259,9 @@ class DecorProvider extends ChangeNotifier {
 
   void toggleDecorSelection(String decorId) {
     if (!isInEditMode) enterEditMode(focusDecorId: decorId);
-    for (var d in _editingBuffer) d.isSelected = false;
+    for (var d in _editingBuffer) {
+      d.isSelected = false;
+    }
 
     final idx = _editingBuffer.indexWhere((d) => d.id == decorId);
     if (idx != -1) _editingBuffer[idx].isSelected = true;

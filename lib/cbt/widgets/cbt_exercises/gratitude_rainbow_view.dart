@@ -145,8 +145,12 @@ class _GratitudeRainbowViewState extends State<GratitudeRainbowView>
 
   @override
   void dispose() {
-    for (var c in _bandControllers) c.dispose();
-    for (var c in _cloudControllers) c.dispose();
+    for (var c in _bandControllers) {
+      c.dispose();
+    }
+    for (var c in _cloudControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 

@@ -15,7 +15,11 @@ class AuthService {
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   // ---------------- PARENT ----------------
-  Future<ParentUser?> signUpParent(String name, String email, String password) async {
+  Future<ParentUser?> signUpParent(
+    String name,
+    String email,
+    String password,
+  ) async {
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
       throw Exception("Name, email, and password cannot be empty");
     }
@@ -26,13 +30,12 @@ class AuthService {
     );
 
     final parent = ParentUser(
-  uid: credential.user!.uid,
-  name: name,
-  email: email,
-  accessCode: "", // each child gets a unique code
-  createdAt: DateTime.now(), // added createdAt
-);
-
+      uid: credential.user!.uid,
+      name: name,
+      email: email,
+      accessCode: "", // each child gets a unique code
+      createdAt: DateTime.now(), // added createdAt
+    );
 
     await _firestore.createParent(parent);
     return parent;
@@ -46,63 +49,69 @@ class AuthService {
 
     return await _firestore.getParent(credential.user!.uid);
   }
-// ---------------- PARENT GOOGLE LOGIN ----------------
-Future<ParentUser?> signInWithGoogle() async {
-  try {
-    final GoogleSignIn googleSignIn = GoogleSignIn();
-    final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
-    if (googleUser == null) return null; // User canceled login
+  // ---------------- PARENT GOOGLE LOGIN ----------------
+  Future<ParentUser?> signInWithGoogle() async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
-    final GoogleSignInAuthentication googleAuth =
-        await googleUser.authentication;
+      if (googleUser == null) return null; // User canceled login
 
-    final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
-    );
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
 
-    final userCredential = await _auth.signInWithCredential(credential);
-    final user = userCredential.user;
-    if (user == null) throw Exception("No Firebase user found");
-
-    // Check if parent already exists in Firestore
-    ParentUser? parent = await _firestore.getParent(user.uid);
-
-    if (parent == null) {
-      // If not, create a new ParentUser
-      parent = ParentUser(
-        uid: user.uid,
-        name: user.displayName ?? '',
-        email: user.email ?? '',
-        accessCode: "",
-        createdAt: DateTime.now(),
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
       );
 
-      await _firestore.createParent(parent);
+      final userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user;
+      if (user == null) throw Exception("No Firebase user found");
+
+      // Check if parent already exists in Firestore
+      ParentUser? parent = await _firestore.getParent(user.uid);
+
+      if (parent == null) {
+        // If not, create a new ParentUser
+        parent = ParentUser(
+          uid: user.uid,
+          name: user.displayName ?? '',
+          email: user.email ?? '',
+          accessCode: "",
+          createdAt: DateTime.now(),
+        );
+
+        await _firestore.createParent(parent);
+      }
+
+      // Cache the user
+      await _userRepo.cacheParent(parent);
+
+      return parent;
+    } catch (e) {
+      throw Exception("Google sign-in failed: $e");
     }
-
-    // Cache the user
-    await _userRepo.cacheParent(parent);
-
-    return parent;
-  } catch (e) {
-    throw Exception("Google sign-in failed: $e");
   }
-}
 
   // ---------------- CHILD ----------------
   /// Generates a **unique access code** for a new child
   String generateChildAccessCode({int length = 6}) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rand = Random();
-    return List.generate(length, (_) => chars[rand.nextInt(chars.length)]).join();
+    return List.generate(
+      length,
+      (_) => chars[rand.nextInt(chars.length)],
+    ).join();
   }
 
   Future<ChildUser> childLogin(String accessCode) async {
     final normalizedCode = accessCode.trim().toUpperCase();
 
-    final result = await _firestore.getParentByAccessCodeWithChild(normalizedCode);
+    final result = await _firestore.getParentByAccessCodeWithChild(
+      normalizedCode,
+    );
     if (result == null) throw Exception("Invalid access code");
 
     final parent = result['parent'] as ParentUser;
@@ -123,9 +132,22 @@ Future<ParentUser?> signInWithGoogle() async {
     return updatedChild;
   }
 
-
   // ---------------- SIGN OUT ----------------
   Future<void> signOut() async {
-    await _auth.signOut();
+    // 1️⃣ Safely sign out of Firebase and Google
+    final googleSignIn = GoogleSignIn();
+    final isGoogleUser = await googleSignIn.isSignedIn();
+
+    if (isGoogleUser) {
+      await googleSignIn.signOut(); // only signOut(), no need for disconnect()
+    }
+
+    await _auth.signOut(); // Firebase sign-out
+
+    // 2️⃣ Clear cached Hive data *after* sign-out
+    await _userRepo.clearAllCachedData();
+
+    // 3️⃣ Optional: small delay to ensure async clears complete
+    await Future.delayed(const Duration(milliseconds: 300));
   }
 }

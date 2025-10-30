@@ -1,12 +1,10 @@
-import 'dart:ui';
+// ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
+
 import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
 import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
-import 'package:brightbuds_new/cbt/widgets/cbt_card.dart';
-import 'package:brightbuds_new/cbt/widgets/cbt_exercise_viewer.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -267,7 +265,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     'confused': '😕',
     'scared': '😨',
   };
-
+  static const Map<String, Color> _taskColor = {
+    'done': Colors.deepPurpleAccent,
+    'notDone': Colors.yellow,
+  };
   Map<String, int> _moodCountsThisWeek(
     JournalProvider journalProv,
     String childId,
@@ -404,8 +405,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   if (!d.isBefore(startOfWeek) &&
                       !d.isAfter(startOfWeek.add(Duration(days: 6)))) {
                     final key = e.mood.toLowerCase();
-                    if (moodCounts.containsKey(key))
+                    if (moodCounts.containsKey(key)) {
                       moodCounts[key] = moodCounts[key]! + 1;
+                    }
                   }
                 }
               }
@@ -460,7 +462,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                   journalProv,
                                   activeChild['cid'],
                                 ),
-                                centerSpaceRadius: 25,
+                                centerSpaceRadius: 20,
                                 startDegreeOffset: 180,
                                 sectionsSpace: 2,
                                 borderData: FlBorderData(show: false),
@@ -777,9 +779,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                       final exercise = CBTLibrary.getById(
                                         assigned.exerciseId,
                                       );
-
-                                      if (exercise == null)
-                                        return const SizedBox.shrink();
 
                                       return ListTile(
                                         contentPadding: EdgeInsets.zero,

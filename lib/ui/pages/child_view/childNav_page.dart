@@ -1,3 +1,5 @@
+// ignore_for_file: file_names
+
 import 'package:brightbuds_new/cbt/pages/child_cbt_page.dart';
 import 'package:brightbuds_new/data/managers/token_manager.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
@@ -32,11 +34,6 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     ];
   }
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
 
   @override
   Widget build(BuildContext context) {

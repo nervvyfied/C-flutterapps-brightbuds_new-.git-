@@ -19,7 +19,7 @@ class TokenManager {
 
     final newTasks = taskProvider.tasks.where((task) {
       final updatedTime = task.lastUpdated?.millisecondsSinceEpoch ?? 0;
-      return (task.verified ?? false) && updatedTime > lastSeen;
+      return (task.verified) && updatedTime > lastSeen;
     }).toList();
 
     if (newTasks.isNotEmpty) {

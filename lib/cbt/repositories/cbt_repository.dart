@@ -9,37 +9,43 @@ class CBTRepository {
 
   /// Add a single CBT (Hive + Firestore)
   Future<void> addAssignedCBT(String parentId, AssignedCBT cbt) async {
-  try {
-    final childRef = _firestore
-        .collection('users')
-        .doc(parentId)
-        .collection('children')
-        .doc(cbt.childId);
+    try {
+      final childRef = _firestore
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(cbt.childId);
 
-    // ensure child doc exists
-    await childRef.set({}, SetOptions(merge: true));
+      // ensure child doc exists
+      await childRef.set({}, SetOptions(merge: true));
 
-    final cbtRef = childRef.collection('CBT').doc(cbt.id);
+      final cbtRef = childRef.collection('CBT').doc(cbt.id);
 
-    await cbtRef.set(cbt.toMap());
+      await cbtRef.set(cbt.toMap());
 
-    await _cbtBox.put(cbt.id, cbt);
-    debugPrint('CBT successfully added for ${cbt.childId}');
-  } catch (e, st) {
-    debugPrint('Failed to add CBT: $e\n$st');
+      await _cbtBox.put(cbt.id, cbt);
+      debugPrint('CBT successfully added for ${cbt.childId}');
+    } catch (e, st) {
+      debugPrint('Failed to add CBT: $e\n$st');
+    }
   }
-}
 
   /// Add multiple CBTs
   Future<void> assignMultipleCBTs(
-      String parentId, List<AssignedCBT> cbts) async {
+    String parentId,
+    List<AssignedCBT> cbts,
+  ) async {
     for (final cbt in cbts) {
       await addAssignedCBT(parentId, cbt);
     }
   }
 
-    /// Remove an assigned CBT (Hive + Firestore)
-  Future<void> removeAssignedCBT(String parentId, String childId, String cbtId) async {
+  /// Remove an assigned CBT (Hive + Firestore)
+  Future<void> removeAssignedCBT(
+    String parentId,
+    String childId,
+    String cbtId,
+  ) async {
     try {
       // Remove from Firestore
       await _firestore
@@ -60,10 +66,12 @@ class CBTRepository {
     }
   }
 
-
   /// Fetch CBTs from Firestore for a specific week
   Future<List<AssignedCBT>> getAssignedCBTsForWeek(
-      String parentId, String childId, int weekOfYear) async {
+    String parentId,
+    String childId,
+    int weekOfYear,
+  ) async {
     final snapshot = await _firestore
         .collection('users')
         .doc(parentId)
@@ -96,25 +104,21 @@ class CBTRepository {
   }
 
   /// Mark CBT as completed (Hive + Firestore)
-  Future<void> updateCompletion(
-      String parentId, String childId, String cbtId) async {
-    final cbt = _cbtBox.get(cbtId);
-    if (cbt != null) {
-      cbt.completed = true;
-      cbt.lastCompleted = DateTime.now();
-      await _cbtBox.put(cbt.id, cbt);
+Future<void> updateCompletion(String parentId, String childId, String cbtId) async {
+  final docRef = FirebaseFirestore.instance
+      .collection('users')
+      .doc(parentId) // ✅ parent first
+      .collection('children')
+      .doc(childId) // ✅ child second
+      .collection('CBT')
+      .doc(cbtId);
 
-      await _firestore
-          .collection('users')
-          .doc(parentId)
-          .collection('children')
-          .doc(childId)
-          .collection('CBT')
-          .doc(cbt.id)
-          .update({
-        'completed': true,
-        'lastCompleted': Timestamp.fromDate(DateTime.now()),
-      });
-    }
-  }
+  await docRef.update({
+    'completed': true,
+    'lastCompleted': FieldValue.serverTimestamp(),
+  });
+
+  debugPrint('🔥 Updated completion for CBT $cbtId under child $childId of parent $parentId');
+}
+
 }
