@@ -604,6 +604,21 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
+
+                    // ---------------- Task Legend ----------------
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _legendItem(
+                          color: Colors.deepPurpleAccent,
+                          label: 'Done',
+                        ),
+                        const SizedBox(width: 16),
+                        _legendItem(color: Colors.yellow, label: 'Not Done'),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
                     Text(
                       '$notDone Not Done',
                       style: const TextStyle(fontSize: 12),
@@ -617,6 +632,24 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         ],
       ),
     ];
+  }
+
+  // Helper function for legend items
+  Widget _legendItem({required Color color, required String label}) {
+    return Row(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
   }
 
   @override
