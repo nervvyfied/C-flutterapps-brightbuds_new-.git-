@@ -168,19 +168,19 @@ class DecorProvider extends ChangeNotifier {
     );
   }
 
-  void _updateLocalBalance(int newBalance) {
+  void _updateLocalBalance(int newBalance, {bool notify = true}) {
     if (currentChild.balance == newBalance) return;
 
-    // 1️⃣ Update in-memory child
+    // Update in-memory child
     currentChild = currentChild.copyWith(balance: newBalance);
 
-    // 2️⃣ Add pending action for syncing later
+    // Add pending action for Firestore sync
     _pendingActions.add(_PendingAction.balance());
 
-    // 3️⃣ Notify UI immediately
-    _safeNotify();
+    // Notify UI if needed
+    if (notify) _safeNotify();
 
-    // 4️⃣ Fire off async Firestore + Hive update
+    // Fire off async Firestore + Hive update
     _syncBalanceToFirestore(newBalance);
   }
 
@@ -271,7 +271,7 @@ class DecorProvider extends ChangeNotifier {
 
       // Update local balance if different
       if (fetchedBalance != currentChild.balance) {
-        _updateLocalBalance(fetchedBalance);
+        _updateLocalBalance(fetchedBalance, notify: true);
         if (kDebugMode) {
           print("💰 Balance synced from Firestore: $fetchedBalance");
         }

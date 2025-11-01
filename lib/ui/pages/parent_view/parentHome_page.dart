@@ -9,7 +9,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '/data/models/parent_model.dart';
@@ -18,9 +17,6 @@ import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/journal_provider.dart';
 import '../../../data/providers/task_provider.dart';
 import '../../../data/providers/selected_child_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 class ParentDashboardPage extends StatefulWidget {
   final String parentId;
@@ -70,7 +66,7 @@ Map<String, int> _countTaskStatuses(List<TaskModel> tasks) {
   } else {
     notDone++;
     // Check if task is missed
-    final routineKey = (task.routine ?? 'anytime').toLowerCase().trim(); // normalize
+    final routineKey = (task.routine).toLowerCase().trim(); // normalize
     final end = routineEndTimes[routineKey];
     if (end != null && routineKey != 'anytime') {
       if (_timeOfDayToDouble(now) > _timeOfDayToDouble(end)) {
