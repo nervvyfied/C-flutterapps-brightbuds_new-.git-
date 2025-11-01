@@ -1,5 +1,5 @@
 // ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
-
+import 'package:intl/intl.dart';
 import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
 import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
@@ -38,6 +38,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   final GlobalKey _childChartKey = GlobalKey();
   final GlobalKey _taskChartKey = GlobalKey();
   final Set<String> _notifiedTaskIds = {};
+  final dateFormat = DateFormat('MMM dd, yyyy');
 
   Map<String, TimeOfDay> routineStartTimes = {
   'morning': const TimeOfDay(hour: 5, minute: 0),
@@ -502,118 +503,192 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
   final pdf = pw.Document();
 
   final name = childData['name'] ?? 'Unknown';
-  final balance = childData['balance']?.toString() ?? '0';
+  final parentName = childData['parentName'] ?? '-';
+  final parentEmail = childData['parentEmail'] ?? '-';
   final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
   final done = childData['done'] ?? 0;
   final notDone = childData['notDone'] ?? 0;
   final missed = childData['missed'] ?? 0;
+  final cbtTasks = List<Map<String, dynamic>>.from(childData['cbtTasks'] ?? []);
+
+  final totalTasks = done + notDone + missed;
+  final completionRate = totalTasks > 0 ? (done / totalTasks * 100).toStringAsFixed(1) : '0';
+  final missedRate = totalTasks > 0 ? (missed / totalTasks * 100).toStringAsFixed(1) : '0';
+  final topMood = moodCounts.entries.isNotEmpty
+      ? moodCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key.capitalize()
+      : '-';
+  final moodDiversity = moodCounts.entries.where((e) => e.value > 0).length;
+
+  final now = DateTime.now();
+  final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+  final endOfWeek = startOfWeek.add(Duration(days: 6));
+
+  // Prepare daily breakdowns
+  final dailyMoodCounts = <DateTime, Map<String, int>>{};
+  final dailyTaskCounts = <DateTime, Map<String, int>>{};
+  for (int i = 0; i < 7; i++) {
+    final day = startOfWeek.add(Duration(days: i));
+    dailyMoodCounts[day] = {};
+    dailyTaskCounts[day] = {'done': 0, 'notDone': 0, 'missed': 0};
+  }
+
+  // Fill daily data from entries and tasks
+  final entries = childData['entries'] ?? [];
+  for (final e in entries) {
+    final created = e['createdAt'] as DateTime;
+    if (!created.isBefore(startOfWeek) && !created.isAfter(endOfWeek)) {
+      final day = DateTime(created.year, created.month, created.day);
+      dailyMoodCounts[day]?[e['mood'].toLowerCase()] =
+          (dailyMoodCounts[day]?[e['mood'].toLowerCase()] ?? 0) + 1;
+    }
+  }
+
+  final tasks = childData['tasks'] ?? [];
+  for (final t in tasks) {
+    final taskDate = t['date'] as DateTime;
+    if (!taskDate.isBefore(startOfWeek) && !taskDate.isAfter(endOfWeek)) {
+      final day = DateTime(taskDate.year, taskDate.month, taskDate.day);
+      final status = t['status'];
+      dailyTaskCounts[day]?[status] = (dailyTaskCounts[day]?[status] ?? 0) + 1;
+    }
+  }
+
+  // Behavioral highlights
+  final mostProductiveDay = dailyTaskCounts.entries
+      .reduce((a, b) => a.value['done']! > b.value['done']! ? a : b)
+      .key;
+  final happiestDay = dailyMoodCounts.entries
+      .map((e) => MapEntry(e.key, e.value['happy'] ?? 0))
+      .reduce((a, b) => a.value > b.value ? a : b)
+      .key;
+  final missedTasksNames = tasks.where((t) => t['status'] == 'missed').map((t) => t['name']).toList();
 
   pdf.addPage(
-    pw.Page(
+    pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(32),
       build: (context) {
-        return pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            // Header
-            pw.Text(
-              "$name's Weekly Report",
-              style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 16),
-            pw.Divider(),
+        return [
+          // Header
+          pw.Text("$name's Weekly Report",
+              style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 8),
+          pw.Text("Date Range: ${dateFormat.format(startOfWeek)} - ${dateFormat.format(endOfWeek)}"),
+          pw.Divider(),
 
-            // Basic Info
-            pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(vertical: 8),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text("Child Name: $name", style: const pw.TextStyle(fontSize: 14)),
-                  pw.Text("Current Balance: $balance", style: const pw.TextStyle(fontSize: 14)),
-                ],
+          // Basic Info
+          pw.Text("Child Name: $name", style: pw.TextStyle(fontSize: 14)),
+          pw.Text("Parent: $parentName ($parentEmail)", style: pw.TextStyle(fontSize: 14)),
+          pw.SizedBox(height: 16),
+
+          // Summary Statistics
+          pw.Text("Summary Statistics", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.Bullet(text: "Total Tasks: $totalTasks"),
+          pw.Bullet(text: "Completion Rate: $completionRate%"),
+          pw.Bullet(text: "Missed Rate: $missedRate%"),
+          pw.Bullet(text: "Most Frequent Mood: $topMood"),
+          pw.Bullet(text: "Mood Diversity: $moodDiversity"),
+          pw.SizedBox(height: 16),
+
+          // Mood Pie Chart
+          pw.Text("Mood Summary", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            height: 180,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: moodCounts.entries.map((entry) {
+                final color = PdfColors.primaries[moodCounts.keys.toList().indexOf(entry.key) % PdfColors.primaries.length];
+                return pw.Row(
+                  children: [
+                    pw.Container(width: 12, height: 12, color: color),
+                    pw.SizedBox(width: 8),
+                    pw.Text('${entry.key.capitalize()}: ${entry.value}'),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+          pw.SizedBox(height: 16),
+
+          // Task Completion Chart
+          pw.Text("Task Completion (Bar Chart)", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 8),
+          pw.Container(
+            height: 180,
+            child: pw.Chart(
+              grid: pw.CartesianGrid(
+                xAxis: pw.FixedAxis.fromStrings(["Done", "Not Done", "Missed"], marginStart: 8, marginEnd: 8),
+                yAxis: pw.FixedAxis([0, 5, 10, 15, 20]),
               ),
-            ),
-            pw.SizedBox(height: 16),
-
-            // Mood Pie Chart
-            pw.Text(
-              "Mood Summary",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 8),
-pw.Container(
-  height: 180,
-  child: pw.Column(
-    crossAxisAlignment: pw.CrossAxisAlignment.start,
-    children: moodCounts.entries.map((entry) {
-      final color = PdfColors.primaries[moodCounts.keys.toList().indexOf(entry.key) % PdfColors.primaries.length];
-      return pw.Padding(
-        padding: pw.EdgeInsets.symmetric(vertical: 4),
-        child: pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.center,
-          children: [
-            pw.Container(width: 12, height: 12, color: color),
-            pw.SizedBox(width: 8),
-            pw.Text('${entry.key.capitalize()}: ${entry.value}', style: pw.TextStyle(fontSize: 12)),
-          ],
-        ),
-      );
-    }).toList(),
-  ),
-),
-            pw.SizedBox(height: 16),
-
-            // Task Completion Bar Chart
-            pw.Text(
-              "Task Completion",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Container(
-              height: 180,
-              child: pw.Chart(
-                grid: pw.CartesianGrid(
-                  xAxis: pw.FixedAxis.fromStrings(
-                    ["Done", "Not Done", "Missed"],
-                    marginStart: 8,
-                    marginEnd: 8,
-                  ),
-                  yAxis: pw.FixedAxis([0.0, 5.0, 10.0, 15.0, 20.0]),
+              datasets: [
+                pw.BarDataSet(
+                  data: [
+                    pw.PointChartValue(0, done.toDouble()),
+                    pw.PointChartValue(1, notDone.toDouble()),
+                    pw.PointChartValue(2, missed.toDouble()),
+                  ],
+                  color: PdfColors.deepPurple,
                 ),
-                datasets: [
-                  pw.BarDataSet(
-                    data: [
-                      pw.PointChartValue(0, done.toDouble()),
-                      pw.PointChartValue(1, notDone.toDouble()),
-                      pw.PointChartValue(2, missed.toDouble()),
-                    ],
-                    color: PdfColors.deepPurple,
-                  ),
-                ],
-              ),
+              ],
             ),
-            pw.SizedBox(height: 24),
+          ),
+          pw.SizedBox(height: 16),
 
-            // Footer
-            pw.Center(
-              child: pw.Text(
-                "Generated by BrightBuds Parent Dashboard",
-                style: pw.TextStyle(fontSize: 10, color: PdfColors.grey),
-              ),
-            ),
-          ],
-        );
+          // Daily Breakdown Table
+          pw.Text("Daily Breakdown", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.Table.fromTextArray(
+            headers: ['Day', 'Done', 'Not Done', 'Missed', 'Top Mood'],
+            data: List.generate(7, (i) {
+              final day = startOfWeek.add(Duration(days: i));
+              final taskData = dailyTaskCounts[day]!;
+              final moodData = dailyMoodCounts[day]!;
+              final topMoodDay = moodData.entries.isEmpty
+                  ? '-'
+                  : moodData.entries.reduce((a, b) => a.value > b.value ? a : b).key.capitalize();
+              return [
+                dateFormat.format(day),
+                taskData['done'],
+                taskData['notDone'],
+                taskData['missed'],
+                topMoodDay,
+              ];
+            }),
+          ),
+          pw.SizedBox(height: 16),
+
+          // CBT Assignments
+          pw.Text("CBT Assignments", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          ...cbtTasks.map((cbt) {
+            final progress = cbt['completed'] / cbt['total'];
+            return pw.Column(children: [
+              pw.Text("${cbt['name']} (${cbt['completed']}/${cbt['total']})"),
+              pw.LinearProgressIndicator(value: progress),
+              pw.SizedBox(height: 8),
+            ]);
+          }).toList(),
+          pw.SizedBox(height: 16),
+
+          // Behavioral Highlights
+          pw.Text("Behavioral Highlights", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.Bullet(text: "Most productive day: ${dateFormat.format(mostProductiveDay)}"),
+          pw.Bullet(text: "Day with highest positive mood: ${dateFormat.format(happiestDay)}"),
+          pw.Bullet(text: "Most often missed tasks: ${missedTasksNames.join(', ')}"),
+
+          pw.SizedBox(height: 24),
+          // Footer
+          pw.Center(
+            child: pw.Text("Generated by BrightBuds Parent Dashboard",
+                style: pw.TextStyle(fontSize: 10, color: PdfColors.grey)),
+          ),
+        ];
       },
     ),
   );
 
-  await Printing.layoutPdf(
-    onLayout: (PdfPageFormat format) async => pdf.save(),
-    name: "child_${name}_report.pdf",
-  );
+  await Printing.layoutPdf(onLayout: (format) async => pdf.save(), name: "child_${name}_report.pdf");
 }
+
 
   static const List<String> _moodOrder = [
     'calm',
@@ -796,14 +871,15 @@ pw.Container(
               final childTasks = taskProv.tasks
                   .where((t) => t.childId == childId)
                   .toList();
-              final done = childTasks.where((t) => t.isDone).length;
-              final notDone = childTasks.where((t) => !t.isDone).length;
+
+              final statusCounts = _countTaskStatuses(childTasks);
 
               final fullChildData = {
                 ...activeChild,
                 'moodCounts': moodCounts,
-                'done': done,
-                'notDone': notDone,
+                'done': statusCounts['done']!,
+                'notDone': statusCounts['notDone']!,
+                'missed': statusCounts['missed']!, // <-- include missed here
               };
 
               exportChildDataToPdfWithCharts(fullChildData);
