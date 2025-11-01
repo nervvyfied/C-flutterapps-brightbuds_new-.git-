@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_types_as_parameter_names, unused_element
+
 import 'dart:collection';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -16,13 +18,19 @@ class _PendingAction {
   final _PendingActionType type;
   final PlacedDecor? decor; // present for addOrUpdate
   final String? id; // id for remove or addOrUpdate
+  final int? delta; // ✅ for balance changes
+
   _PendingAction.addOrUpdate(this.decor)
     : type = _PendingActionType.addOrUpdate,
-      id = decor?.id;
+      id = decor?.id,
+      delta = null;
+
   _PendingAction.remove(this.id)
     : type = _PendingActionType.remove,
-      decor = null;
-  _PendingAction.balance()
+      decor = null,
+      delta = null;
+
+  _PendingAction.balance(this.delta)
     : type = _PendingActionType.balance,
       decor = null,
       id = null;
@@ -92,18 +100,18 @@ class DecorProvider extends ChangeNotifier {
 
   // ---------- PURCHASE (offline-first) ----------
   Future<bool> purchaseDecor(DecorDefinition decor) async {
-    // 1️⃣ Prevent buying if already owned
+    // Prevent buying if already owned
     if (isAlreadyPlaced(decor.id) || isOwnedButNotPlaced(decor.id)) {
       return false;
     }
-    // 2️⃣ Check if balance is enough
+
+    // Check if balance is enough
     if (currentChild.balance < decor.price) return false;
 
-    // 3️⃣ Update local balance immediately (offline-first)
-    final newBalance = currentChild.balance - decor.price;
-    _updateLocalBalance(newBalance); // ✅ handles Hive, pending, and UI
+    // 1️⃣ Deduct local balance safely
+    _updateLocalBalance(-decor.price);
 
-    // 4️⃣ Create new placed decor
+    // 2️⃣ Create new placed decor
     final newDecor = PlacedDecor(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       decorId: decor.id,
@@ -112,16 +120,18 @@ class DecorProvider extends ChangeNotifier {
       isPlaced: false,
     );
 
-    // 5️⃣ Update local lists
+    // 3️⃣ Update local lists
     placedDecors.add(newDecor);
     if (isInEditMode) _editingBuffer.add(PlacedDecor.fromMap(newDecor.toMap()));
 
-    // 6️⃣ Add pending action for the decor itself
+    // 4️⃣ Queue pending action for offline sync
     _pendingActions.add(_PendingAction.addOrUpdate(newDecor));
+
     _safeNotify();
 
-    // 7️⃣ Fire off async Firestore sync (decor only)
+    // 5️⃣ Fire off async Firestore/Hive sync
     _syncDecorToFirestore(newDecor);
+    _syncBalanceToFirestore(); // ensure balance is synced
 
     return true;
   }
@@ -156,38 +166,65 @@ class DecorProvider extends ChangeNotifier {
     final soldDecor = placedDecors.removeAt(idx);
     _editingBuffer.removeWhere((d) => d.id == soldDecor.id);
 
+    // Get decor price
     final decorDef = DecorCatalog.byId(soldDecor.decorId);
     final price = decorDef.price;
 
-    _updateLocalBalance(currentChild.balance + price);
+    // 1️⃣ Increase balance locally
+    _updateLocalBalance(price);
+
+    // 2️⃣ Queue pending remove action
     _pendingActions.add(_PendingAction.remove(soldDecor.id));
+
     _safeNotify();
 
-    debugPrint(
-      "🟢 Sold decor ${soldDecor.decorId} for $price tokens. New balance: ${currentChild.balance}",
-    );
+    // 3️⃣ Fire off async Firestore/Hive sync
+    try {
+      await _repo.removePlacedDecor(
+        currentChild.parentUid,
+        currentChild.cid,
+        soldDecor.id,
+      );
+      _removeFirstPendingOfTypeForId(_PendingActionType.remove, soldDecor.id);
+
+      // Sync all other pending actions including balance
+      if (await NetworkHelper.isOnline()) await pushPendingChanges();
+      _syncBalanceToFirestore();
+    } catch (e) {
+      debugPrint("⚠️ sellDecor offline, will sync later: $e");
+    }
+
+    if (kDebugMode) {
+      debugPrint(
+        "🟢 Sold decor ${soldDecor.decorId} for $price tokens. Balance: ${currentChild.balance}",
+      );
+    }
   }
 
-  void _updateLocalBalance(int newBalance, {bool notify = true}) {
-    if (currentChild.balance == newBalance) return;
+  void _updateLocalBalance(int delta, {bool notify = true}) {
+    if (delta == 0) return;
 
-    // Update in-memory child
-    currentChild = currentChild.copyWith(balance: newBalance);
+    // Update in-memory balance immediately
+    currentChild = currentChild.copyWith(balance: currentChild.balance + delta);
 
     // Add pending action for Firestore sync
-    _pendingActions.add(_PendingAction.balance());
+    _pendingActions.add(_PendingAction.balance(delta));
 
-    // Notify UI if needed
     if (notify) _safeNotify();
 
-    // Fire off async Firestore + Hive update
-    _syncBalanceToFirestore(newBalance);
+    // Fire off async Firestore merge (safely sums all pending deltas)
+    _syncBalanceToFirestore();
   }
 
-  Future<void> _syncBalanceToFirestore(int newBalance) async {
-    try {
-      if (!await NetworkHelper.isOnline()) return;
+  Future<void> _syncBalanceToFirestore() async {
+    if (!await NetworkHelper.isOnline()) return;
 
+    final pendingDeltas = _pendingActions
+        .where((a) => a.type == _PendingActionType.balance)
+        .toList();
+    if (pendingDeltas.isEmpty) return;
+
+    try {
       final childRef = FirebaseFirestore.instance
           .collection('users')
           .doc(currentChild.parentUid)
@@ -196,53 +233,56 @@ class DecorProvider extends ChangeNotifier {
 
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(childRef);
-        if (!snapshot.exists) {
-          throw Exception(
-            "Child ${currentChild.cid} not found under parent ${currentChild.parentUid}",
-          );
-        }
+        if (!snapshot.exists) throw Exception("Child not found");
 
+        int firestoreBalance = snapshot.data()?['balance'] ?? 0;
+
+        // Sum all pending deltas
+        final totalDelta = pendingDeltas.fold(
+          0,
+          (sum, a) => sum + (a.delta ?? 0),
+        );
+
+        final newBalance = firestoreBalance + totalDelta;
+
+        // Update Firestore
         transaction.update(childRef, {'balance': newBalance});
+
+        // Update local memory & Hive/local storage
+        currentChild = currentChild.copyWith(balance: newBalance);
+        await _repo.updateBalance(
+          currentChild.parentUid,
+          currentChild.cid,
+          newBalance,
+        );
+
+        // Remove applied pending balance actions
+        _pendingActions.removeWhere(
+          (a) => a.type == _PendingActionType.balance,
+        );
+
+        if (kDebugMode) print("✅ Synced balance: $newBalance");
       });
-
-      // Update Hive via repository
-      await _repo.updateBalance(
-        currentChild.parentUid,
-        currentChild.cid,
-        newBalance,
-      );
-
-      // Remove pending action once synced
-      _removeFirstPendingOfType(_PendingActionType.balance);
-
-      // Attempt to push other pending changes
-      if (await NetworkHelper.isOnline()) await pushPendingChanges();
-
-      if (kDebugMode) {
-        print("✅ Firestore balance updated for ${currentChild.cid}");
-      }
     } catch (e) {
-      debugPrint('⚠️ Failed to sync balance to Firestore: $e');
+      debugPrint("⚠️ Failed to sync balance: $e");
     }
   }
 
   Future<void> loadBalance() async {
     try {
-      // 1. Get local cached balance
+      // 1️⃣ Load local cached balance first
       final cachedBalance = await _repo.fetchBalance(
         currentChild.parentUid,
         currentChild.cid,
       );
 
-      // 2. Update in-memory balance immediately
-      if (currentChild.balance != cachedBalance) {
-        currentChild = currentChild.copyWith(balance: cachedBalance);
-        _safeNotify();
-        if (kDebugMode) print("💰 Loaded balance from Hive: $cachedBalance");
-      }
+      currentChild = currentChild.copyWith(balance: cachedBalance);
+      _safeNotify();
 
-      // 3. Try fetching Firestore balance asynchronously to sync
-      _syncBalanceFromFirestore();
+      if (kDebugMode) print("💰 Loaded local balance: $cachedBalance");
+
+      // 2️⃣ Merge with Firestore balance asynchronously
+      await _syncBalanceFromFirestore();
     } catch (e) {
       debugPrint("⚠️ loadBalance failed: $e");
     }
@@ -259,22 +299,46 @@ class DecorProvider extends ChangeNotifier {
           .doc(currentChild.cid)
           .get();
 
-      final firestoreBalance = doc.data()?['balance'];
+      if (!doc.exists) return;
 
-      if (firestoreBalance == null) return;
+      // Firestore balance
+      final remote = doc.data()?['balance'] ?? 0;
+      int remoteBalance;
+      if (remote is int) {
+        remoteBalance = remote;
+      } else if (remote is double) {
+        remoteBalance = remote.toInt();
+      } else {
+        remoteBalance = int.tryParse('$remote') ?? 0;
+      }
 
-      final fetchedBalance = (firestoreBalance is int)
-          ? firestoreBalance
-          : (firestoreBalance is double)
-          ? firestoreBalance.toInt()
-          : int.tryParse('$firestoreBalance') ?? 0;
+      // Sum all pending balance deltas locally
+      final pendingDelta = _pendingActions
+          .where((a) => a.type == _PendingActionType.balance)
+          .fold(0, (sum, a) => sum + (a.delta ?? 0));
 
-      // Update local balance if different
-      if (fetchedBalance != currentChild.balance) {
-        _updateLocalBalance(fetchedBalance, notify: true);
+      // Merge Firestore + pending
+      final mergedBalance = remoteBalance + pendingDelta;
+
+      // Update local memory & Hive only if changed
+      if (currentChild.balance != mergedBalance) {
+        currentChild = currentChild.copyWith(balance: mergedBalance);
+        _safeNotify();
+
         if (kDebugMode) {
-          print("💰 Balance synced from Firestore: $fetchedBalance");
+          print("💰 Merged balance from Firestore + pending: $mergedBalance");
         }
+
+        await _repo.updateBalance(
+          currentChild.parentUid,
+          currentChild.cid,
+          mergedBalance,
+        );
+      }
+
+      // Now push all pending balance deltas to Firestore safely
+      if (pendingDelta != 0) {
+        await _syncBalanceToFirestore();
       }
     } catch (e) {
       debugPrint("⚠️ _syncBalanceFromFirestore failed: $e");
@@ -321,7 +385,8 @@ class DecorProvider extends ChangeNotifier {
     }
 
     if (await NetworkHelper.isOnline()) {
-      await _mergeRemote();
+      await _syncBalanceToFirestore();
+      await pushPendingChanges(); // push other decor changes
     }
   }
 
@@ -600,12 +665,14 @@ class DecorProvider extends ChangeNotifier {
     final actions = List<_PendingAction>.from(_pendingActions);
 
     try {
+      // 1️⃣ Handle add/update decors
       final addUpdates = actions
           .where(
             (a) => a.type == _PendingActionType.addOrUpdate && a.decor != null,
           )
           .map((a) => a.decor!)
           .toList();
+
       if (addUpdates.isNotEmpty) {
         await _repo.pushPlacedDecorChanges(
           currentChild.parentUid,
@@ -617,10 +684,12 @@ class DecorProvider extends ChangeNotifier {
         }
       }
 
+      // 2️⃣ Handle removes
       final removes = actions
           .where((a) => a.type == _PendingActionType.remove && a.id != null)
           .map((a) => a.id!)
           .toList();
+
       for (var id in removes) {
         await _repo.removePlacedDecor(
           currentChild.parentUid,
@@ -630,14 +699,9 @@ class DecorProvider extends ChangeNotifier {
         _removeFirstPendingOfTypeForId(_PendingActionType.remove, id);
       }
 
-      final hasBalance = actions.any(
-        (a) => a.type == _PendingActionType.balance,
-      );
-      if (hasBalance) {
-        await _maybePersistBalance();
-        _removeFirstPendingOfType(_PendingActionType.balance);
-      }
+      // ✅ No balance handling here—it's done via _syncBalanceToFirestore
 
+      // 3️⃣ Merge remote decors
       await _mergeRemote();
     } catch (e) {
       debugPrint('DecorProvider: pushPendingChanges failed: $e');
