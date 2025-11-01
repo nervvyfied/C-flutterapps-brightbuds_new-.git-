@@ -761,7 +761,56 @@ pw.Container(
           icon: const Icon(Icons.download, color: Colors.white),
           tooltip: "Export to PDF",
           onPressed: () {
-            // ✅ PDF export logic here (unchanged)
+            final journalProv = Provider.of<JournalProvider>(
+                context,
+                listen: false,
+              );
+              final taskProv = Provider.of<TaskProvider>(
+                context,
+                listen: false,
+              );
+
+              final moodCounts = <String, int>{};
+              final childId = activeChild['cid'] ?? '';
+              if (childId.isNotEmpty) {
+                final entries = journalProv.getEntries(childId);
+                final now = DateTime.now();
+                final startOfWeek = DateTime(
+                  now.year,
+                  now.month,
+                  now.day,
+                ).subtract(Duration(days: now.weekday - 1));
+
+                for (var mood in _moodOrder) {
+                  moodCounts[mood] = 0;
+                }
+
+                for (final e in entries) {
+                  final d = e.createdAt;
+                  if (!d.isBefore(startOfWeek) &&
+                      !d.isAfter(startOfWeek.add(Duration(days: 6)))) {
+                    final key = e.mood.toLowerCase();
+                    if (moodCounts.containsKey(key)) {
+                      moodCounts[key] = moodCounts[key]! + 1;
+                    }
+                  }
+                }
+              }
+
+              final childTasks = taskProv.tasks
+                  .where((t) => t.childId == childId)
+                  .toList();
+              final done = childTasks.where((t) => t.isDone).length;
+              final notDone = childTasks.where((t) => !t.isDone).length;
+
+              final fullChildData = {
+                ...activeChild,
+                'moodCounts': moodCounts,
+                'done': done,
+                'notDone': notDone,
+              };
+
+              exportChildDataToPdfWithCharts(fullChildData);
           },
         ),
       ),
