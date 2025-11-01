@@ -24,10 +24,10 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       parentUid: fields[4] as String,
       placedDecors: (fields[5] as List?)
           ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
+          ?.toList(),
       ownedFish: (fields[6] as List?)
           ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
+          ?.toList(),
       firstVisitUnlocked: fields[7] as bool,
     );
   }

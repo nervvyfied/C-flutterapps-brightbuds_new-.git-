@@ -185,8 +185,6 @@ class TaskProvider extends ChangeNotifier {
       // 7️⃣ Schedule alarms for tasks (skip web)
       if (!kIsWeb) await _scheduleAllAlarms(_tasks);
 
-      // 8️⃣ Start web simulation if needed
-      if (kIsWeb) startWebDebugSimulation();
     } finally {
       _setLoading(false);
     }
@@ -893,32 +891,6 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  void startWebDebugSimulation() {
-    if (!kIsWeb) return;
-
-    debugPrint('🌐 [WEB DEBUG] Starting task alarm simulation...');
-    Future.doWhile(() async {
-      final now = DateTime.now();
-      for (final task in _tasks) {
-        if (task.alarm != null) {
-          final alarmTime = DateTime(
-            now.year,
-            now.month,
-            now.day,
-            task.alarm!.hour,
-            task.alarm!.minute,
-          );
-          if ((now.difference(alarmTime).inSeconds).abs() <= 5) {
-            debugPrint(
-              '🔔 [WEB SIM] Alarm triggered for "${task.name}" at ${now.hour}:${now.minute}:${now.second}',
-            );
-          }
-        }
-      }
-      await Future.delayed(const Duration(seconds: 1));
-      return true;
-    });
-  }
 }
 
 // ---------------- EXTENSIONS ----------------
