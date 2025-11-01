@@ -5,6 +5,7 @@ import 'package:brightbuds_new/cbt/pages/parent_cbt_page.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
@@ -17,6 +18,9 @@ import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/journal_provider.dart';
 import '../../../data/providers/task_provider.dart';
 import '../../../data/providers/selected_child_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 class ParentDashboardPage extends StatefulWidget {
   final String parentId;
@@ -25,6 +29,10 @@ class ParentDashboardPage extends StatefulWidget {
 
   @override
   State<ParentDashboardPage> createState() => _ParentDashboardPageState();
+}
+
+extension StringCasingExtension on String {
+  String capitalize() => isNotEmpty ? '${this[0].toUpperCase()}${substring(1)}' : '';
 }
 
 class _ParentDashboardPageState extends State<ParentDashboardPage> {
@@ -494,46 +502,111 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
     _notifiedTaskIds.add(taskId);
   }
 
-  Future<void> exportChildDataToPdfWeb(Map<String, dynamic> childData) async {
+  Future<void> exportChildDataToPdfWithCharts(Map<String, dynamic> childData) async {
   final pdf = pw.Document();
 
   final name = childData['name'] ?? 'Unknown';
   final balance = childData['balance']?.toString() ?? '0';
   final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
-  final done = childData['done']?.toString() ?? '0';
-  final notDone = childData['notDone']?.toString() ?? '0';
-  final missed = childData['missed']?.toString() ?? '0'; // Added missed
+  final done = childData['done'] ?? 0;
+  final notDone = childData['notDone'] ?? 0;
+  final missed = childData['missed'] ?? 0;
 
   pdf.addPage(
     pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      margin: const pw.EdgeInsets.all(32),
       build: (context) {
         return pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
+            // Header
             pw.Text(
-              "$name's Report",
-              style: pw.TextStyle(
-                fontSize: 24,
-                fontWeight: pw.FontWeight.bold,
+              "$name's Weekly Report",
+              style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 16),
+            pw.Divider(),
+
+            // Basic Info
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 8),
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text("Child Name: $name", style: const pw.TextStyle(fontSize: 14)),
+                  pw.Text("Current Balance: $balance", style: const pw.TextStyle(fontSize: 14)),
+                ],
               ),
             ),
-            pw.SizedBox(height: 10),
-            pw.Text("Child Name: $name"),
-            pw.Text("Balance: $balance"),
-            pw.SizedBox(height: 20),
+            pw.SizedBox(height: 16),
+
+            // Mood Pie Chart
             pw.Text(
-              "Mood Counts This Week:",
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              "Mood Summary",
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
             ),
-            ...moodCounts.entries.map((e) => pw.Text("${e.key}: ${e.value}")),
-            pw.SizedBox(height: 20),
+            pw.SizedBox(height: 8),
+pw.Container(
+  height: 180,
+  child: pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: moodCounts.entries.map((entry) {
+      final color = PdfColors.primaries[moodCounts.keys.toList().indexOf(entry.key) % PdfColors.primaries.length];
+      return pw.Padding(
+        padding: pw.EdgeInsets.symmetric(vertical: 4),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            pw.Container(width: 12, height: 12, color: color),
+            pw.SizedBox(width: 8),
+            pw.Text('${entry.key.capitalize()}: ${entry.value}', style: pw.TextStyle(fontSize: 12)),
+          ],
+        ),
+      );
+    }).toList(),
+  ),
+),
+            pw.SizedBox(height: 16),
+
+            // Task Completion Bar Chart
             pw.Text(
-              "Task Status:",
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              "Task Completion",
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
             ),
-            pw.Text("Done: $done"),
-            pw.Text("Not Done: $notDone"),
-            pw.Text("Missed: $missed"), // Added missed
+            pw.SizedBox(height: 8),
+            pw.Container(
+              height: 180,
+              child: pw.Chart(
+                grid: pw.CartesianGrid(
+                  xAxis: pw.FixedAxis.fromStrings(
+                    ["Done", "Not Done", "Missed"],
+                    marginStart: 8,
+                    marginEnd: 8,
+                  ),
+                  yAxis: pw.FixedAxis([0.0, 5.0, 10.0, 15.0, 20.0]),
+                ),
+                datasets: [
+                  pw.BarDataSet(
+                    data: [
+                      pw.PointChartValue(0, done.toDouble()),
+                      pw.PointChartValue(1, notDone.toDouble()),
+                      pw.PointChartValue(2, missed.toDouble()),
+                    ],
+                    color: PdfColors.deepPurple,
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 24),
+
+            // Footer
+            pw.Center(
+              child: pw.Text(
+                "Generated by BrightBuds Parent Dashboard",
+                style: pw.TextStyle(fontSize: 10, color: PdfColors.grey),
+              ),
+            ),
           ],
         );
       },
@@ -542,10 +615,9 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
 
   await Printing.layoutPdf(
     onLayout: (PdfPageFormat format) async => pdf.save(),
-    name: "child_$name.pdf",
+    name: "child_${name}_report.pdf",
   );
 }
-
 
   static const List<String> _moodOrder = [
     'calm',
