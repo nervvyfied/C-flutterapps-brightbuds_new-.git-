@@ -91,7 +91,13 @@ class TokenDialog extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Yay!'),
+                child: const Text(
+                  'Yay!',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ],

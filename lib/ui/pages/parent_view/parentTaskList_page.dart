@@ -108,6 +108,127 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     );
   }
 
+  void _showVerifyModal(TaskModel task) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) {
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            color: Colors.white,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8657F3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      "Verify Quest",
+                      style: TextStyle(
+                        fontSize: 20,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Task details
+                _buildDetailRow("Task Name", task.name),
+                _buildDetailRow(
+                  "Time Completed",
+                  task.doneAt != null
+                      ? "${task.doneAt!.hour.toString().padLeft(2, '0')}:${task.doneAt!.minute.toString().padLeft(2, '0')}"
+                      : "N/A",
+                ),
+                _buildDetailRow("Difficulty", task.difficulty),
+                _buildDetailRow("Reward", task.reward.toString()),
+                _buildDetailRow("Active Streak", task.activeStreak.toString()),
+                _buildDetailRow("Longest Streak", task.longestStreak.toString()),
+                _buildDetailRow("Days Completed", task.totalDaysCompleted.toString()),
+
+                const SizedBox(height: 24),
+
+                // Confirm button
+                Center(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final taskProvider = Provider.of<TaskProvider>(
+                        context,
+                        listen: false,
+                      );
+                      taskProvider.verifyTask(task.id, task.childId);
+                      Navigator.pop(context); // Close modal
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      "Confirm Verification",
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+
+Widget _buildDetailRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          "$label:",
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 16),
+        ),
+      ],
+    ),
+  );
+}
+
+
+
   Map<String, List<TaskModel>> _groupTasksByTime(List<TaskModel> tasks) {
     final Map<String, List<TaskModel>> grouped = {
       'Morning': [],
@@ -245,11 +366,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                           ),
                           onPressed: () {
                             if (!mounted) return;
-                            final taskProvider = Provider.of<TaskProvider>(
-                              context,
-                              listen: false,
-                            );
-                            taskProvider.verifyTask(task.id, task.childId);
+                            _showVerifyModal(task);
                           },
                           child: const Text("Verify"),
                         )
