@@ -5,6 +5,7 @@ import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 class ParentTaskListScreen extends StatefulWidget {
@@ -202,9 +203,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: _getDifficultyColor(
-                                task.difficulty,
-                              ),
+                              color: _getDifficultyColor(task.difficulty),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
@@ -427,7 +426,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
     super.dispose();
   }
 
-
   Widget _buildDifficultyButton(String value, Color color) {
     final selected = difficulty == value;
     return GestureDetector(
@@ -569,24 +567,41 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   children: [
                     Image.asset('assets/coin.png', width: 24, height: 24),
                     const SizedBox(width: 8),
+
+                    // Inside _TaskFormModalState, replace the reward TextFormField:
                     SizedBox(
                       width: 80,
                       child: TextFormField(
                         controller: _rewardController,
                         textAlign: TextAlign.center,
                         keyboardType: TextInputType.number,
-                        onSaved: (val) =>
-                            reward = int.tryParse(val ?? '0') ?? 0,
+                        inputFormatters: [
+                          FilteringTextInputFormatter
+                              .digitsOnly, // Only allows numbers
+                        ],
                         decoration: const InputDecoration(
                           contentPadding: EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
                           ),
                         ),
+                        validator: (val) {
+                          if (val == null || val.isEmpty) {
+                            return "Enter a reward";
+                          }
+                          final parsed = int.tryParse(val);
+                          if (parsed == null) return "Invalid number";
+                          if (parsed <= 0) return "Reward must be positive";
+                          return null;
+                        },
+                        onSaved: (val) {
+                          reward = int.tryParse(val ?? '0') ?? 0;
+                        },
                       ),
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 16),
 
                 // Routine row
@@ -696,7 +711,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               createdAt: DateTime.now(),
                               alarm: alarmDateTime,
                             );
-                            taskProvider.addTask(newTask);
+                            taskProvider.addTask(newTask, context);
                           } else {
                             final updatedTask = TaskModel(
                               id: widget.task!.id,

@@ -182,14 +182,30 @@ String? getCachedParentId() {
   }
 
   Future<void> updateChildBalance(
-    String parentUid,
-    String childId,
-    int amount,
-  ) async {
-    if (parentUid.isEmpty || childId.isEmpty) {
-      throw ArgumentError("parentUid and childId cannot be empty.");
-    }
+  String parentUid,
+  String childId,
+  int delta, // amount to add (or subtract)
+) async {
+  if (parentUid.isEmpty || childId.isEmpty) {
+    throw ArgumentError("parentUid and childId cannot be empty.");
+  }
 
+  // --- Step 1: Update local Hive immediately ---
+  final child = _childBox.get(childId);
+  if (child != null) {
+    final newBalance = child.balance + delta;
+    final updatedChild = child.copyWith(balance: newBalance);
+    await _childBox.put(childId, updatedChild);
+
+    // Optional: notify any listeners outside this repository
+    // Example: if using a provider, you'd call provider.refresh() or similar
+    if (kDebugMode) {
+      print("🟢 Hive balance updated offline for $childId: $newBalance");
+    }
+  }
+
+  // --- Step 2: Update Firestore asynchronously (does not block) ---
+  try {
     final childRef = _firestore
         .collection('users')
         .doc(parentUid)
@@ -203,11 +219,18 @@ String? getCachedParentId() {
       }
 
       final current = (snapshot.data()?['balance'] ?? 0) as int;
-      final newBalance = current + amount;
+      final newBalance = current + delta;
 
       transaction.update(childRef, {'balance': newBalance});
     });
 
-    await fetchChildAndCache(parentUid, childId);
+    if (kDebugMode) {
+      print("✅ Firestore balance updated for $childId");
+    }
+  } catch (e) {
+    debugPrint('⚠️ Failed to sync balance to Firestore: $e');
+    // Optionally, you could queue offline sync here for retry
   }
+}
+
 }

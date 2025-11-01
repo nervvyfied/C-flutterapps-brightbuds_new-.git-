@@ -1,8 +1,12 @@
+// ignore_for_file: unnecessary_null_comparison
+
 import 'dart:async';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart'
+    show ScaffoldMessenger, Text, BuildContext, SnackBar;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:uuid/uuid.dart';
 import 'package:hive/hive.dart';
@@ -25,6 +29,18 @@ class TaskProvider extends ChangeNotifier {
 
   List<TaskModel> _tasks = [];
   List<TaskModel> get tasks => _tasks;
+  set tasks(List<TaskModel> newTasks) {
+    _tasks = newTasks;
+    notifyListeners();
+  }
+
+  TaskModel? getTaskById(String id) {
+    try {
+      return _tasks.firstWhere((t) => t.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -129,8 +145,8 @@ class TaskProvider extends ChangeNotifier {
         : await Hive.openBox<TaskModel>('tasksBox');
   }
 
-//old
-Future<void> loadTasks({
+  //old
+  Future<void> loadTasks({
     required String parentId,
     String? childId,
     bool isParent = false,
@@ -175,7 +191,6 @@ Future<void> loadTasks({
       _setLoading(false);
     }
   }
-  
 
   void _setLoading(bool value) {
     _isLoading = value;
@@ -259,27 +274,66 @@ Future<void> loadTasks({
   }
 
   // ---------------- CRUD ----------------
-  Future<void> addTask(TaskModel task) async {
-    final newTask = task.copyWith(
-      id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
-      lastUpdated: DateTime.now(),
-    );
+  Future<void> addTask(TaskModel task, BuildContext context) async {
+    try {
+      // Validate numeric field: reward
+      final reward = task.reward;
+      if (reward == null || reward.toString().isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Reward cannot be empty")));
+        return;
+      }
 
-    _tasks.add(newTask);
-    await _taskBox?.put(newTask.id, newTask);
-    
-    notifyListeners();
+      // Only allow positive integers
+      final rewardInt = int.tryParse(reward.toString());
+      if (rewardInt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Reward must be a number")),
+        );
+        return;
+      }
 
-    await _taskRepo.saveTask(newTask);
+      if (rewardInt < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Reward must be a positive number")),
+        );
+        return;
+      }
 
-    // Sync to Firestore
-    await _syncToFirestore(newTask);
+      // Create a new task with ID and timestamp
+      final newTask = task.copyWith(
+        reward: rewardInt,
+        id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
+        lastUpdated: DateTime.now(),
+      );
 
-    if (!kIsWeb) {
-      scheduleTaskAlarm(newTask); // no await
+      // Save locally
+      _tasks.add(newTask);
+      await _taskBox?.put(newTask.id, newTask);
+
+      notifyListeners();
+
+      // Save to repository
+      await _taskRepo.saveTask(newTask);
+
+      // Sync to Firestore
+      await _syncToFirestore(newTask);
+
+      // Schedule alarm (if applicable)
+      if (!kIsWeb) scheduleTaskAlarm(newTask);
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Task added successfully!")));
+    } catch (e) {
+      debugPrint("Error adding task: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to add task: ${e.toString()}")),
+      );
     }
   }
- 
+
   Future<void> updateTask(TaskModel updatedFields) async {
     final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
     if (index == -1) return;
@@ -348,6 +402,11 @@ Future<void> loadTasks({
         debugPrint('⚠️ Firestore deleteTask failed: $e');
       }
     }
+  }
+
+  void loadCachedTasks(List<TaskModel> cachedTasks) {
+    _tasks = cachedTasks;
+    notifyListeners();
   }
 
   // ---------------- TASK COMPLETION ----------------
@@ -538,8 +597,8 @@ Future<void> loadTasks({
 
     final now = DateTime.now();
 
-    // ✅ Mark as done (before marking verified, to ensure both sync properly)
-    await markTaskAsDone(task.parentId, childId);
+    // ✅ Corrected call to markTaskAsDone
+    await markTaskAsDone(taskId, childId);
 
     // ✅ Update locally (Hive & in-memory)
     final updatedTask = task.copyWith(
@@ -557,7 +616,7 @@ Future<void> loadTasks({
 
     // ✅ Update child's balance after verification
     final userRepo = UserRepository();
-    final rewardAmount = (task.reward).toInt(); // ensure integer
+    final rewardAmount = task.reward; // already int
     await userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
 
     // ✅ Only sync to Firestore if online
@@ -652,105 +711,115 @@ Future<void> loadTasks({
 
   // ---------------- REAL-TIME SAFE DAILY RESET ----------------
   Future<void> resetDailyTasks() async {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  bool updated = false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    bool updated = false;
 
-  debugPrint('🕛 Starting daily task reset check for ${_tasks.length} tasks...');
+    debugPrint(
+      '🕛 Starting daily task reset check for ${_tasks.length} tasks...',
+    );
 
-  for (var i = 0; i < _tasks.length; i++) {
-    final task = _tasks[i];
-    final lastDone = task.lastCompletedDate != null
-        ? DateTime(
-            task.lastCompletedDate!.year,
-            task.lastCompletedDate!.month,
-            task.lastCompletedDate!.day,
-          )
-        : null;
+    for (var i = 0; i < _tasks.length; i++) {
+      final task = _tasks[i];
+      final lastDone = task.lastCompletedDate != null
+          ? DateTime(
+              task.lastCompletedDate!.year,
+              task.lastCompletedDate!.month,
+              task.lastCompletedDate!.day,
+            )
+          : null;
 
-    // ✅ Reset if the task was done before today
-    final shouldReset = task.isDone && (lastDone == null || lastDone.isBefore(today));
+      // ✅ Reset if the task was done before today
+      final shouldReset =
+          task.isDone && (lastDone == null || lastDone.isBefore(today));
 
-    if (shouldReset) {
-      // ✅ Keep streak if task was done yesterday, else reset streak
-      int updatedActiveStreak = 0;
-      if (lastDone != null &&
-          lastDone.isAfter(today.subtract(const Duration(days: 2)))) {
-        updatedActiveStreak = task.activeStreak;
-      }
+      if (shouldReset) {
+        // ✅ Keep streak if task was done yesterday, else reset streak
+        int updatedActiveStreak = 0;
+        if (lastDone != null &&
+            lastDone.isAfter(today.subtract(const Duration(days: 2)))) {
+          updatedActiveStreak = task.activeStreak;
+        }
 
-      final updatedTask = task.copyWith(
-        isDone: false,
-        verified: false,
-        activeStreak: updatedActiveStreak,
-        lastUpdated: now,
-      );
+        final updatedTask = task.copyWith(
+          isDone: false,
+          verified: false,
+          activeStreak: updatedActiveStreak,
+          lastUpdated: now,
+        );
 
-      debugPrint('🔄 Resetting task "${updatedTask.name}" (was done on $lastDone)');
+        debugPrint(
+          '🔄 Resetting task "${updatedTask.name}" (was done on $lastDone)',
+        );
 
-      // --- LOCAL SAVE ---
-      await _taskBox?.put(updatedTask.id, updatedTask);
-      await _taskRepo.saveTask(updatedTask);
-      _tasks[i] = updatedTask;
-      updated = true;
+        // --- LOCAL SAVE ---
+        await _taskBox?.put(updatedTask.id, updatedTask);
+        await _taskRepo.saveTask(updatedTask);
+        _tasks[i] = updatedTask;
+        updated = true;
 
-      // --- FIRESTORE SYNC ---
-      try {
-        await _firestore
-            .collection('users')
-            .doc(updatedTask.parentId)
-            .collection('children')
-            .doc(updatedTask.childId)
-            .collection('tasks')
-            .doc(updatedTask.id)
-            .set(updatedTask.toMap(), SetOptions(merge: true));
+        // --- FIRESTORE SYNC ---
+        try {
+          await _firestore
+              .collection('users')
+              .doc(updatedTask.parentId)
+              .collection('children')
+              .doc(updatedTask.childId)
+              .collection('tasks')
+              .doc(updatedTask.id)
+              .set(updatedTask.toMap(), SetOptions(merge: true));
 
-        debugPrint('✅ Firestore updated for ${updatedTask.name}');
-      } catch (e) {
-        debugPrint('⚠️ Firestore sync failed for ${updatedTask.name}: $e');
+          debugPrint('✅ Firestore updated for ${updatedTask.name}');
+        } catch (e) {
+          debugPrint('⚠️ Firestore sync failed for ${updatedTask.name}: $e');
+        }
       }
     }
-  }
 
-  if (updated) {
-    notifyListeners();
-    debugPrint('✅ Daily tasks reset and synced successfully at $now');
-  } else {
-    debugPrint('⏳ No tasks needed resetting today.');
+    if (updated) {
+      notifyListeners();
+      debugPrint('✅ Daily tasks reset and synced successfully at $now');
+    } else {
+      debugPrint('⏳ No tasks needed resetting today.');
+    }
   }
-}
-
 
   // ---------------- AUTO RESET CHECK ----------------
   Future<void> autoResetIfNeeded() async {
-  try {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final lastReset = await getLastResetDate();
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final lastReset = await getLastResetDate();
 
-    if (lastReset == null) {
-      debugPrint('🆕 No last reset found — performing first daily reset...');
-      await resetDailyTasks();
-      await setLastResetDate(today);
-      return;
+      if (lastReset == null) {
+        debugPrint('🆕 No last reset found — performing first daily reset...');
+        await resetDailyTasks();
+        await setLastResetDate(today);
+        return;
+      }
+
+      final lastResetDay = DateTime(
+        lastReset.year,
+        lastReset.month,
+        lastReset.day,
+      );
+
+      if (lastResetDay.isBefore(today)) {
+        debugPrint(
+          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.',
+        );
+        await resetDailyTasks();
+        await setLastResetDate(today);
+      } else {
+        debugPrint(
+          '✅ Daily tasks already reset today (${lastResetDay.toLocal()}).',
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('❌ autoResetIfNeeded() failed: $e');
+      debugPrint(stack.toString());
     }
-
-    final lastResetDay =
-        DateTime(lastReset.year, lastReset.month, lastReset.day);
-
-    if (lastResetDay.isBefore(today)) {
-      debugPrint(
-          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.');
-      await resetDailyTasks();
-      await setLastResetDate(today);
-    } else {
-      debugPrint('✅ Daily tasks already reset today (${lastResetDay.toLocal()}).');
-    }
-  } catch (e, stack) {
-    debugPrint('❌ autoResetIfNeeded() failed: $e');
-    debugPrint(stack.toString());
   }
-}
 
   // ---------------- DAILY RESET SCHEDULER ----------------
   void startDailyResetScheduler() {
@@ -777,8 +846,6 @@ Future<void> loadTasks({
     _midnightTimer = null;
     debugPrint('⏹ Daily reset scheduler stopped');
   }
-
-
 
   // ---------------- SYNC ----------------
   Future<void> pushPendingChanges() async {

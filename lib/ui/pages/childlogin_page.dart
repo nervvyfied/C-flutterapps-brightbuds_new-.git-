@@ -3,6 +3,8 @@ import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
+import 'package:brightbuds_new/ui/pages/role_page.dart' show ChooseRolePage;
+import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -40,18 +42,36 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
       await fishProvider.setChild(child);
       await decorProvider.setChild(child);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Login successful!')),
-      );
-
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Login successful!')));
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const ChildNavigationShell()),
       );
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'invalid-access-code':
+          message = "Invalid access code. Please check and try again.";
+          break;
+        case 'user-disabled':
+          message = "This account has been disabled. Contact support.";
+          break;
+        default:
+          message = "Something went wrong. Please try again.";
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      // For custom exceptions thrown in loginChild
+      String errorMsg = e.toString().toLowerCase().contains('invalid')
+          ? "Invalid access code. Ask your parent first, then try again."
+          : "Unexpected error. Please try again.";
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMsg)));
     } finally {
       setState(() => _loading = false);
     }
@@ -60,6 +80,17 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+            );
+          },
+        ),
+      ),
       backgroundColor: const Color(0xFFF6F4FE),
       body: SafeArea(
         child: Center(
@@ -70,11 +101,7 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   // Logo
-                  Image.asset(
-                    'assets/bb2.png',
-                    width: 150,
-                    height: 150,
-                  ),
+                  Image.asset('assets/bb2.png', width: 150, height: 150),
                   const SizedBox(height: 20),
 
                   // Title
@@ -131,10 +158,7 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
                         ),
                       ),
                     ),
-                    style: const TextStyle(
-                      fontFamily: 'Fredoka',
-                      fontSize: 16,
-                    ),
+                    style: const TextStyle(fontFamily: 'Fredoka', fontSize: 16),
                   ),
 
                   const SizedBox(height: 30),
