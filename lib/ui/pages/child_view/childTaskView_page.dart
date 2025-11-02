@@ -50,11 +50,17 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     _settingsBox = await Hive.openBox('settings');
 
     // Load cached balance immediately
-    final cachedBalance = _settingsBox.get('cached_balance_${widget.childId}', defaultValue: 0);
+    final cachedBalance = _settingsBox.get(
+      'cached_balance_${widget.childId}',
+      defaultValue: 0,
+    );
     setState(() => _balance = cachedBalance);
 
     // Load cached tasks immediately
-    final cachedTasks = _settingsBox.get('cached_tasks_${widget.childId}', defaultValue: []);
+    final cachedTasks = _settingsBox.get(
+      'cached_tasks_${widget.childId}',
+      defaultValue: [],
+    );
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
     if (cachedTasks.isNotEmpty) taskProvider.loadCachedTasks(cachedTasks);
 
@@ -73,7 +79,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
     // Fetch Firestore balance in background
     _fetchBalance();
-    
   }
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
@@ -94,26 +99,41 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
 
       // Reload tasks from Firestore
-      await taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
+      await taskProvider.loadTasks(
+        parentId: widget.parentId,
+        childId: widget.childId,
+      );
 
       // Save tasks to Hive for instant next load
-      await _settingsBox.put('cached_tasks_${widget.childId}', taskProvider.tasks);
+      await _settingsBox.put(
+        'cached_tasks_${widget.childId}',
+        taskProvider.tasks,
+      );
 
       // Find newly verified tasks
       final newlyVerifiedTasks = taskProvider.tasks.where((t) {
         if (t.verified != true) return false;
         final seenIds = List<String>.from(
-          _settingsBox.get('seen_verified_tasks_${widget.childId}', defaultValue: []),
+          _settingsBox.get(
+            'seen_verified_tasks_${widget.childId}',
+            defaultValue: [],
+          ),
         );
         return !seenIds.contains(t.id);
       }).toList();
 
       if (newlyVerifiedTasks.isNotEmpty) {
         final seenIds = List<String>.from(
-          _settingsBox.get('seen_verified_tasks_${widget.childId}', defaultValue: []),
+          _settingsBox.get(
+            'seen_verified_tasks_${widget.childId}',
+            defaultValue: [],
+          ),
         );
         seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
-        await _settingsBox.put('seen_verified_tasks_${widget.childId}', seenIds);
+        await _settingsBox.put(
+          'seen_verified_tasks_${widget.childId}',
+          seenIds,
+        );
 
         tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
       }
@@ -139,8 +159,8 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       final newBalance = (data['balance'] is int)
           ? data['balance']
           : (data['balance'] is double)
-              ? (data['balance'] as double).toInt()
-              : int.tryParse('${data['balance']}') ?? 0;
+          ? (data['balance'] as double).toInt()
+          : int.tryParse('${data['balance']}') ?? 0;
 
       if (mounted) {
         setState(() => _balance = newBalance);
@@ -164,8 +184,8 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       final fetched = (val is int)
           ? val
           : (val is double)
-              ? val.toInt()
-              : int.tryParse('$val') ?? 0;
+          ? val.toInt()
+          : int.tryParse('$val') ?? 0;
 
       final cachedKey = 'cached_balance_${widget.childId}';
       final cached = _settingsBox.get(cachedKey, defaultValue: 0);
@@ -260,7 +280,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                   subtitle: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: _getDifficultyColor(task.difficulty),
                           borderRadius: BorderRadius.circular(4),
@@ -283,66 +306,76 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                       ),
                     ],
                   ),
-                 trailing: isVerified
-    ? Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.blue,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Text(
-          'Verified',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 12,
-          ),
-        ),
-      )
-    : Consumer<TaskProvider>(
-        builder: (context, taskProvider, _) {
-          final taskStatus = taskProvider.getTaskById(task.id)?.isDone ?? false;
+                  trailing: isVerified
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.blue,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Verified',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        )
+                      : Consumer<TaskProvider>(
+                          builder: (context, taskProvider, _) {
+                            final taskStatus =
+                                taskProvider.getTaskById(task.id)?.isDone ??
+                                false;
 
-          return Checkbox(
-            value: taskStatus,
-            onChanged: (value) async {
-              if (value == null) return;
+                            return Checkbox(
+                              value: taskStatus,
+                              onChanged: (value) async {
+                                if (value == null) return;
 
-              try {
-                if (value) {
-                  await taskProvider.markTaskAsDone(task.id, task.childId);
-                } else {
-                  await taskProvider.markTaskAsUndone(task.id, task.childId);
-                }
+                                try {
+                                  if (value) {
+                                    await taskProvider.markTaskAsDone(
+                                      task.id,
+                                      task.childId,
+                                    );
+                                  } else {
+                                    await taskProvider.markTaskAsUndone(
+                                      task.id,
+                                      task.childId,
+                                    );
+                                  }
 
-                // Update progress immediately
-                taskProvider.updateTask(
-                  task.copyWith(isDone: value),
-                );
+                                  // Update progress immediately
+                                  taskProvider.updateTask(
+                                    task.copyWith(isDone: value),
+                                  );
 
-                unlockManager.checkUnlocks();
+                                  unlockManager.checkUnlocks();
 
-                if (!_isOffline) {
-                  await taskProvider.pushPendingChanges();
-                }
+                                  if (!_isOffline) {
+                                    await taskProvider.pushPendingChanges();
+                                  }
 
-                await _fetchBalance();
-              } catch (e) {
-                debugPrint('⚠️ Error updating task: $e');
-              }
-            },
-            checkColor: Colors.white,
-            activeColor: _getDifficultyColor(task.difficulty),
-            side: BorderSide(
-              color: _getDifficultyColor(task.difficulty),
-              width: 2,
-            ),
-          );
-        },
-      ),
+                                  await _fetchBalance();
+                                } catch (e) {
+                                  debugPrint('⚠️ Error updating task: $e');
+                                }
+                              },
+                              checkColor: Colors.white,
+                              activeColor: _getDifficultyColor(task.difficulty),
+                              side: BorderSide(
+                                color: _getDifficultyColor(task.difficulty),
+                                width: 2,
+                              ),
+                            );
+                          },
+                        ),
                 ),
               );
-
             }).toList(),
           ),
         ],
@@ -389,16 +422,27 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                     IconButton(
                       icon: const Icon(Icons.logout, color: Colors.black),
                       onPressed: () async {
-                        final auth = Provider.of<AuthProvider>(context, listen: false);
-                        final fish = Provider.of<FishProvider>(context, listen: false);
-                        final decor = Provider.of<DecorProvider>(context, listen: false);
+                        final auth = Provider.of<AuthProvider>(
+                          context,
+                          listen: false,
+                        );
+                        final fish = Provider.of<FishProvider>(
+                          context,
+                          listen: false,
+                        );
+                        final decor = Provider.of<DecorProvider>(
+                          context,
+                          listen: false,
+                        );
                         await auth.signOut();
                         fish.clearData();
                         decor.clearData();
                         if (!mounted) return;
                         Navigator.pushAndRemoveUntil(
                           context,
-                          MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+                          MaterialPageRoute(
+                            builder: (_) => const ChooseRolePage(),
+                          ),
                           (r) => false,
                         );
                       },
@@ -412,12 +456,18 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: const BoxDecoration(
                     color: Color.fromARGB(235, 255, 255, 255),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
                   ),
                   child: Consumer<TaskProvider>(
                     builder: (context, taskProvider, _) {
                       final childTasks = taskProvider.tasks
-                          .where((t) => t.childId == widget.childId && t.name.isNotEmpty)
+                          .where(
+                            (t) =>
+                                t.childId == widget.childId &&
+                                t.name.isNotEmpty,
+                          )
                           .toList();
 
                       if (childTasks.isEmpty) {
@@ -459,11 +509,17 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                             const Text(
                               "Complete your daily tasks to earn tokens!",
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 16,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(12),
@@ -479,20 +535,29 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                 children: [
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         const Text(
                                           "Daily Progress",
-                                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
+                                          ),
                                         ),
                                         const SizedBox(height: 6),
                                         ClipRRect(
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                           child: LinearProgressIndicator(
                                             value: progress,
                                             minHeight: 10,
                                             backgroundColor: Colors.grey[300],
-                                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
+                                            valueColor:
+                                                const AlwaysStoppedAnimation<
+                                                  Color
+                                                >(Colors.green),
                                           ),
                                         ),
                                       ],
@@ -500,14 +565,21 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                   ),
                                   const SizedBox(width: 16),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: const Color(0xFF8657F3),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Row(
                                       children: [
-                                        Image.asset('assets/coin.png', width: 20, height: 20),
+                                        Image.asset(
+                                          'assets/coin.png',
+                                          width: 20,
+                                          height: 20,
+                                        ),
                                         const SizedBox(width: 6),
                                         Text(
                                           '$_balance',
@@ -523,10 +595,30 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                               ),
                             ),
                             const SizedBox(height: 16),
-                            _buildTaskGroup('Morning', grouped['Morning']!, unlockManager, _isOffline),
-                            _buildTaskGroup('Afternoon', grouped['Afternoon']!, unlockManager, _isOffline),
-                            _buildTaskGroup('Evening', grouped['Evening']!, unlockManager, _isOffline),
-                            _buildTaskGroup('Anytime', grouped['Anytime']!, unlockManager, _isOffline),
+                            _buildTaskGroup(
+                              'Morning',
+                              grouped['Morning']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
+                            _buildTaskGroup(
+                              'Afternoon',
+                              grouped['Afternoon']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
+                            _buildTaskGroup(
+                              'Evening',
+                              grouped['Evening']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
+                            _buildTaskGroup(
+                              'Anytime',
+                              grouped['Anytime']!,
+                              unlockManager,
+                              _isOffline,
+                            ),
                           ],
                         ),
                       );

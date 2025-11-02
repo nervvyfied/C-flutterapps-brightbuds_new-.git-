@@ -229,7 +229,6 @@ class _AquariumPageState extends State<AquariumPage>
           }
         }
 
-       
         await _maybeShowTutorial();
       }
 
@@ -611,7 +610,6 @@ class _AquariumPageState extends State<AquariumPage>
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -857,7 +855,7 @@ class _AquariumPageState extends State<AquariumPage>
                             ),
                           ),
                         );
-                      })
+                      }),
                 ],
               ),
 

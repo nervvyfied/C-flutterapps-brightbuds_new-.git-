@@ -666,7 +666,7 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
               pw.LinearProgressIndicator(value: progress),
               pw.SizedBox(height: 8),
             ]);
-          }).toList(),
+          }),
           pw.SizedBox(height: 16),
 
           // Behavioral Highlights
