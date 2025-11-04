@@ -9,7 +9,10 @@ class DecorRepository {
 
   // ---------- Sync / Push ----------
   Future<void> pushPlacedDecorChanges(
-      String parentId, String childId, List<PlacedDecor> placedDecors) async {
+    String parentId,
+    String childId,
+    List<PlacedDecor> placedDecors,
+  ) async {
     // Simply call syncPlacedDecors to Firestore
     await _service.syncPlacedDecors(parentId, childId, placedDecors);
 
@@ -23,17 +26,22 @@ class DecorRepository {
 
   // ---------- Get Placed Decors ----------
   Future<List<PlacedDecor>> getPlacedDecors(
-      String parentUid, String childId) async {
+    String parentUid,
+    String childId,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return [];
 
     // Load from local first
-    List<PlacedDecor> hiveDecors =
-        child.placedDecors.map((e) => PlacedDecor.fromMap(e)).toList();
+    List<PlacedDecor> hiveDecors = child.placedDecors
+        .map((e) => PlacedDecor.fromMap(e))
+        .toList();
 
     // Then merge with Firestore
-    final firestoreDecors =
-        await _service.fetchPlacedDecors(parentUid, childId);
+    final firestoreDecors = await _service.fetchPlacedDecors(
+      parentUid,
+      childId,
+    );
 
     if (firestoreDecors.isNotEmpty) {
       hiveDecors = firestoreDecors;
@@ -46,7 +54,10 @@ class DecorRepository {
 
   // ---------- Update All ----------
   Future<void> updatePlacedDecors(
-      String parentId, String childId, List<PlacedDecor> placedDecors) async {
+    String parentId,
+    String childId,
+    List<PlacedDecor> placedDecors,
+  ) async {
     final child = _childBox.get(childId);
     if (child != null) {
       child.placedDecors = placedDecors.map((d) => d.toMap()).toList();
@@ -58,7 +69,10 @@ class DecorRepository {
 
   // ---------- Add ----------
   Future<void> addPlacedDecor(
-      String parentUid, String childId, PlacedDecor decor) async {
+    String parentUid,
+    String childId,
+    PlacedDecor decor,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -74,7 +88,10 @@ class DecorRepository {
 
   // ---------- Update One ----------
   Future<void> updatePlacedDecor(
-      String parentUid, String childId, PlacedDecor decor) async {
+    String parentUid,
+    String childId,
+    PlacedDecor decor,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -96,7 +113,10 @@ class DecorRepository {
 
   // ---------- Store (mark as not placed) ----------
   Future<void> storeDecor(
-      String parentUid, String childId, String decorId) async {
+    String parentUid,
+    String childId,
+    String decorId,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -117,7 +137,11 @@ class DecorRepository {
 
   // ---------- Sell (remove + refund) ----------
   Future<void> sellDecor(
-      String parentUid, String childId, String decorId, int price) async {
+    String parentUid,
+    String childId,
+    String decorId,
+    int price,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -130,12 +154,15 @@ class DecorRepository {
       child.placedDecors.map((e) => PlacedDecor.fromMap(e)).toList(),
     );
 
-    await _updateBalance(parentUid, child, child.balance + price);
+    await updateBalance(parentUid, childId, child.balance + price);
   }
 
   // ---------- Remove Permanently ----------
   Future<void> removePlacedDecor(
-      String parentUid, String childId, String decorId) async {
+    String parentUid,
+    String childId,
+    String decorId,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return;
 
@@ -151,33 +178,20 @@ class DecorRepository {
 
   // ---------- Balance ----------
   Future<void> updateBalance(
-      String parentUid, String childId, int newBalance) async {
+    String parentUid,
+    String childId,
+    int newBalance,
+  ) async {
     final child = _childBox.get(childId);
     if (child == null) return;
+    if (child.balance == newBalance) return;
+
     final updatedChild = child.copyWith(balance: newBalance);
     await _childBox.put(childId, updatedChild);
-    await _service.updateBalance(parentUid, childId, newBalance);
-  }
 
-  Future<void> deductBalance(
-      String parentUid, String childId, int amount) async {
-    final child = _childBox.get(childId);
-    if (child == null) return;
-    await _updateBalance(parentUid, child, child.balance - amount);
-  }
-
-  Future<void> refundBalance(
-      String parentUid, String childId, int amount) async {
-    final child = _childBox.get(childId);
-    if (child == null) return;
-    await _updateBalance(parentUid, child, child.balance + amount);
-  }
-
-  Future<void> _updateBalance(
-      String parentUid, ChildUser child, int newBalance) async {
-    final updatedChild = child.copyWith(balance: newBalance);
-    await _childBox.put(child.cid, updatedChild);
-    await _service.updateBalance(parentUid, child.cid, newBalance);
+    try {
+      await _service.updateBalance(parentUid, childId, newBalance);
+    } catch (e) {}
   }
 
   Future<int> fetchBalance(String parentUid, String childId) async {

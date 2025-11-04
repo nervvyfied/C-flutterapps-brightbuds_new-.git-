@@ -94,9 +94,12 @@ class FishProvider extends ChangeNotifier {
     }
   }
 
-  /// Listen for realtime balance updates from Firestore and update currentChild.balance
+  /// Syncs child balance between Firestore and Hive — two-way sync.
+  /// - Listens to Firestore for live updates and updates Hive + Provider.
+  /// - Updates Firestore immediately when local balance changes.
+  /// - Keeps both offline and online data consistent.
   void listenToChildBalance(String parentId, String childId) {
-    // cancel previous listener if any
+    // Cancel previous Firestore listener if any
     _balanceListener?.cancel();
 
     try {
@@ -106,51 +109,83 @@ class FishProvider extends ChangeNotifier {
           .collection('children')
           .doc(childId);
 
-      _balanceListener = docRef.snapshots().listen(
-        (snapshot) async {
+      _balanceListener = docRef.snapshots().listen((snapshot) async {
+        if (!snapshot.exists) return;
+        final data = snapshot.data();
+        if (data == null) return;
+
+        final dynamic rawBalance = data['balance'];
+        final int newBalance = _parseBalance(rawBalance);
+
+        // Only update if Firestore value differs from local
+        if (newBalance != currentChild.balance) {
+          if (kDebugMode) {
+            debugPrint('🔁 Firestore balance change detected: $newBalance');
+          }
+
+          // Update provider state
+          currentChild = currentChild.copyWith(balance: newBalance);
+
+          // Update Hive copy
           try {
-            if (!snapshot.exists) return;
-            final data = snapshot.data();
-            if (data == null) return;
-
-            // Robust parse of balance -> int
-            final dynamic rawBalance = data['balance'];
-            final int newBalance = _parseBalance(rawBalance);
-
-            if (newBalance != currentChild.balance) {
-              // Update provider state from authoritative Firestore value
+            final localChild = _childBox.get(currentChild.cid);
+            if (localChild != null) {
+              final updatedChild = localChild.copyWith(balance: newBalance);
+              await _childBox.put(currentChild.cid, updatedChild);
               if (kDebugMode) {
-                debugPrint('🔁 Balance updated in Firestore: $newBalance');
-
-                currentChild = currentChild.copyWith(balance: newBalance);
+                debugPrint('💾 Hive balance updated: $newBalance');
               }
-              // persist to Hive (if child exists)
-              try {
-                final child = _childBox.get(currentChild.cid);
-                if (child != null) {
-                  final updatedChild = child.copyWith(balance: newBalance);
-                  await _childBox.put(currentChild.cid, updatedChild);
-                }
-              } catch (e) {
-                debugPrint('⚠️ Failed to persist balance to Hive: $e');
-              }
-
-              notifyListeners();
-              onBalanceChanged?.call(newBalance);
             }
           } catch (e) {
-            debugPrint('⚠️ Balance listener handler error: $e');
+            debugPrint('⚠️ Hive sync failed: $e');
           }
-        },
-        onError: (e) {
-          debugPrint('⚠️ Balance listener error: $e');
-        },
-      );
+
+          notifyListeners();
+          onBalanceChanged?.call(newBalance);
+        }
+      }, onError: (e) => debugPrint('⚠️ Firestore balance listener error: $e'));
     } catch (e) {
       debugPrint('⚠️ Failed to start balance listener: $e');
     }
   }
 
+  /// Call this whenever the balance changes locally (e.g. rewards, deductions)
+  Future<void> updateChildBalance(
+    String parentId,
+    String childId,
+    int newBalance,
+  ) async {
+    try {
+      // ✅ 1. Update local Provider and Hive first (instant UI feedback)
+      currentChild = currentChild.copyWith(balance: newBalance);
+
+      final localChild = _childBox.get(currentChild.cid);
+      if (localChild != null) {
+        await _childBox.put(
+          currentChild.cid,
+          localChild.copyWith(balance: newBalance),
+        );
+        if (kDebugMode) {
+          debugPrint('💾 Hive balance updated locally: $newBalance');
+        }
+      }
+
+      notifyListeners();
+
+      // ✅ 2. Update Firestore (auto-sync when online)
+      await _firestore
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .update({'balance': newBalance});
+      if (kDebugMode) debugPrint('☁️ Firestore balance updated: $newBalance');
+    } catch (e) {
+      debugPrint('⚠️ Failed to update balance (will retry when online): $e');
+    }
+  }
+
+  /// Safely converts Firestore data to integer
   int _parseBalance(dynamic raw) {
     if (raw == null) return 0;
     if (raw is int) return raw;

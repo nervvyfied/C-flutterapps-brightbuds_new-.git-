@@ -1,6 +1,7 @@
 // ignore_for_file: unnecessary_null_comparison
 
 import 'dart:async';
+import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
@@ -17,16 +18,34 @@ import '../repositories/user_repository.dart';
 import '../repositories/streak_repository.dart';
 import '../services/sync_service.dart';
 
+enum _PendingActionType { balance }
+
+class _PendingAction {
+  final _PendingActionType type;
+  final String?
+  taskId; // optional: used if the action relates to a specific task
+
+  _PendingAction(this.type, this.taskId);
+
+  // Factory for balance update
+  factory _PendingAction.balance() =>
+      _PendingAction(_PendingActionType.balance, null);
+}
+
 class TaskProvider extends ChangeNotifier {
   final TaskRepository _taskRepo = TaskRepository();
   final UserRepository _userRepo = UserRepository();
   final StreakRepository _streakRepo = StreakRepository();
   late final SyncService _syncService;
-
+late Box<ChildUser> _childBox;
+Function(int newBalance)? onBalanceChanged;
   TaskProvider() {
     _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
   }
 
+  late ChildUser currentChild;
+
+  final List<_PendingAction> _pendingActions = [];
   List<TaskModel> _tasks = [];
   List<TaskModel> get tasks => _tasks;
   set tasks(List<TaskModel> newTasks) {
@@ -184,7 +203,6 @@ class TaskProvider extends ChangeNotifier {
 
       // 7️⃣ Schedule alarms for tasks (skip web)
       if (!kIsWeb) await _scheduleAllAlarms(_tasks);
-
     } finally {
       _setLoading(false);
     }
@@ -595,33 +613,42 @@ class TaskProvider extends ChangeNotifier {
 
     final now = DateTime.now();
 
-    // ✅ Corrected call to markTaskAsDone
+    // ✅ Mark task as done
     await markTaskAsDone(taskId, childId);
 
-    // ✅ Update locally (Hive & in-memory)
+    // ✅ Update locally (Hive & memory)
     final updatedTask = task.copyWith(
       verified: true,
-      isDone: true, // ensure consistency
+      isDone: true,
       lastUpdated: now,
     );
-
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
     notifyListeners();
 
-    // ✅ Update in repository (handles Firestore sync logic)
+    // ✅ Update in repository
     await _taskRepo.verifyTask(taskId, childId);
 
-    // ✅ Update child's balance after verification
-    final userRepo = UserRepository();
-    final rewardAmount = task.reward; // already int
-    await userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
+    // ✅ Update child's balance
+    final rewardAmount = task.reward;
+    try {
+      await _userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
+      final newBalance = currentChild.balance + rewardAmount;
 
-    // ✅ Only sync to Firestore if online
+      // ✅ Add balance to pending queue
+      _updateLocalBalance(newBalance);
+
+      debugPrint(
+        "💰 Task reward $rewardAmount added. New balance: $newBalance",
+      );
+    } catch (e) {
+      debugPrint("⚠️ Failed to update child balance: $e");
+    }
+
+    // ✅ Only sync task to Firestore if online
     if (await NetworkHelper.isOnline()) {
       try {
-        final FirebaseFirestore firestore = FirebaseFirestore.instance;
-        final docRef = firestore
+        final docRef = _firestore
             .collection('users')
             .doc(task.parentId)
             .collection('children')
@@ -630,11 +657,57 @@ class TaskProvider extends ChangeNotifier {
             .doc(taskId);
 
         await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
-
         debugPrint('✅ Task verified, marked done, and synced: ${task.name}');
       } catch (e) {
         debugPrint('⚠️ Failed to sync verified task: $e');
       }
+    }
+  }
+
+ Future<void> _updateLocalBalance(int newBalance) async {
+    if (currentChild.balance == newBalance) return;
+
+    currentChild = currentChild.copyWith(balance: newBalance);
+
+    notifyListeners();
+    onBalanceChanged?.call(newBalance);
+
+    // Hive update
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        await _childBox.put(
+          currentChild.cid,
+          child.copyWith(balance: newBalance),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ Hive update failed: $e');
+    }
+
+    // Firestore update
+    try {
+      await _firestore
+          .collection('users')
+          .doc(currentChild.parentUid)
+          .collection('children')
+          .doc(currentChild.cid)
+          .set({'balance': newBalance}, SetOptions(merge: true));
+
+      if (kDebugMode) debugPrint('✅ Firestore balance updated: $newBalance');
+    } catch (e) {
+      debugPrint('⚠️ Firestore update failed: $e');
+    }
+
+    // Repository backup
+    try {
+      await _userRepo.updateChildBalance(
+        currentChild.parentUid,
+        currentChild.cid,
+        newBalance,
+      );
+    } catch (e) {
+      debugPrint('⚠️ Repo.updateBalance failed: $e');
     }
   }
 
@@ -890,7 +963,6 @@ class TaskProvider extends ChangeNotifier {
       debugPrint('⚠️ Failed to send FCM to parent: $e');
     }
   }
-
 }
 
 // ---------------- EXTENSIONS ----------------

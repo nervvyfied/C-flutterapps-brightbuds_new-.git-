@@ -2,6 +2,7 @@
 
 import 'dart:async';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
+import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
@@ -38,6 +39,8 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
   StreamSubscription<QuerySnapshot>? _taskSubscription;
+  // Cached future to avoid racing openBox calls
+
 
   @override
   void initState() {
@@ -140,18 +143,18 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     }, onError: (e) => debugPrint('❌ Task stream error: $e'));
   }
 
-  /// Listen to real-time balance updates
+  /// Listen to real-time balance updates and sync to Hive
+  /// Listen to real-time balance updates and sync to Hive safely
   void _listenToBalance() {
     _balanceSubscription?.cancel();
 
-    final stream = FirebaseFirestore.instance
+    final docRef = FirebaseFirestore.instance
         .collection('users')
         .doc(widget.parentId)
         .collection('children')
-        .doc(widget.childId)
-        .snapshots();
+        .doc(widget.childId);
 
-    _balanceSubscription = stream.listen((snapshot) {
+    _balanceSubscription = docRef.snapshots().listen((snapshot) async {
       if (!snapshot.exists) return;
       final data = snapshot.data();
       if (data == null) return;
@@ -162,41 +165,91 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           ? (data['balance'] as double).toInt()
           : int.tryParse('${data['balance']}') ?? 0;
 
-      if (mounted) {
-        setState(() => _balance = newBalance);
-        _settingsBox.put('cached_balance_${widget.childId}', newBalance);
+      final cachedKey = 'cached_balance_${widget.childId}';
+
+      // ✅ Update UI immediately
+      if (mounted) setState(() => _balance = newBalance);
+
+      // ✅ Save to settings Hive box
+      await _settingsBox.put(cachedKey, newBalance);
+
+      // ✅ Persist to Hive childBox if open and type-safe
+      if (Hive.isBoxOpen('childBox')) {
+        try {
+          final childBox = Hive.box<ChildUser>('childBox');
+          final child = childBox.get(widget.childId);
+          if (child != null) {
+            final updatedChild = child.copyWith(balance: newBalance);
+            await childBox.put(widget.childId, updatedChild);
+            debugPrint('💾 Hive childBox balance updated: $newBalance');
+          }
+        } catch (e) {
+          debugPrint('⚠️ Failed to persist balance to childBox: $e');
+        }
+      } else {
+        debugPrint('⚠️ childBox not open yet, skipping balance update.');
       }
+
+      debugPrint('💰 Balance synced Firestore → Hive: $newBalance');
     }, onError: (e) => debugPrint('❌ Balance stream error: $e'));
   }
 
+  /// Fetch balance from Firestore (offline-first) and sync to Hive safely
   Future<void> _fetchBalance() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.parentId)
-          .collection('children')
-          .doc(widget.childId)
-          .get();
+    final cachedKey = 'cached_balance_${widget.childId}';
 
-      if (!doc.exists || doc.data() == null) return;
+    // ✅ Load cached Hive value immediately
+    final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+    if (mounted) setState(() => _balance = cached);
+    debugPrint('📦 Loaded cached balance: $cached');
 
-      final val = doc['balance'];
-      final fetched = (val is int)
-          ? val
-          : (val is double)
-          ? val.toInt()
-          : int.tryParse('$val') ?? 0;
+    // ✅ Fetch latest from Firestore if online
+    if (await NetworkHelper.isOnline()) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.parentId)
+            .collection('children')
+            .doc(widget.childId)
+            .get();
 
-      final cachedKey = 'cached_balance_${widget.childId}';
-      final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+        if (!doc.exists || doc.data() == null) return;
 
-      if (fetched != cached) {
-        if (mounted) setState(() => _balance = fetched);
-        _settingsBox.put(cachedKey, fetched);
-        debugPrint('💰 Balance updated from Firestore: $fetched');
+        final val = doc['balance'];
+        final fetched = (val is int)
+            ? val
+            : (val is double)
+            ? val.toInt()
+            : int.tryParse('$val') ?? 0;
+
+        if (fetched != cached) {
+          if (mounted) setState(() => _balance = fetched);
+          await _settingsBox.put(cachedKey, fetched);
+
+          // ✅ Persist to Hive childBox safely
+          if (Hive.isBoxOpen('childBox')) {
+            try {
+              final childBox = Hive.box<ChildUser>('childBox');
+              final child = childBox.get(widget.childId);
+              if (child != null) {
+                final updatedChild = child.copyWith(balance: fetched);
+                await childBox.put(widget.childId, updatedChild);
+                debugPrint('💾 Hive childBox balance refreshed: $fetched');
+              }
+            } catch (e) {
+              debugPrint('⚠️ Failed to update Hive child balance: $e');
+            }
+          } else {
+            debugPrint('⚠️ childBox not open yet, skipping Hive update.');
+          }
+
+          debugPrint('💰 Balance refreshed Firestore → Hive: $fetched');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error fetching balance from Firestore: $e');
       }
-    } catch (e) {
-      debugPrint('⚠️ Error fetching balance: $e');
+    } else {
+      debugPrint('📴 Offline mode — using cached Hive balance.');
     }
   }
 
