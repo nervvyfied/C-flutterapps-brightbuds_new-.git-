@@ -4,10 +4,11 @@ import 'dart:async';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
+import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
-    show ScaffoldMessenger, Text, BuildContext, SnackBar;
+    show ScaffoldMessenger, Text, BuildContext, SnackBar, TimeOfDay;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:uuid/uuid.dart';
 import 'package:hive/hive.dart';
@@ -33,11 +34,11 @@ class TaskProvider extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
   final StreakRepository _streakRepo = StreakRepository();
   late final SyncService _syncService;
-late Box<ChildUser> _childBox;
-Function(int newBalance)? onBalanceChanged;
-  TaskProvider() {
-    _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
-  }
+  late Box<ChildUser> _childBox;
+  Function(int newBalance)? onBalanceChanged;
+    TaskProvider() {
+      _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
+    }
 
   late ChildUser currentChild;
 
@@ -64,6 +65,53 @@ Function(int newBalance)? onBalanceChanged;
   Box<TaskModel>? _taskBox;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _taskSubscription;
+  double _timeOfDayToDouble(TimeOfDay t) => t.hour + (t.minute / 60.0);
+
+  final Map<String, TimeOfDay> routineEndTimes = {
+    'morning': const TimeOfDay(hour: 11, minute: 59),
+    'afternoon': const TimeOfDay(hour: 17, minute: 59),
+    'evening': const TimeOfDay(hour: 21, minute: 59),
+    'anytime': const TimeOfDay(hour: 23, minute: 59), // never considered missed
+  };
+
+  Map<String, int> countTaskStatuses(List<TaskModel> tasks) {
+    int done = 0;
+    int notDone = 0;
+    int missed = 0;
+
+    final nowTod = TimeOfDay.fromDateTime(DateTime.now());
+
+    for (final task in tasks) {
+      // If task is marked done (today), count as done.
+      // NOTE: You may further check lastCompletedDate to ensure "done today" if desired.
+      if (task.isDone) {
+        done++;
+        continue;
+      }
+
+      // Not done
+      notDone++;
+
+      // Determine if it should be considered missed based on its routine window
+      try {
+        final routineKey = (task.routine ?? 'anytime').toLowerCase().trim();
+        final end = routineEndTimes[routineKey];
+
+        // If a known end time exists and it's not 'anytime', compare.
+        if (end != null && routineKey != 'anytime') {
+          if (_timeOfDayToDouble(nowTod) > _timeOfDayToDouble(end)) {
+            // Current time is past the routine's end time => consider missed.
+            missed++;
+          }
+        }
+      } catch (e) {
+        // Fail-safe: don't treat unknown routine as missed
+        // optionally log debug here
+      }
+    }
+
+    return {'done': done, 'notDone': notDone, 'missed': missed};
+  }
 
   // ---------------- FIRESTORE ----------------
   void startFirestoreSubscription({
@@ -160,7 +208,6 @@ Function(int newBalance)? onBalanceChanged;
         : await Hive.openBox<TaskModel>('tasksBox');
   }
 
-  //old
   Future<void> loadTasks({
     required String parentId,
     String? childId,
@@ -189,9 +236,42 @@ Function(int newBalance)? onBalanceChanged;
           isParent: isParent,
         );
       }
+// 4️⃣ Save current task progress dynamically
+{
+  final Map<String, List<TaskModel>> childTasks = {};
+  for (final task in _tasks) {
+    if (!childTasks.containsKey(task.childId)) {
+      childTasks[task.childId] = [];
+    }
+    childTasks[task.childId]!.add(task);
+  }
 
-      // 4️⃣ Auto-reset if needed (this will trigger Firestore writes if tasks need reset)
-      await autoResetIfNeeded();
+  for (final entry in childTasks.entries) {
+    final tasks = entry.value;
+    final statusCounts = countTaskStatuses(tasks);
+
+    final done = statusCounts['done'] ?? 0;
+    final notDone = statusCounts['notDone'] ?? 0;
+    final missed = statusCounts['missed'] ?? 0;
+
+    try {
+      final historyService = TaskHistoryService();
+      await historyService.saveDailyTaskProgress(
+        parentId: tasks.first.parentId,
+        childId: entry.key,
+        done: done,
+        notDone: notDone,
+        missed: missed,
+      );
+      debugPrint('📘 Saved daily progress for child ${entry.key}');
+    } catch (e) {
+      debugPrint('⚠️ Failed to save daily progress for ${entry.key}: $e');
+    }
+  }
+}
+
+// 5️⃣ Auto-reset if needed (old resetDailyTasks logic)
+await autoResetIfNeeded();
 
       // 6️⃣ Reload tasks from local Hive after merge/reset
       _tasks = _taskBox?.values.toList() ?? [];
@@ -785,6 +865,40 @@ Function(int newBalance)? onBalanceChanged;
     debugPrint(
       '🕛 Starting daily task reset check for ${_tasks.length} tasks...',
     );
+
+    // --- 🧩 Group tasks by childId ---
+  final Map<String, List<TaskModel>> childTasks = {};
+    for (final task in _tasks) {
+      if (!childTasks.containsKey(task.childId)) {
+        childTasks[task.childId] = [];
+      }
+      childTasks[task.childId]!.add(task);
+    }
+
+    for (final entry in childTasks.entries) {
+    final tasks = entry.value;
+
+    // Use provider's method (same logic as the chart)
+    final statusCounts = countTaskStatuses(tasks);
+
+    final done = statusCounts['done'] ?? 0;
+    final notDone = statusCounts['notDone'] ?? 0;
+    final missed = statusCounts['missed'] ?? 0;
+
+    try {
+      final historyService = TaskHistoryService();
+      await historyService.saveDailyTaskProgress(
+        parentId: tasks.first.parentId,
+        childId: entry.key,
+        done: done,
+        notDone: notDone,
+        missed: missed,
+      );
+      debugPrint('📘 Saved daily progress for child ${entry.key}');
+    } catch (e) {
+      debugPrint('⚠️ Failed to save daily progress for ${entry.key}: $e');
+    }
+  }
 
     for (var i = 0; i < _tasks.length; i++) {
       final task = _tasks[i];

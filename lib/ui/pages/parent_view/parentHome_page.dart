@@ -17,6 +17,7 @@ import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/journal_provider.dart';
 import '../../../data/providers/task_provider.dart';
 import '../../../data/providers/selected_child_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ParentDashboardPage extends StatefulWidget {
   final String parentId;
@@ -25,6 +26,43 @@ class ParentDashboardPage extends StatefulWidget {
 
   @override
   State<ParentDashboardPage> createState() => _ParentDashboardPageState();
+}
+
+class TaskHistoryService {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  Future<void> saveDailyTaskProgress({
+    required String parentId,
+    required String childId,
+    required int done,
+    required int notDone,
+    required int missed,
+  }) async {
+    try {
+      final today = DateTime.now();
+      final dateKey = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
+      final docRef = _db
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('history')
+          .doc(dateKey);
+
+      await docRef.set({
+        'done': done,
+        'notDone': notDone,
+        'missed': missed,
+        'totalTasks': done + notDone, // ✅ missed is part of notDone
+        'timestamp': FieldValue.serverTimestamp(),
+      }); 
+
+      print("✅ Daily progress saved for $childId on $dateKey");
+    } catch (e) {
+      print("❌ Failed to save daily task progress: $e");
+    }
+  }
 }
 
 extension StringCasingExtension on String {
@@ -76,13 +114,218 @@ Map<String, int> _countTaskStatuses(List<TaskModel> tasks) {
     }
   }
 }
-
-
   return {'done': done, 'notDone': notDone, 'missed': missed};
 }
 
 // Helper: convert TimeOfDay to double for easy comparison
 double _timeOfDayToDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
+
+Future<void> _showTaskHistoryModal(BuildContext context, String childId) async {
+  final parentId = widget.parentId;
+
+  // Fetch last 90 days
+  final snapshots = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(parentId)
+      .collection('children')
+      .doc(childId)
+      .collection('history')
+      .orderBy('timestamp', descending: true)
+      .limit(90)
+      .get();
+
+  final historyData = snapshots.docs.map((d) => {
+        'date': d.id,
+        'done': d['done'],
+        'notDone': d['notDone'],
+        'missed': d['missed'],
+      }).toList();
+
+  // Initialize persistent state outside the StatefulBuilder
+  int currentIndex = 0; // most recent
+  String viewMode = 'Daily'; // 'Daily' or 'Weekly'
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          final windowSize = viewMode == 'Daily' ? 1 : 7;
+
+          List<Map<String, dynamic>> _getDisplayedData() {
+            final start = currentIndex;
+            final end = (currentIndex + windowSize).clamp(0, historyData.length);
+            final slice = historyData.sublist(start, end);
+
+            int done = 0, notDone = 0, missed = 0;
+            for (var d in slice) {
+              done += d['done'] as int;
+              notDone += d['notDone'] as int;
+              missed += d['missed'] as int;
+            }
+
+            final dateLabel = slice.length == 1
+                ? slice.first['date']
+                : '${slice.last['date']} → ${slice.first['date']}';
+
+            return [
+              {'date': dateLabel, 'done': done, 'notDone': notDone, 'missed': missed}
+            ];
+          }
+
+          final displayedData = _getDisplayedData();
+
+          // Determine if arrows should be disabled
+          final isPrevDisabled = currentIndex + windowSize >= historyData.length;
+          final isNextDisabled = currentIndex == 0;
+
+          void _prev() {
+            setState(() {
+              currentIndex = (currentIndex + windowSize).clamp(0, historyData.length - 1);
+            });
+          }
+
+          void _next() {
+            setState(() {
+              currentIndex = (currentIndex - windowSize).clamp(0, historyData.length - 1);
+            });
+          }
+
+          return Padding(
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              height: 400,
+              child: Column(
+                children: [
+                  const Text(
+                    "Task Progress History",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Toggle Daily / Weekly
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: ['Daily', 'Weekly'].map((mode) {
+                      final selected = mode == viewMode;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ChoiceChip(
+                          label: Text(mode),
+                          selected: selected,
+                          onSelected: (_) {
+                            setState(() {
+                              viewMode = mode;
+                              currentIndex = 0; // reset to most recent
+                            });
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Chart with arrows
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back_ios),
+                        onPressed: isPrevDisabled ? null : _prev,
+                      ),
+                      Expanded(
+                        child: SizedBox(
+                          height: 200,
+                          child: BarChart(
+                            BarChartData(
+                              alignment: BarChartAlignment.spaceAround,
+                              titlesData: FlTitlesData(
+                                leftTitles:
+                                    AxisTitles(sideTitles: SideTitles(showTitles: true)),
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (index, _) {
+                                      final date = displayedData[index.toInt()]['date'];
+                                      return Text(
+                                        date.toString().split(' ')[0],
+                                        style: const TextStyle(fontSize: 10),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                              borderData: FlBorderData(show: false),
+                              barGroups: List.generate(displayedData.length, (i) {
+                                final entry = displayedData[i];
+                                return BarChartGroupData(
+                                  x: i,
+                                  barRods: [
+                                    BarChartRodData(
+                                        toY: (entry['done'] as int).toDouble(),
+                                        color: Colors.deepPurpleAccent),
+                                    BarChartRodData(
+                                        toY: (entry['notDone'] as int).toDouble(),
+                                        color: Colors.yellow),
+                                    BarChartRodData(
+                                        toY: (entry['missed'] as int).toDouble(),
+                                        color: Colors.redAccent),
+                                  ],
+                                  barsSpace: 2,
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.arrow_forward_ios),
+                        onPressed: isNextDisabled ? null : _next,
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+                  // Legend
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _legendWithCounter(
+                          color: Colors.deepPurpleAccent,
+                          label: 'Done',
+                          count: displayedData.first['done'] as int),
+                      _legendWithCounter(
+                          color: Colors.yellow,
+                          label: 'Not Done',
+                          count: displayedData.first['notDone'] as int),
+                      _legendWithCounter(
+                          color: Colors.redAccent,
+                          label: 'Missed',
+                          count: displayedData.first['missed'] as int),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+                  Text(
+                    displayedData.first['date'].toString(),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+
 
 void _showMoodHistoryModal(BuildContext context, String childId) {
   final journalProv = Provider.of<JournalProvider>(context, listen: false);
@@ -1030,6 +1273,10 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
 
           // ---------------- TASKS PROGRESS ----------------
           Expanded(
+            child: GestureDetector(
+              onTap: () async {
+                await _showTaskHistoryModal(context, activeChild['cid']);
+              },
             child: Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -1097,6 +1344,7 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
                   ],
                 ),
               ),
+            ),
             ),
           ),
         ],
