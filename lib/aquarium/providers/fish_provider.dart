@@ -422,13 +422,38 @@ class FishProvider extends ChangeNotifier {
   FishDefinition getFishDefinition(String fishId) => FishCatalog.byId(fishId);
 
   // ---------- Purchase ----------
+  // Add this helper inside FishProvider
+  Future<void> _updateLocalBalanceOnly(int newBalance) async {
+    if (currentChild.balance == newBalance) return;
+
+    // Update in-memory
+    currentChild = currentChild.copyWith(balance: newBalance);
+
+    // Persist to Hive (safe copy)
+    try {
+      final child = _childBox.get(currentChild.cid);
+      if (child != null) {
+        final updatedChild = child.copyWith(balance: newBalance);
+        await _childBox.put(currentChild.cid, updatedChild);
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to update balance in Hive (local-only): $e');
+    }
+
+    notifyListeners();
+    onBalanceChanged?.call(newBalance);
+
+    if (kDebugMode) debugPrint('💾 Balance updated locally only: $newBalance');
+  }
+
+  // Replace purchaseFish with this offline-first version
   Future<bool> purchaseFish(FishDefinition fish) async {
     if (!canPurchase(fish)) return false;
     if (ownedFishes.where((f) => f.fishId == fish.id).length >= 15) {
       return false;
     }
 
-    // 1️⃣ Create new fish
+    // 1) Create new fish
     final newFish = OwnedFish(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       fishId: fish.id,
@@ -438,39 +463,57 @@ class FishProvider extends ChangeNotifier {
       isUnlocked: fish.type != FishType.unlockable,
     );
 
-    // 2️⃣ Deduct balance locally and persist
+    // 2) Deduct balance locally (immediate, offline-safe)
     final newBalance = currentChild.balance - fish.price;
-    await _updateLocalBalance(newBalance);
+    await _updateLocalBalanceOnly(newBalance);
 
-    // 3️⃣ Add fish to local list immediately
+    // 3) Add fish to in-memory list immediately
     ownedFishes.add(newFish);
 
-    // 4️⃣ Persist updated list to Hive
+    // 4) Persist updated list to Hive (create new list instance)
     try {
       final child = _childBox.get(currentChild.cid);
       if (child != null) {
         final updatedOwnedFishes = List<Map<String, dynamic>>.from(
-          child.ownedFish,
-        )..add(newFish.toMap()); // create a new list so Hive sees the change
+          child.ownedFish ?? <Map<String, dynamic>>[],
+        )..add(newFish.toMap());
         final updatedChild = child.copyWith(ownedFish: updatedOwnedFishes);
         await _childBox.put(currentChild.cid, updatedChild);
+        if (kDebugMode) {
+          debugPrint('💾 New fish saved to Hive locally (${newFish.id})');
+        }
+      } else {
+        if (kDebugMode) {
+          debugPrint('⚠️ Child missing in Hive when saving new fish');
+        }
       }
     } catch (e) {
       debugPrint('⚠️ Failed to persist new fish to Hive: $e');
     }
 
-    // 5️⃣ Notify listeners so UI updates immediately
+    // 5) Update UI immediately
     notifyListeners();
 
-    // 6️⃣ Firestore sync asynchronously (does not block offline purchase)
+    // 6) Background sync (non-blocking): repo + firestore + repo.balance
     Future.microtask(() async {
+      // Repo add (repo handles local-first and then service sync)
       try {
         await _repo.addOwnedFish(
           currentChild.parentUid,
           currentChild.cid,
           newFish,
         );
+        if (kDebugMode) {
+          debugPrint('☁️ Repo.addOwnedFish executed (background)');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('⚠️ Repo.addOwnedFish failed (background): $e');
+        }
+      }
 
+      // Firestore direct best-effort: add fish to remote array (merge aware)
+      try {
         final docRef = _firestore
             .collection('users')
             .doc(currentChild.parentUid)
@@ -483,9 +526,49 @@ class FishProvider extends ChangeNotifier {
           'ownedFishes': FieldValue.arrayUnion([newFish.toMap()]),
         }, SetOptions(merge: true));
 
-        if (kDebugMode) debugPrint('✅ Firestore sync success (purchaseFish)');
+        if (kDebugMode) {
+          debugPrint(
+            '☁️ Firestore ownedFishes arrayUnion success (purchaseFish)',
+          );
+        }
       } catch (e) {
-        if (kDebugMode) debugPrint('⚠️ Firestore sync failed (offline): $e');
+        if (kDebugMode) {
+          debugPrint('⚠️ Firestore ownedFishes sync failed (background): $e');
+        }
+      }
+
+      // Background balance sync (best-effort). Use repo.updateBalance if implemented to do non-blocking.
+      try {
+        // Repo.updateBalance uses service.updateBalance internally (best-effort)
+        await _repo.updateBalance(
+          currentChild.parentUid,
+          currentChild.cid,
+          newBalance,
+        );
+        if (kDebugMode) {
+          debugPrint('☁️ Repo.updateBalance success (background)');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('⚠️ Repo.updateBalance failed (background): $e');
+        }
+      }
+
+      // Also attempt a direct Firestore set as a best-effort (won't block UI)
+      try {
+        await _firestore
+            .collection('users')
+            .doc(currentChild.parentUid)
+            .collection('children')
+            .doc(currentChild.cid)
+            .set({'balance': newBalance}, SetOptions(merge: true));
+        if (kDebugMode) {
+          debugPrint('☁️ Firestore balance set success (purchaseFish)');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('⚠️ Firestore balance set failed (background): $e');
+        }
       }
     });
 

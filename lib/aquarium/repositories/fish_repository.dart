@@ -5,14 +5,14 @@ import '/data/models/child_model.dart';
 
 class FishRepository {
   final FishService _service = FishService();
-  late Box<ChildUser> _childBox;
+  static Box<ChildUser>? _childBox;
 
-  FishRepository() {
-    _initBox();
-  }
-
-  Future<void> _initBox() async {
-    _childBox = await Hive.openBox<ChildUser>('childBox');
+  // 🧩 Safer one-time Hive initialization
+  Future<void> _ensureBox() async {
+    if (_childBox == null || !_childBox!.isOpen) {
+      _childBox = await Hive.openBox<ChildUser>('childBox');
+      print("📦 Hive childBox opened.");
+    }
   }
 
   // 🐟 Get all fishes (merged local + remote)
@@ -20,8 +20,8 @@ class FishRepository {
     String parentUid,
     String childId,
   ) async {
-    await _initBox(); // ensure initialized
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return [];
 
     final localFishes = child.ownedFish
@@ -39,36 +39,44 @@ class FishRepository {
 
       final mergedList = mergedMap.values.toList();
       child.ownedFish = mergedList.map((f) => f.toMap()).toList();
-      await _childBox.put(childId, child);
+      await _childBox!.put(childId, child);
 
       return mergedList;
     } catch (e) {
+      print("⚠️ Using local fishes (offline mode): $e");
       return localFishes;
     }
   }
 
-  // 🐟 Add a fish to owned list
+  // 🐟 Add owned fish (now truly offline-first)
   Future<void> addOwnedFish(
     String parentUid,
     String childId,
     OwnedFish fish,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
 
+    // ✅ Always update local Hive first
     if (!child.ownedFish.any((f) => f['id'] == fish.id)) {
       child.ownedFish.add(fish.toMap());
-      await _childBox.put(childId, child);
+      await _childBox!.put(childId, child);
+      print("🐟 [Offline] Added ${fish.id} locally to Hive.");
     }
 
+    // ☁️ Try syncing with Firestore
     try {
       await _service.syncOwnedFishes(
         parentUid,
         childId,
         child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList(),
       );
+      print("☁️ Synced owned fishes to Firestore.");
     } catch (e) {
+      print(
+        "⚠️ Offline - Firestore sync failed, keeping local copy. Error: $e",
+      );
     }
   }
 
@@ -78,8 +86,8 @@ class FishRepository {
     String childId,
     OwnedFish fish,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
 
     final idx = child.ownedFish.indexWhere((f) => f['id'] == fish.id);
@@ -89,7 +97,8 @@ class FishRepository {
       child.ownedFish.add(fish.toMap());
     }
 
-    await _childBox.put(childId, child);
+    await _childBox!.put(childId, child);
+    print("🐠 Updated ${fish.id} locally.");
 
     try {
       await _service.syncOwnedFishes(
@@ -97,7 +106,9 @@ class FishRepository {
         childId,
         child.ownedFish.map((e) => OwnedFish.fromMap(e)).toList(),
       );
+      print("☁️ Synced updated fish to Firestore.");
     } catch (e) {
+      print("⚠️ Offline - unable to sync fish update. Error: $e");
     }
   }
 
@@ -107,16 +118,19 @@ class FishRepository {
     String childId,
     String fishId,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
 
     child.ownedFish.removeWhere((f) => f['id'] == fishId);
-    await _childBox.put(childId, child);
+    await _childBox!.put(childId, child);
+    print("🧹 Removed fish $fishId locally.");
 
     try {
       await _service.removeOwnedFish(parentUid, childId, fishId);
+      print("☁️ Synced fish removal to Firestore.");
     } catch (e) {
+      print("⚠️ Offline - unable to sync fish removal. Error: $e");
     }
   }
 
@@ -126,8 +140,8 @@ class FishRepository {
     String childId,
     String fishId,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
 
     final idx = child.ownedFish.indexWhere((f) => f['fishId'] == fishId);
@@ -135,7 +149,8 @@ class FishRepository {
 
     final fish = OwnedFish.fromMap(child.ownedFish[idx]);
     child.ownedFish[idx] = fish.copyWith(isActive: false).toMap();
-    await _childBox.put(childId, child);
+    await _childBox!.put(childId, child);
+    print("🐡 Stored fish $fishId locally (inactive).");
 
     try {
       await _service.syncOwnedFishes(
@@ -143,7 +158,9 @@ class FishRepository {
         childId,
         child.ownedFish.map((f) => OwnedFish.fromMap(f)).toList(),
       );
+      print("☁️ Synced store action to Firestore.");
     } catch (e) {
+      print("⚠️ Offline - failed to sync store action. Error: $e");
     }
   }
 
@@ -153,17 +170,20 @@ class FishRepository {
     String childId,
     int newBalance,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
     if (child.balance == newBalance) return;
 
     final updatedChild = child.copyWith(balance: newBalance);
-    await _childBox.put(childId, updatedChild);
+    await _childBox!.put(childId, updatedChild);
+    print("💰 Updated balance locally: $newBalance");
 
     try {
       await _service.updateBalance(parentUid, childId, newBalance);
+      print("☁️ Synced balance to Firestore.");
     } catch (e) {
+      print("⚠️ Offline - balance sync deferred. Error: $e");
     }
   }
 
@@ -172,8 +192,8 @@ class FishRepository {
     String childId,
     int amount,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
 
     final newBalance = child.balance + amount;
@@ -185,8 +205,8 @@ class FishRepository {
     String childId,
     int amount,
   ) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child == null) return;
 
     final newBalance = child.balance - amount;
@@ -194,14 +214,14 @@ class FishRepository {
   }
 
   Future<int> fetchBalance(String parentUid, String childId) async {
-    await _initBox();
-    final child = _childBox.get(childId);
+    await _ensureBox();
+    final child = _childBox!.get(childId);
     if (child != null && child.balance > 0) return child.balance;
 
     final remoteBalance = await _service.fetchBalance(parentUid, childId);
     if (child != null) {
       final updated = child.copyWith(balance: remoteBalance);
-      await _childBox.put(childId, updated);
+      await _childBox!.put(childId, updated);
     }
     return remoteBalance;
   }

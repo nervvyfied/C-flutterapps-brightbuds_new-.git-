@@ -195,8 +195,9 @@ class DecorProvider extends ChangeNotifier {
 
     if (latestChild != null) {
       currentChild = latestChild;
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint("🔄 Refreshed currentChild balance=${currentChild.balance}");
+      }
     }
   }
 
@@ -231,8 +232,9 @@ class DecorProvider extends ChangeNotifier {
               .doc(currentChild.cid)
               .update({'balance': newBalance});
 
-          if (kDebugMode)
+          if (kDebugMode) {
             debugPrint("✅ Synced new balance=$newBalance to Firestore.");
+          }
         } catch (e) {
           debugPrint("⚠️ Failed to sync balance remotely: $e");
         }

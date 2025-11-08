@@ -26,10 +26,6 @@ class _PendingAction {
   taskId; // optional: used if the action relates to a specific task
 
   _PendingAction(this.type, this.taskId);
-
-  // Factory for balance update
-  factory _PendingAction.balance() =>
-      _PendingAction(_PendingActionType.balance, null);
 }
 
 class TaskProvider extends ChangeNotifier {
