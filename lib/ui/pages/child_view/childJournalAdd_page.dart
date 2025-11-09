@@ -150,6 +150,19 @@ class _JournalAddPageState extends State<JournalAddPage> {
         decoration: BoxDecoration(
           color: selected ? color.withOpacity(0.7) : color.withOpacity(0.4),
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? const Color(0xFFA6C26F) : Colors.transparent,
+            width: 3,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFFA6C26F).withOpacity(0.4),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : [],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min, // 🟢 let it shrink-wrap
@@ -268,12 +281,12 @@ class _JournalAddPageState extends State<JournalAddPage> {
                       mainAxisSpacing: 12,
                       physics: const NeverScrollableScrollPhysics(),
                       children: [
-                        _buildMoodCard("Calm", ["Calm", "Content", "Relaxed", "Peaceful"], const Color(0xFFA6C26F), "calm_icon.png"),
-                        _buildMoodCard("Sad", ["Sad", "Down", "Gloomy", "Hurt"], const Color(0xFF57A0F3), "sad_icon.png"),
-                        _buildMoodCard("Happy", ["Happy", "Glad", "Joyful", "Delighted"], const Color(0xFFFECE00), "happy_icon.png"),
-                        _buildMoodCard("Confused", ["Confused", "Hesitant", "Unsure", "Uncertain"], const Color(0xFFFC8B34), "confused_icon.png"),
-                        _buildMoodCard("Angry", ["Angry", "Upset", "Irritated", "Furious"], const Color(0xFFFD5C68), "angry_icon.png"),
-                        _buildMoodCard("Scared", ["Scared", "Afraid", "Worried", "Terrified"], const Color(0xFF8657F3), "scared_icon.png"),
+                        _buildMoodCard("Calm", ["Calm", "Relaxed", "Peaceful"], const Color(0xFFA6C26F), "calm_icon.png"),
+                        _buildMoodCard("Sad", ["Sad", "Gloomy", "Hurt"], const Color(0xFF57A0F3), "sad_icon.png"),
+                        _buildMoodCard("Happy", ["Happy", "Glad", "Joyful"], const Color(0xFFFECE00), "happy_icon.png"),
+                        _buildMoodCard("Confused", ["Confused", "Hesitant", "Unsure"], const Color(0xFFFC8B34), "confused_icon.png"),
+                        _buildMoodCard("Angry", ["Angry", "Upset", "Irritated"], const Color(0xFFFD5C68), "angry_icon.png"),
+                        _buildMoodCard("Scared", ["Scared", "Afraid", "Worried"], const Color(0xFF8657F3), "scared_icon.png"),
                       ],
                     ),
                   ],

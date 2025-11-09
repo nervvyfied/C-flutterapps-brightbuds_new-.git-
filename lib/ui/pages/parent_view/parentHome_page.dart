@@ -742,90 +742,146 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
     _notifiedTaskIds.add(taskId);
   }
 
-  Future<void> exportChildDataToPdfWithCharts(Map<String, dynamic> childData) async {
+  Future<void> exportChildDataToPdfWithCharts(
+    String parentId, String childId, Map<String, dynamic> childData) async {
   final pdf = pw.Document();
-
   final name = childData['name'] ?? 'Unknown';
   final parentName = childData['parentName'] ?? '-';
   final parentEmail = childData['parentEmail'] ?? '-';
   final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
-  final done = childData['done'] ?? 0;
-  final notDone = childData['notDone'] ?? 0;
-  final missed = childData['missed'] ?? 0;
-  final cbtTasks = List<Map<String, dynamic>>.from(childData['cbtTasks'] ?? []);
-
-  final totalTasks = done + notDone + missed;
-  final completionRate = totalTasks > 0 ? (done / totalTasks * 100).toStringAsFixed(1) : '0';
-  final missedRate = totalTasks > 0 ? (missed / totalTasks * 100).toStringAsFixed(1) : '0';
-  final topMood = moodCounts.entries.isNotEmpty
-      ? moodCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key.capitalize()
-      : '-';
-  final moodDiversity = moodCounts.entries.where((e) => e.value > 0).length;
-
   final now = DateTime.now();
   final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-  final endOfWeek = startOfWeek.add(Duration(days: 6));
+  final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-  // Prepare daily breakdowns
-  final dailyMoodCounts = <DateTime, Map<String, int>>{};
-  final dailyTaskCounts = <DateTime, Map<String, int>>{};
-  for (int i = 0; i < 7; i++) {
-    final day = startOfWeek.add(Duration(days: i));
-    dailyMoodCounts[day] = {};
-    dailyTaskCounts[day] = {'done': 0, 'notDone': 0, 'missed': 0};
+  // ---------------- Fetch weekly task progress history ----------------
+  final historySnap = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(parentId)
+      .collection('children')
+      .doc(childId)
+      .collection('history')
+      .orderBy('timestamp', descending: true)
+      .limit(7)
+      .get();
+
+  final weeklyHistory = historySnap.docs
+      .map((d) => {
+            'date': d.id,
+            'done': d['done'] ?? 0,
+            'notDone': d['notDone'] ?? 0,
+            'missed': d['missed'] ?? 0,
+          })
+      .toList();
+
+  // ---------------- Fetch weekly CBT assignments ----------------
+final cbtSnap = await FirebaseFirestore.instance
+    .collection('users')
+    .doc(parentId)
+    .collection('children')
+    .doc(childId)
+    .collection('CBT')
+    .get();
+
+// Filter assignments for this week and map them
+final cbtTasks = cbtSnap.docs.map((d) {
+  final data = d.data();
+
+  // Use exerciseId instead of title/docId
+  final exerciseId = data['exerciseId'] ?? d.id;
+
+  // Get the assigned date or createdAt (must exist in your DB)
+  final assignedAt = data['assignedAt'];
+  DateTime assignedDate;
+  if (assignedAt is Timestamp) {
+    assignedDate = assignedAt.toDate();
+  } else if (assignedAt is DateTime) {
+    assignedDate = assignedAt;
+  } else {
+    assignedDate = DateTime.now(); // fallback if no date
   }
 
-  // Fill daily data from entries and tasks
-  final entries = childData['entries'] ?? [];
-  for (final e in entries) {
-    final created = e['createdAt'] as DateTime;
-    if (!created.isBefore(startOfWeek) && !created.isAfter(endOfWeek)) {
-      final day = DateTime(created.year, created.month, created.day);
-      dailyMoodCounts[day]?[e['mood'].toLowerCase()] =
-          (dailyMoodCounts[day]?[e['mood'].toLowerCase()] ?? 0) + 1;
+  // Only include if assigned within this week
+  if (assignedDate.isBefore(startOfWeek) || assignedDate.isAfter(endOfWeek)) {
+    return null;
+  }
+
+  final completed = data['completed'] ?? false;
+  final status = completed ? 'Completed' : 'Pending';
+
+  return {
+    'exerciseId': exerciseId,
+    'status': status,
+  };
+}).where((e) => e != null).toList();
+
+
+  // ---------------- Compute Summary Statistics ----------------
+  int done = 0, notDone = 0, missed = 0;
+  for (var h in weeklyHistory) {
+    done += (h['done'] as num).toInt();
+    notDone += (h['notDone'] as num).toInt();
+    missed += (h['missed'] as num).toInt();
+  }
+  final totalTasks = done + notDone + missed;
+  final completionRate =
+      totalTasks > 0 ? (done / totalTasks * 100).toStringAsFixed(1) : '0';
+  final missedRate =
+      totalTasks > 0 ? (missed / totalTasks * 100).toStringAsFixed(1) : '0';
+
+  // Compute top mood safely
+  String topMood = '-';
+  if (moodCounts.isNotEmpty && moodCounts.values.any((v) => v > 0)) {
+    final maxEntry =
+        moodCounts.entries.reduce((a, b) => a.value > b.value ? a : b);
+    topMood = maxEntry.key[0].toUpperCase() + maxEntry.key.substring(1);
+  }
+  final moodDiversity =
+      moodCounts.entries.where((e) => e.value > 0).length.toString();
+
+  // ---------------- Behavioral Insights ----------------
+  String mostProductiveDay = '-';
+  String mostMissedDay = '-';
+  double highestCompletionRate = 0;
+  double lowestCompletionRate = 1;
+
+  for (var entry in weeklyHistory) {
+    final total = (entry['done'] + entry['notDone'] + entry['missed']).toDouble();
+    if (total > 0) {
+      final rate = entry['done'] / total;
+      if (rate > highestCompletionRate) {
+        highestCompletionRate = rate;
+        mostProductiveDay = entry['date'];
+      }
+      if (rate < lowestCompletionRate) {
+        lowestCompletionRate = rate;
+        mostMissedDay = entry['date'];
+      }
     }
   }
 
-  final tasks = childData['tasks'] ?? [];
-  for (final t in tasks) {
-    final taskDate = t['date'] as DateTime;
-    if (!taskDate.isBefore(startOfWeek) && !taskDate.isAfter(endOfWeek)) {
-      final day = DateTime(taskDate.year, taskDate.month, taskDate.day);
-      final status = t['status'];
-      dailyTaskCounts[day]?[status] = (dailyTaskCounts[day]?[status] ?? 0) + 1;
-    }
-  }
-
-  // Behavioral highlights
-  final mostProductiveDay = dailyTaskCounts.entries
-      .reduce((a, b) => a.value['done']! > b.value['done']! ? a : b)
-      .key;
-  final happiestDay = dailyMoodCounts.entries
-      .map((e) => MapEntry(e.key, e.value['happy'] ?? 0))
-      .reduce((a, b) => a.value > b.value ? a : b)
-      .key;
-  final missedTasksNames = tasks.where((t) => t['status'] == 'missed').map((t) => t['name']).toList();
-
+  // ---------------- PDF BUILD ----------------
   pdf.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(32),
       build: (context) {
         return [
-          // Header
-          pw.Text("$name's Weekly Report",
-              style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 8),
-          pw.Text("Date Range: ${dateFormat.format(startOfWeek)} - ${dateFormat.format(endOfWeek)}"),
+          // HEADER
+          pw.Text("$name's Weekly Progress Report",
+              style:
+                  pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold)),
+          pw.Text(
+              "Date Range: ${dateFormat.format(startOfWeek)} - ${dateFormat.format(endOfWeek)}"),
+          pw.SizedBox(height: 12),
+          pw.Text("Parent: $parentName ($parentEmail)",
+              style: const pw.TextStyle(fontSize: 12)),
           pw.Divider(),
 
-          // Basic Info
-          pw.Text("Child Name: $name", style: pw.TextStyle(fontSize: 14)),
-          pw.Text("Parent: $parentName ($parentEmail)", style: pw.TextStyle(fontSize: 14)),
-          pw.SizedBox(height: 16),
-
-          // Summary Statistics
-          pw.Text("Summary Statistics", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          // SUMMARY STATISTICS
+          pw.Text("Summary Statistics",
+              style: pw.TextStyle(
+                  fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 6),
           pw.Bullet(text: "Total Tasks: $totalTasks"),
           pw.Bullet(text: "Completion Rate: $completionRate%"),
           pw.Bullet(text: "Missed Rate: $missedRate%"),
@@ -833,93 +889,90 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
           pw.Bullet(text: "Mood Diversity: $moodDiversity"),
           pw.SizedBox(height: 16),
 
-          // Mood Pie Chart
-          pw.Text("Mood Summary", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          // MOOD SUMMARY
+          pw.Text("Mood Summary",
+              style: pw.TextStyle(
+                  fontSize: 18, fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 8),
           pw.Container(
-            height: 180,
+            height: 150,
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: moodCounts.entries.map((entry) {
-                final color = PdfColors.primaries[moodCounts.keys.toList().indexOf(entry.key) % PdfColors.primaries.length];
-                return pw.Row(
-                  children: [
-                    pw.Container(width: 12, height: 12, color: color),
+                final color = PdfColors
+                    .primaries[moodCounts.keys.toList().indexOf(entry.key) %
+                        PdfColors.primaries.length];
+                return pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                  child: pw.Row(children: [
+                    pw.Container(width: 10, height: 10, color: color),
                     pw.SizedBox(width: 8),
-                    pw.Text('${entry.key.capitalize()}: ${entry.value}'),
-                  ],
+                    pw.Text(
+                        '${entry.key[0].toUpperCase() + entry.key.substring(1)}: ${entry.value}')
+                  ]),
                 );
               }).toList(),
             ),
           ),
           pw.SizedBox(height: 16),
 
-          // Task Completion Chart
-          pw.Text("Task Completion (Bar Chart)", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 8),
-          pw.Container(
-            height: 180,
-            child: pw.Chart(
-              grid: pw.CartesianGrid(
-                xAxis: pw.FixedAxis.fromStrings(["Done", "Not Done", "Missed"], marginStart: 8, marginEnd: 8),
-                yAxis: pw.FixedAxis([0, 5, 10, 15, 20]),
-              ),
-              datasets: [
-                pw.BarDataSet(
-                  data: [
-                    pw.PointChartValue(0, done.toDouble()),
-                    pw.PointChartValue(1, notDone.toDouble()),
-                    pw.PointChartValue(2, missed.toDouble()),
-                  ],
-                  color: PdfColors.deepPurple,
-                ),
-              ],
-            ),
-          ),
-          pw.SizedBox(height: 16),
-
-          // Daily Breakdown Table
-          pw.Text("Daily Breakdown", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          // DAILY BREAKDOWN TABLE
+          pw.Text("Daily Task Breakdown",
+              style: pw.TextStyle(
+                  fontSize: 18, fontWeight: pw.FontWeight.bold)),
           pw.Table.fromTextArray(
-            headers: ['Day', 'Done', 'Not Done', 'Missed', 'Top Mood'],
-            data: List.generate(7, (i) {
-              final day = startOfWeek.add(Duration(days: i));
-              final taskData = dailyTaskCounts[day]!;
-              final moodData = dailyMoodCounts[day]!;
-              final topMoodDay = moodData.entries.isEmpty
-                  ? '-'
-                  : moodData.entries.reduce((a, b) => a.value > b.value ? a : b).key.capitalize();
+            headers: ['Date', 'Done', 'Not Done', 'Missed', 'Completion %'],
+            data: weeklyHistory.map((h) {
+              final total =
+                  (h['done'] + h['notDone'] + h['missed']).toDouble();
+              final completion = total > 0
+                  ? ((h['done'] / total) * 100).toStringAsFixed(0)
+                  : '0';
               return [
-                dateFormat.format(day),
-                taskData['done'],
-                taskData['notDone'],
-                taskData['missed'],
-                topMoodDay,
+                h['date'],
+                h['done'].toString(),
+                h['notDone'].toString(),
+                h['missed'].toString(),
+                '$completion%',
               ];
-            }),
+            }).toList(),
           ),
           pw.SizedBox(height: 16),
 
-          // CBT Assignments
-          pw.Text("CBT Assignments", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-          ...cbtTasks.map((cbt) {
-            final progress = cbt['completed'] / cbt['total'];
-            return pw.Column(children: [
-              pw.Text("${cbt['name']} (${cbt['completed']}/${cbt['total']})"),
-              pw.LinearProgressIndicator(value: progress),
-              pw.SizedBox(height: 8),
-            ]);
-          }),
+          // CBT ASSIGNMENTS
+          pw.Text("CBT Assignments",
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 8),
+          ...cbtTasks.isEmpty
+              ? [pw.Text("No CBT assignments for this week.")]
+              : cbtTasks.map((cbt) => pw.Padding(
+                    padding: const pw.EdgeInsets.only(bottom: 6),
+                    child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text("${cbt?['exerciseId']} - ${cbt?['status']}"),
+                        ]),
+                  )),
           pw.SizedBox(height: 16),
 
-          // Behavioral Highlights
-          pw.Text("Behavioral Highlights", style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-          pw.Bullet(text: "Most productive day: ${dateFormat.format(mostProductiveDay)}"),
-          pw.Bullet(text: "Day with highest positive mood: ${dateFormat.format(happiestDay)}"),
-          pw.Bullet(text: "Most often missed tasks: ${missedTasksNames.join(', ')}"),
+          // BEHAVIORAL INSIGHTS
+          pw.Text("Behavioral Insights",
+              style: pw.TextStyle(
+                  fontSize: 18, fontWeight: pw.FontWeight.bold)),
+          pw.Bullet(
+              text:
+                  "Most Focused Day: ${mostProductiveDay != '-' ? mostProductiveDay : 'No data'}"),
+          pw.Bullet(
+              text:
+                  "Most Missed Day: ${mostMissedDay != '-' ? mostMissedDay : 'No data'}"),
+          pw.Bullet(
+              text:
+                  "Consistency Level: ${completionRate}% average task completion"),
+          pw.Bullet(
+              text:
+                  "Emotional Stability: ${moodDiversity} moods expressed this week (${topMood != '-' ? 'mainly $topMood' : 'no mood data'})"),
 
           pw.SizedBox(height: 24),
-          // Footer
           pw.Center(
             child: pw.Text("Generated by BrightBuds Parent Dashboard",
                 style: pw.TextStyle(fontSize: 10, color: PdfColors.grey)),
@@ -929,8 +982,12 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
     ),
   );
 
-  await Printing.layoutPdf(onLayout: (format) async => pdf.save(), name: "child_${name}_report.pdf");
+  await Printing.layoutPdf(
+    name: "child_${name}_weekly_report.pdf",
+    onLayout: (format) async => pdf.save(),
+  );
 }
+
 
 
   static const List<String> _moodOrder = [
@@ -1074,7 +1131,7 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
         trailing: IconButton(
           icon: const Icon(Icons.download, color: Colors.white),
           tooltip: "Export to PDF",
-          onPressed: () {
+          onPressed: () async {
             final journalProv = Provider.of<JournalProvider>(
                 context,
                 listen: false,
@@ -1125,7 +1182,7 @@ Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
                 'missed': statusCounts['missed']!, // <-- include missed here
               };
 
-              exportChildDataToPdfWithCharts(fullChildData);
+              await exportChildDataToPdfWithCharts(widget.parentId, childId, fullChildData);
           },
         ),
       ),
@@ -1525,7 +1582,7 @@ Widget _legendWithCounter({required Color color, required String label, required
                       child: Padding(
                         padding: const EdgeInsets.all(12.0),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             const Text(
                               "Assigned CBT Exercises",
@@ -1537,56 +1594,52 @@ Widget _legendWithCounter({required Color color, required String label, required
                             ),
                             const SizedBox(height: 8),
                             assignedCBT.isEmpty
-                                ? const Text(
-                                    "No CBT exercises assigned this week.",
-                                    style: TextStyle(color: Colors.black),
-                                  )
-                                : ListView.builder(
-                                    shrinkWrap: true,
-                                    physics:
-                                        const NeverScrollableScrollPhysics(),
-                                    itemCount: assignedCBT.length,
-                                    itemBuilder: (context, index) {
-                                      final assigned = assignedCBT[index];
-
-                                      // Look up the full exercise by ID
-                                      final exercise = CBTLibrary.getById(
-                                        assigned.exerciseId,
-                                      );
-
-                                      return ListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        title: Text(
-                                          exercise.title,
-                                          style: const TextStyle(
-                                            color: Colors.black,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        subtitle: assigned.completed
-                                            ? const Text(
-                                                "Completed ✅",
-                                                style: TextStyle(
-                                                  color: Colors.greenAccent,
-                                                ),
-                                              )
-                                            : const Text(
-                                                "Pending ⏳",
-                                                style: TextStyle(
-                                                  color: Colors.orangeAccent,
-                                                ),
-                                              ),
-                                        trailing: Icon(
-                                          assigned.completed
-                                              ? Icons.check_circle
-                                              : Icons.pending,
-                                          color: assigned.completed
-                                              ? Colors.greenAccent
-                                              : Colors.orangeAccent,
-                                        ),
-                                      );
-                                    },
+                            ? const SizedBox(
+                                width: double.infinity,
+                                child: Text(
+                                  "No CBT exercises assigned this week.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.black54,
+                                    fontStyle: FontStyle.italic,
                                   ),
+                                ),
+                              )
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: assignedCBT.length,
+                                itemBuilder: (context, index) {
+                                  final assigned = assignedCBT[index];
+                                  final exercise = CBTLibrary.getById(assigned.exerciseId);
+
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      exercise.title,
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    subtitle: assigned.completed
+                                        ? const Text(
+                                            "Completed ✅",
+                                            style: TextStyle(color: Colors.greenAccent),
+                                          )
+                                        : const Text(
+                                            "Pending ⏳",
+                                            style: TextStyle(color: Colors.orangeAccent),
+                                          ),
+                                    trailing: Icon(
+                                      assigned.completed ? Icons.check_circle : Icons.pending,
+                                      color: assigned.completed
+                                          ? Colors.greenAccent
+                                          : Colors.orangeAccent,
+                                    ),
+                                  );
+                                },
+                              ),
                           ],
                         ),
                       ),
