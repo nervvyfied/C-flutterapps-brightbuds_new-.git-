@@ -303,7 +303,7 @@ class _MyAppState extends State<MyApp> {
                     return MaterialPageRoute(
                       builder: (_) => const ChildAuthPage(),
                     );
-                  case 'therapistAuth':
+                  case '/therapistAuth':
                     return MaterialPageRoute(
                       builder: (_) => const TherapistAuthPage(),
                     );

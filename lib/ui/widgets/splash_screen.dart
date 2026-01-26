@@ -41,6 +41,8 @@ class _SplashScreenState extends State<SplashScreen>
         nextPage = const ParentNavigationShell();
       } else if (auth.isChild) {
         nextPage = const ChildNavigationShell();
+      } else if (auth.isTherapist) {
+        nextPage = const TherapistNavigationShell();
       } else {
         nextPage = const ChooseRolePage();
       }
@@ -65,11 +67,7 @@ class _SplashScreenState extends State<SplashScreen>
       body: Center(
         child: FadeTransition(
           opacity: _animation,
-          child: Image.asset(
-            'assets/bb3.png',
-            width: 150,
-            height: 150,
-          ),
+          child: Image.asset('assets/bb3.png', width: 150, height: 150),
         ),
       ),
     );
