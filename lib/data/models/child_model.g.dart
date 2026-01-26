@@ -19,39 +19,38 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
     return ChildUser(
       cid: fields[0] as String,
       name: fields[1] as String,
-      balance: fields[2] as int,
       streak: fields[3] as int,
       parentUid: fields[4] as String,
-      placedDecors: (fields[5] as List?)
-          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
-      ownedFish: (fields[6] as List?)
-          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
       firstVisitUnlocked: fields[7] as bool,
+      xp: fields[8] as int,
+      level: fields[9] as int,
+      currentWorld: fields[10] as int,
+      unlockedAchievements: (fields[11] as List).cast<String>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, ChildUser obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.cid)
       ..writeByte(1)
       ..write(obj.name)
-      ..writeByte(2)
-      ..write(obj.balance)
       ..writeByte(3)
       ..write(obj.streak)
       ..writeByte(4)
       ..write(obj.parentUid)
-      ..writeByte(5)
-      ..write(obj.placedDecors)
-      ..writeByte(6)
-      ..write(obj.ownedFish)
       ..writeByte(7)
-      ..write(obj.firstVisitUnlocked);
+      ..write(obj.firstVisitUnlocked)
+      ..writeByte(8)
+      ..write(obj.xp)
+      ..writeByte(9)
+      ..write(obj.level)
+      ..writeByte(10)
+      ..write(obj.currentWorld)
+      ..writeByte(11)
+      ..write(obj.unlockedAchievements);
   }
 
   @override

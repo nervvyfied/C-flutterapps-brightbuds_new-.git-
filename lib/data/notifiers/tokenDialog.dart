@@ -5,15 +5,28 @@ import 'package:confetti/confetti.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:lottie/lottie.dart';
 
-class TokenDialog extends StatelessWidget {
+class XPDialog extends StatelessWidget {
   final List<TaskModel> tasks;
   final ConfettiController confettiController;
 
-  const TokenDialog({
+  const XPDialog({
     required this.tasks,
     required this.confettiController,
     super.key,
   });
+
+  int _getXPForDifficulty(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return 5;
+      case 'medium':
+        return 10;
+      case 'hard':
+        return 20;
+      default:
+        return 0;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +36,6 @@ class TokenDialog extends StatelessWidget {
         // Blur background
         BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 3, sigmaY: 3),
-          // ignore: deprecated_member_use
           child: Container(color: Colors.black.withOpacity(0.3)),
         ),
         AlertDialog(
@@ -41,7 +53,7 @@ class TokenDialog extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Congratulations!',
+                'Level Up! 🎉',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,
@@ -51,7 +63,7 @@ class TokenDialog extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               const Text(
-                'You earned tokens for completing tasks!',
+                'You earned XP for completing tasks!',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: Colors.black54),
               ),
@@ -68,11 +80,11 @@ class TokenDialog extends StatelessWidget {
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12)),
                       child: ListTile(
-                        leading: Image.asset('assets/coin.png', width: 24, height: 24),
+                        leading: Image.asset('assets/XP.png', width: 24, height: 24), // XP/star icon
                         title: Text(task.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                         trailing: Text(
-                          '${task.reward} token(s)',
-                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                          '+${_getXPForDifficulty(task.difficulty)} XP',
+                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),

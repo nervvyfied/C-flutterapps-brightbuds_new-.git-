@@ -1,11 +1,16 @@
 // ignore_for_file: unnecessary_null_comparison
 
 import 'dart:async';
+import 'package:brightbuds_new/aquarium/manager/achievement_manager.dart';
+import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
+import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
+import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:brightbuds_new/utils/xp_calculator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show ScaffoldMessenger, Text, BuildContext, SnackBar, TimeOfDay;
@@ -33,10 +38,11 @@ class TaskProvider extends ChangeNotifier {
   final TaskRepository _taskRepo = TaskRepository();
   final UserRepository _userRepo = UserRepository();
   final StreakRepository _streakRepo = StreakRepository();
+  final UnlockManager unlockManager;
   late final SyncService _syncService;
   late Box<ChildUser> _childBox;
-  Function(int newBalance)? onBalanceChanged;
-    TaskProvider() {
+  Function(int newXP)? onXPChanged;
+    TaskProvider(this.unlockManager,) {
       _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
     }
 
@@ -111,6 +117,16 @@ class TaskProvider extends ChangeNotifier {
     }
 
     return {'done': done, 'notDone': notDone, 'missed': missed};
+  }
+
+  void Function(int newLevel)? onLevelUp;
+
+  void _checkAchievements(ChildUser child) {
+    final achievementManager = AchievementManager(
+      achievementNotifier: AchievementNotifier(),
+      currentChild: child,
+    );
+    achievementManager.checkAchievements();
   }
 
   // ---------------- FIRESTORE ----------------
@@ -501,7 +517,7 @@ await autoResetIfNeeded();
     notifyListeners();
   }
 
-  // ---------------- TASK COMPLETION ----------------
+  /// ---------------- TASK COMPLETION (XP LOGIC) ----------------
   Future<void> markTaskAsDone(String taskId, String childId) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
     if (index == -1) return;
@@ -510,65 +526,43 @@ await autoResetIfNeeded();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // ✅ Compute streak correctly
+    // ✅ Handle streak
     final bool isYesterday =
         task.lastCompletedDate != null &&
         task.lastCompletedDate!.difference(today).inDays == -1;
     final newActiveStreak = isYesterday ? task.activeStreak + 1 : 1;
 
-    // ✅ Update local task
     final updatedTask = task.copyWith(
       isDone: true,
       doneAt: now,
       lastCompletedDate: today,
       activeStreak: newActiveStreak,
-      longestStreak: newActiveStreak > (task.longestStreak)
-          ? newActiveStreak
-          : task.longestStreak,
-      totalDaysCompleted: (task.totalDaysCompleted) + 1,
+      longestStreak:
+          newActiveStreak > (task.longestStreak) ? newActiveStreak : task.longestStreak,
+      totalDaysCompleted: task.totalDaysCompleted + 1,
       lastUpdated: now,
     );
 
-    // ✅ Update local Hive + memory
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
-
-    // Persist via repository so repo/pending logic knows about change
-    try {
-      await _taskRepo.saveTask(updatedTask);
-    } catch (e) {
-      debugPrint('⚠️ _taskRepo.saveTask failed (mark done): $e');
-    }
-
+    await _taskRepo.saveTask(updatedTask);
     notifyListeners();
 
-    // ✅ Cancel alarm if any
+    // ✅ Cancel alarm if exists
     if (!kIsWeb && updatedTask.alarm != null) {
       await cancelTaskAlarm(updatedTask);
     }
 
-    // ✅ Try to sync immediately if online (push this single change)
+    // ✅ Sync Firestore
     if (await NetworkHelper.isOnline()) {
-      try {
-        await _syncToFirestore(updatedTask);
-        // Also ensure syncService flushes any other pending changes for this child
-        try {
-          await _syncService.syncAllPendingChanges(
-            parentId: updatedTask.parentId,
-            childId: updatedTask.childId,
-          );
-        } catch (e) {
-          debugPrint('⚠️ syncAllPendingChanges failed (after mark done): $e');
-        }
-        debugPrint('✅ Task marked done and synced: ${updatedTask.name}');
-      } catch (e) {
-        debugPrint('⚠️ Firestore sync failed (mark done): $e');
-      }
-    } else {
-      debugPrint('⚠️ Offline: will sync later (mark done).');
+      await _syncToFirestore(updatedTask);
+      await _syncService.syncAllPendingChanges(
+        parentId: updatedTask.parentId,
+        childId: updatedTask.childId,
+      );
     }
 
-    // ✅ Update streak data
+    // ✅ Update streak
     await _streakRepo.updateStreak(
       updatedTask.childId,
       updatedTask.parentId,
@@ -577,17 +571,6 @@ await autoResetIfNeeded();
 
     // ✅ Notify parent
     await _notifyParentCompletion(updatedTask, childId);
-
-    // ✅ Deduplicate any local duplicates after Firestore resync
-    final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
-    _tasks = uniqueTasks.values.toList()
-      ..sort(
-        (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
-          a.lastUpdated ?? DateTime(0),
-        ),
-      );
-
-    notifyListeners();
   }
 
   Future<void> markTaskAsUndone(String taskId, String childId) async {
@@ -681,111 +664,77 @@ await autoResetIfNeeded();
   }
 
   Future<void> verifyTask(String taskId, String childId) async {
-    final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index == -1) return;
+  final index = _tasks.indexWhere((t) => t.id == taskId);
+  if (index == -1) return;
 
-    final task = _tasks[index];
-    if (task.verified) return;
+  final task = _tasks[index];
 
-    final now = DateTime.now();
-
-    // ✅ Mark task as done
-    await markTaskAsDone(taskId, childId);
-
-    // ✅ Update locally (Hive & memory)
-    final updatedTask = task.copyWith(
-      verified: true,
-      isDone: true,
-      lastUpdated: now,
-    );
-    _tasks[index] = updatedTask;
-    await _taskBox?.put(updatedTask.id, updatedTask);
-    notifyListeners();
-
-    // ✅ Update in repository
-    await _taskRepo.verifyTask(taskId, childId);
-
-    // ✅ Update child's balance
-    final rewardAmount = task.reward;
-    try {
-      await _userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
-      final newBalance = currentChild.balance + rewardAmount;
-
-      // ✅ Add balance to pending queue
-      _updateLocalBalance(newBalance);
-
-      debugPrint(
-        "💰 Task reward $rewardAmount added. New balance: $newBalance",
-      );
-    } catch (e) {
-      debugPrint("⚠️ Failed to update child balance: $e");
-    }
-
-    // ✅ Only sync task to Firestore if online
-    if (await NetworkHelper.isOnline()) {
-      try {
-        final docRef = _firestore
-            .collection('users')
-            .doc(task.parentId)
-            .collection('children')
-            .doc(childId)
-            .collection('tasks')
-            .doc(taskId);
-
-        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
-        debugPrint('✅ Task verified, marked done, and synced: ${task.name}');
-      } catch (e) {
-        debugPrint('⚠️ Failed to sync verified task: $e');
-      }
-    }
+  // 🔒 Guard 1: Already verified → do nothing
+  if (task.verified) {
+    debugPrint('⚠️ Task already verified, skipping XP grant');
+    return;
   }
 
- Future<void> _updateLocalBalance(int newBalance) async {
-    if (currentChild.balance == newBalance) return;
+  // 🔒 Guard 2: Task must be done first
+  if (!task.isDone) {
+    debugPrint('⚠️ Cannot verify task that is not done');
+    return;
+  }
 
-    currentChild = currentChild.copyWith(balance: newBalance);
+  final now = DateTime.now();
 
-    notifyListeners();
-    onBalanceChanged?.call(newBalance);
+  // 🧮 Calculate XP BASED ON DIFFICULTY (single source of truth)
+  final levelCalculator = LevelCalculator();
+  final earnedXP = levelCalculator.xpFromTask(task.difficulty ?? 'easy');
 
-    // Hive update
+  // ✅ Update task: verified = true
+  final verifiedTask = task.copyWith(
+    verified: true,
+    lastUpdated: now,
+  );
+
+  // --- LOCAL STATE ---
+  _tasks[index] = verifiedTask;
+  await _taskBox?.put(verifiedTask.id, verifiedTask);
+  notifyListeners();
+
+  // --- REPO ---
+  await _taskRepo.verifyTask(taskId, childId);
+
+  // --- XP GRANT (ONLY HERE) ---
+  await _userRepo.updateChildXP(
+  task.parentId,
+  childId,
+  earnedXP,
+);
+
+// 🔹 Update currentChild after fetchChildAndCache
+currentChild = (await _userRepo.fetchChildAndCache(task.parentId, childId))!;
+
+// 🔹 Trigger achievement check
+unlockManager.checkAchievementUnlocks(tasks, currentChild);
+
+// 🔹 Optional: notify UI about XP change
+onXPChanged?.call(currentChild.xp);
+
+  // --- FIRESTORE SYNC ---
+  if (await NetworkHelper.isOnline()) {
     try {
-      final child = _childBox.get(currentChild.cid);
-      if (child != null) {
-        await _childBox.put(
-          currentChild.cid,
-          child.copyWith(balance: newBalance),
-        );
-      }
-    } catch (e) {
-      debugPrint('⚠️ Hive update failed: $e');
-    }
-
-    // Firestore update
-    try {
-      await _firestore
-          .collection('users')
-          .doc(currentChild.parentUid)
-          .collection('children')
-          .doc(currentChild.cid)
-          .set({'balance': newBalance}, SetOptions(merge: true));
-
-      if (kDebugMode) debugPrint('✅ Firestore balance updated: $newBalance');
-    } catch (e) {
-      debugPrint('⚠️ Firestore update failed: $e');
-    }
-
-    // Repository backup
-    try {
-      await _userRepo.updateChildBalance(
-        currentChild.parentUid,
-        currentChild.cid,
-        newBalance,
+      await _syncToFirestore(verifiedTask);
+      await _syncService.syncAllPendingChanges(
+        parentId: verifiedTask.parentId,
+        childId: verifiedTask.childId,
       );
     } catch (e) {
-      debugPrint('⚠️ Repo.updateBalance failed: $e');
+      debugPrint('⚠️ Firestore sync failed after verification: $e');
     }
   }
+  _checkAchievements(currentChild);
+
+  debugPrint(
+    '✅ Task verified: ${verifiedTask.name}, XP granted: $earnedXP',
+  );
+}
 
   // ---------------- ALARMS ----------------
   Future<void> scheduleTaskAlarm(TaskModel task) async {

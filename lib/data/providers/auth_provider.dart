@@ -251,10 +251,13 @@ class AuthProvider extends ChangeNotifier {
       cid: DateTime.now().millisecondsSinceEpoch.toString(),
       parentUid: parent.uid,
       name: name,
-      balance: 0,
       streak: 0,
       firstVisitUnlocked: false,
+      xp: 0,
+      level: 1,
+      currentWorld: 1,
     );
+
 
     final createdChild = await _userRepo.createChild(parent.uid, child, code);
     if (createdChild != null) {

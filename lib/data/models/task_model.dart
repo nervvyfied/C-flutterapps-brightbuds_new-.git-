@@ -158,6 +158,31 @@ class TaskModel {
 
   Map<String, dynamic> toMap() => toFirestore();
 
+  /// Convert TaskModel to a map safe for Hive storage (no Timestamps, only DateTime)
+Map<String, dynamic> toMapForHive() {
+  return {
+    'id': id,
+    'name': name,
+    'difficulty': difficulty,
+    'reward': reward,
+    'routine': routine,
+    'alarm': alarm,
+    'note': note,
+    'isDone': isDone,
+    'doneAt': doneAt,
+    'activeStreak': activeStreak,
+    'longestStreak': longestStreak,
+    'totalDaysCompleted': totalDaysCompleted,
+    'lastCompletedDate': lastCompletedDate,
+    'parentId': parentId,
+    'childId': childId,
+    'lastUpdated': lastUpdated,
+    'verified': verified,
+    'createdAt': createdAt,
+  };
+}
+
+
   // ---------------- COPYWITH ----------------
   TaskModel copyWith({
     String? id,

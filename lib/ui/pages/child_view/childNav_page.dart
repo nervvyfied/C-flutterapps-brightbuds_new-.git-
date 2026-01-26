@@ -6,6 +6,7 @@ import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:brightbuds_new/data/notifiers/token_listener.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
@@ -26,6 +27,17 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
   TokenNotifier? _tokenNotifier;
 
   List<Widget> _buildPages(String parentId, String childId, String childName) {
+    final selectedChildProvider = context.read<SelectedChildProvider>();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      selectedChildProvider.setSelectedChild({
+        'id': childId,
+        'name': childName,
+        'xp': 0,
+        'unlockedDecor': [],
+      });
+    });
+  
     return [
       ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
       JournalListPage(parentId: parentId, childId: childId),

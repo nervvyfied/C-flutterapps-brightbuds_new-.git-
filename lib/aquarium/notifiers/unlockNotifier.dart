@@ -1,20 +1,38 @@
-// ignore_for_file: file_names
-
 import 'package:flutter/material.dart';
 import '../models/fish_definition.dart';
+import '../models/decor_definition.dart';
+import '../models/achievement_definition.dart';
 
+/// Holds the latest unlocked item (Fish, Decor, or Achievement) for dialogs
 class UnlockNotifier extends ChangeNotifier {
-  FishDefinition? _justUnlocked;
+  final List<dynamic> _queue = []; // queue of unlocks
+  bool _isShowing = false;
+  dynamic _lastUnlocked; // FishDefinition, DecorDefinition, or AchievementDefinition
 
-  FishDefinition? get justUnlocked => _justUnlocked;
+  //dynamic get lastUnlocked => _lastUnlocked;
+  dynamic get current => _queue.isNotEmpty ? _queue.first : null;
 
-  void setUnlocked(FishDefinition fish) {
-    _justUnlocked = fish;
-    notifyListeners();
+  void setUnlocked(dynamic item) {
+    _queue.add(item);
+    if (!_isShowing) {
+      _showNext();
+    }
   }
 
-  void clear() {
-    _justUnlocked = null;
-    notifyListeners();
+  /// Called after a dialog is closed
+  void clearCurrent() {
+    if (_queue.isNotEmpty) {
+      _queue.removeAt(0);
+    }
+    _isShowing = false;
+    _showNext();
+  }
+
+  /// Internal: show next unlock if queue is not empty
+  void _showNext() {
+    if (_queue.isNotEmpty) {
+      _isShowing = true;
+      notifyListeners(); // triggers UnlockListener
+    }
   }
 }

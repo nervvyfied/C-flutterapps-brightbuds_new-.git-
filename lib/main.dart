@@ -1,10 +1,10 @@
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
-import 'package:brightbuds_new/aquarium/models/placedDecor_model.dart';
+import 'package:brightbuds_new/aquarium/notifiers/achievement_listener.dart';
+import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlock_listener.dart';
 import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
-import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
-import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
+import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
 import 'package:brightbuds_new/cbt/models/assigned_cbt_model.dart';
 import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
@@ -139,9 +139,6 @@ void main() async {
   if (!Hive.isAdapterRegistered(JournalEntryAdapter().typeId)) {
     Hive.registerAdapter(JournalEntryAdapter());
   }
-  if (!Hive.isAdapterRegistered(PlacedDecorAdapter().typeId)) {
-    Hive.registerAdapter(PlacedDecorAdapter());
-  }
   if (!Hive.isAdapterRegistered(AssignedCBTAdapter().typeId)) {
     Hive.registerAdapter(AssignedCBTAdapter());
   }
@@ -153,9 +150,9 @@ void main() async {
   await Hive.openBox<ChildUser>('childBox');
   await Hive.openBox<TaskModel>('tasksBox');
   await Hive.openBox<JournalEntry>('journalBox');
-  await Hive.openBox<PlacedDecor>('placedDecors');
   await Hive.openBox<CBTExercise>('cbtExercise');
   await Hive.openBox<AssignedCBT>('assignedCBT');
+  await Hive.openBox('settingsBox');
 
   debugPrint('✅ Hive boxes opened and ready.');
 
@@ -228,61 +225,56 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    _initializeFCM();
-
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SelectedChildProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => TaskProvider()),
+        ChangeNotifierProvider(create: (_) => ProgressionProvider(child: ChildUser(cid: '', name: '', parentUid: ''))),
         ChangeNotifierProvider(create: (_) => JournalProvider()),
-        ChangeNotifierProvider(
-          create: (context) =>
-              DecorProvider(authProvider: context.read<AuthProvider>()),
-        ),
-        ChangeNotifierProvider(
-          create: (context) =>
-              FishProvider(authProvider: context.read<AuthProvider>()),
-        ),
         ChangeNotifierProvider(create: (_) => UnlockNotifier()),
+        ChangeNotifierProvider(create: (_) => AchievementNotifier()),
         ChangeNotifierProvider(create: (_) => CBTProvider()),
-        Provider(
+        ChangeNotifierProvider(
           create: (context) => UnlockManager(
+            childProvider: context.read<SelectedChildProvider>(),
             unlockNotifier: context.read<UnlockNotifier>(),
-            fishProvider: context.read<FishProvider>(),
-            selectedChildProvider: context.read<SelectedChildProvider>(),
           ),
+        ),
+        ChangeNotifierProvider(
+          create: (context) => TaskProvider(context.read<UnlockManager>()),
         ),
       ],
       child: Consumer<AuthProvider>(
         builder: (context, auth, _) {
-          return UnlockListener(
-            child: MaterialApp(
-              navigatorKey: navigatorKey,
-              title: 'BrightBuds',
-              theme: ThemeData(
-                fontFamily: 'Fredoka', // <- applies Fredoka globally
-                primarySwatch: Colors.blue,
-              ),
-              home: Builder(
-                builder: (context) {
-                  if (auth.isLoading) {
-                    return const Scaffold(
-                      body: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-
-                  // Show splash screen first
-                  return const SplashScreen();
-                },
-              ),
-
-              routes: {
-                '/parentAuth': (context) => const ParentAuthPage(),
-                '/childAuth': (context) => const ChildAuthPage(),
-                '/achievements': (context) => const AchievementPage(),
-              },
+          return MaterialApp(
+            navigatorKey: navigatorKey,
+            title: 'BrightBuds',
+            theme: ThemeData(
+              fontFamily: 'Fredoka',
+              primarySwatch: Colors.blue,
             ),
+            home: AchievementListener(
+              child: UnlockListener(
+                child: const SplashScreen(),
+              ),
+            ),
+            onGenerateRoute: (settings) {
+              switch (settings.name) {
+                case '/parentAuth':
+                  return MaterialPageRoute(builder: (_) => const ParentAuthPage());
+                case '/childAuth':
+                  return MaterialPageRoute(builder: (_) => const ChildAuthPage());
+                case '/achievements':
+                  final args = settings.arguments as Map<String, dynamic>;
+                  final child = args['child'] as ChildUser;
+                  final tasks = args['tasks'] as List<TaskModel>;
+                  return MaterialPageRoute(
+                    builder: (_) => AchievementPage(child: child, tasks: tasks),
+                  );
+                default:
+                  return null;
+              }
+            },
           );
         },
       ),

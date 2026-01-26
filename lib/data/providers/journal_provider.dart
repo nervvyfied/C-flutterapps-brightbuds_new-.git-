@@ -1,5 +1,8 @@
 // ignore_for_file: unnecessary_cast
 
+import 'package:brightbuds_new/aquarium/manager/achievement_manager.dart';
+import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
+import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -69,6 +72,14 @@ class JournalProvider extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  void _checkAchievements(ChildUser child) {
+    final achievementManager = AchievementManager(
+      achievementNotifier: AchievementNotifier(),
+      currentChild: child,
+    );
+    achievementManager.checkAchievements();
   }
 
   // ---------------- LOAD ENTRIES ----------------
@@ -157,6 +168,7 @@ class JournalProvider extends ChangeNotifier {
 
     _entries.putIfAbsent(childId, () => []);
     _entries[childId]!.insert(0, newEntry);
+    _checkAchievements(childId as ChildUser);
     notifyListeners();
 
     // Push pending changes if online

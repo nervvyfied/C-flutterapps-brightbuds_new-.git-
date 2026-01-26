@@ -118,10 +118,15 @@ flutter:
     - assets/tank/sand_bg.png
     - assets/tank/sand1.png
     - assets/tank/sand2.png
+    - assets/tank/pond_bg.png
+    - assets/tank/gravel_bg.png
+    - assets/tank/gravel1.png
+    - assets/tank/gravel2.png
     - assets/particles/bubble_l.png
     - assets/particles/bubble_m.png
     - assets/particles/bubble_s.png
     - assets/particles/bubble_pop.png
+    - assets/particles/bubble_xp.png
     - assets/particles/dirt1.png
     - assets/particles/dirt2.png
     - assets/particles/dirt3.png
@@ -195,6 +200,8 @@ flutter:
     - assets/bb3.png
     - assets/bb2.png
     - assets/star.json
+    - assets/badge.png
+    - assets/xp.png
   
 
 

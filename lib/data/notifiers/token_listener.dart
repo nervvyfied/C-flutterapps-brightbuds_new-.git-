@@ -56,7 +56,7 @@ class _TokenListenerState extends State<TokenListener> {
 
     await showDialog(
       context: context,
-      builder: (_) => TokenDialog(
+      builder: (_) => XPDialog(
         tasks: tasksToShow,
         confettiController: _confettiController,
       ),
