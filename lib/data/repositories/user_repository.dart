@@ -1,5 +1,7 @@
 import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:brightbuds_new/data/models/therapist_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '/data/models/parent_model.dart';
@@ -364,33 +366,53 @@ class UserRepository {
   }
 
   Future<void> updateChildXP(
-  String parentUid,
-  String childId,
-  int xpAmount,
-) async {
-  if (parentUid.isEmpty || childId.isEmpty) {
-    throw ArgumentError("parentUid and childId cannot be empty.");
-  }
-
-  final childRef = _firestore
-      .collection('users')
-      .doc(parentUid)
-      .collection('children')
-      .doc(childId);
-
-  await _firestore.runTransaction((transaction) async {
-    final snapshot = await transaction.get(childRef);
-
-    if (!snapshot.exists) {
-      throw Exception("Child $childId not found under parent $parentUid");
+    String parentUid,
+    String childId,
+    int xpAmount,
+  ) async {
+    if (parentUid.isEmpty || childId.isEmpty) {
+      throw ArgumentError("parentUid and childId cannot be empty.");
     }
 
-    final currentXP = (snapshot.data()?['xp'] ?? 0) as int;
-    final newXP = currentXP + xpAmount;
+    final childRef = _firestore
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId);
 
-      transaction.update(childRef, {'balance': newBalance});
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(childRef);
+
+      if (!snapshot.exists) {
+        throw Exception("Child $childId not found under parent $parentUid");
+      }
+
+      final currentXP = (snapshot.data()?['xp'] ?? 0) as int;
+      final newXP = currentXP + xpAmount;
+
+      transaction.update(childRef, {'xp': newXP});
     });
 
+    // ✅ Refresh Hive cache
+    await fetchChildAndCache(parentUid, childId);
+  }
+
+  Future<void> updateChildAchievements(
+    String parentUid,
+    String childId,
+    List<String> achievementIds,
+  ) async {
+    if (parentUid.isEmpty || childId.isEmpty) return;
+
+    final childRef = _firestore
+        .collection('users')
+        .doc(parentUid)
+        .collection('children')
+        .doc(childId);
+
+    await childRef.update({'unlockedAchievements': achievementIds});
+
+    // Refresh Hive cache
     await fetchChildAndCache(parentUid, childId);
   }
 }

@@ -50,7 +50,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   Future<void> _initialize() async {
   _settingsBox = await Hive.openBox('settings');
 
-  // 1️⃣ Load cached XP safely
+ // 1️⃣ Load cached XP safely
   final cachedXP = _settingsBox.get(
     'cached_xp_${widget.childId}',
     defaultValue: 0,
@@ -78,14 +78,14 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   final online = await NetworkHelper.isOnline();
   if (mounted) setState(() => _isOffline = !online);
 
-    // Initialize provider Hive & tasks asynchronously
-    taskProvider.initHive();
-    taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
-    taskProvider.startDailyResetScheduler();
+  // 4️⃣ Initialize provider Hive & fetch tasks async
+  taskProvider.initHive();
+  await taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
+  taskProvider.startDailyResetScheduler();
 
-    // Start listeners
-    _listenToBalance();
-    _listenToTasks();
+  // 5️⃣ Start listeners
+  _listenToXP();
+  _listenToTasks();
 
   // 6️⃣ Fetch XP from Firestore in background
   _fetchXP();
@@ -144,11 +144,11 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     }
   }, onError: (e) => debugPrint('❌ Task stream error: $e'));
 }
-
   /// Listen to real-time balance updates and sync to Hive
   /// Listen to real-time balance updates and sync to Hive safely
-  void _listenToBalance() {
-    _balanceSubscription?.cancel();
+  /// Listen to real-time XP updates and sync to Hive safely
+void _listenToXP() {
+  _balanceSubscription?.cancel(); // reuse subscription variable
 
   final docRef = FirebaseFirestore.instance
       .collection('users')
@@ -169,52 +169,54 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
     final cachedKey = 'cached_xp_${widget.childId}';
 
-      // ✅ Update UI immediately
-      if (mounted) setState(() => _balance = newBalance);
+    // ✅ Update UI immediately
+    if (mounted) setState(() => _xp = newXP);
 
-      // ✅ Save to settings Hive box
-      await _settingsBox.put(cachedKey, newBalance);
+    // ✅ Save to settings Hive box
+    await _settingsBox.put(cachedKey, newXP);
 
-      // ✅ Persist to Hive childBox if open and type-safe
-      if (Hive.isBoxOpen('childBox')) {
-        try {
-          final childBox = Hive.box<ChildUser>('childBox');
-          final child = childBox.get(widget.childId);
-          if (child != null) {
-            final updatedChild = child.copyWith(balance: newBalance);
-            await childBox.put(widget.childId, updatedChild);
-            debugPrint('💾 Hive childBox balance updated: $newBalance');
-          }
-        } catch (e) {
-          debugPrint('⚠️ Failed to persist balance to childBox: $e');
+    // ✅ Persist to Hive childBox if open and type-safe
+    if (Hive.isBoxOpen('childBox')) {
+      try {
+        final childBox = Hive.box<ChildUser>('childBox');
+        final child = childBox.get(widget.childId);
+        if (child != null) {
+          final updatedChild = child.copyWith(xp: newXP);
+          await childBox.put(widget.childId, updatedChild);
+          debugPrint('💾 Hive childBox XP updated: $newXP');
         }
-      } else {
-        debugPrint('⚠️ childBox not open yet, skipping balance update.');
+      } catch (e) {
+        debugPrint('⚠️ Failed to persist XP to childBox: $e');
       }
+    } else {
+      debugPrint('⚠️ childBox not open yet, skipping XP update.');
+    }
 
     debugPrint('🟢 XP synced Firestore → Hive: $newXP');
   }, onError: (e) => debugPrint('❌ XP stream error: $e'));
 }
 
 
+
   /// Fetch balance from Firestore (offline-first) and sync to Hive safely
-  Future<void> _fetchBalance() async {
-    final cachedKey = 'cached_balance_${widget.childId}';
+  /// Fetch XP from Firestore (offline-first) and sync to Hive safely
+Future<void> _fetchXP() async {
+  final cachedKey = 'cached_xp_${widget.childId}';
 
-    // ✅ Load cached Hive value immediately
-    final cached = _settingsBox.get(cachedKey, defaultValue: 0);
-    if (mounted) setState(() => _balance = cached);
-    debugPrint('📦 Loaded cached balance: $cached');
+  // ✅ Load cached Hive value immediately
+  final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+  if (mounted) setState(() => _xp = cached);
+  debugPrint('📦 Loaded cached XP: $cached');
 
-    // ✅ Fetch latest from Firestore if online
-    if (await NetworkHelper.isOnline()) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.parentId)
-            .collection('children')
-            .doc(widget.childId)
-            .get();
+  // ✅ Fetch latest from Firestore if online
+  if (await NetworkHelper.isOnline()) {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.parentId)
+          .collection('children')
+          .doc(widget.childId)
+          .get();
 
       if (!doc.exists || doc.data() == null) return;
 
@@ -229,22 +231,22 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         if (mounted) setState(() => _xp = fetched);
         await _settingsBox.put(cachedKey, fetched);
 
-          // ✅ Persist to Hive childBox safely
-          if (Hive.isBoxOpen('childBox')) {
-            try {
-              final childBox = Hive.box<ChildUser>('childBox');
-              final child = childBox.get(widget.childId);
-              if (child != null) {
-                final updatedChild = child.copyWith(balance: fetched);
-                await childBox.put(widget.childId, updatedChild);
-                debugPrint('💾 Hive childBox balance refreshed: $fetched');
-              }
-            } catch (e) {
-              debugPrint('⚠️ Failed to update Hive child balance: $e');
+        // ✅ Persist to Hive childBox safely
+        if (Hive.isBoxOpen('childBox')) {
+          try {
+            final childBox = Hive.box<ChildUser>('childBox');
+            final child = childBox.get(widget.childId);
+            if (child != null) {
+              final updatedChild = child.copyWith(xp: fetched);
+              await childBox.put(widget.childId, updatedChild);
+              debugPrint('💾 Hive childBox XP refreshed: $fetched');
             }
-          } else {
-            debugPrint('⚠️ childBox not open yet, skipping Hive update.');
+          } catch (e) {
+            debugPrint('⚠️ Failed to update Hive child XP: $e');
           }
+        } else {
+          debugPrint('⚠️ childBox not open yet, skipping Hive update.');
+        }
 
         debugPrint('🟢 XP refreshed Firestore → Hive: $fetched');
       }
@@ -274,13 +276,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       default:
         return Colors.grey;
     }
-  }
-
-  @override
-  void dispose() {
-    _balanceSubscription?.cancel();
-    _taskSubscription?.cancel();
-    super.dispose();
   }
 
   Widget _buildTaskGroup(
@@ -446,6 +441,13 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _balanceSubscription?.cancel();
+    _taskSubscription?.cancel();
+    super.dispose();
   }
 
   @override

@@ -17,39 +17,43 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
     return ChildUser(
-      therapistUid: fields[8] as String?,
       cid: fields[0] as String,
       name: fields[1] as String,
-      streak: fields[3] as int,
-      parentUid: fields[4] as String,
-      placedDecors: (fields[5] as List?)
-          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
-      ownedFish: (fields[6] as List?)
-          ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
-      firstVisitUnlocked: fields[7] as bool,
-      xp: fields[8] as int,
-      level: fields[9] as int,
-      currentWorld: fields[10] as int,
-      unlockedAchievements: (fields[11] as List).cast<String>(),
+      streak: fields[2] as int,
+      parentUid: fields[3] as String,
+      therapistUid: fields[4] as String?,
+      firstVisitUnlocked: fields[5] as bool,
+      xp: fields[6] as int,
+      level: fields[7] as int,
+      currentWorld: fields[8] as int,
+      unlockedAchievements: (fields[9] as List).cast<String>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, ChildUser obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.cid)
       ..writeByte(1)
       ..write(obj.name)
-      ..writeByte(3)
+      ..writeByte(2)
       ..write(obj.streak)
-      ..writeByte(4)
+      ..writeByte(3)
       ..write(obj.parentUid)
+      ..writeByte(4)
+      ..write(obj.therapistUid)
+      ..writeByte(5)
+      ..write(obj.firstVisitUnlocked)
+      ..writeByte(6)
+      ..write(obj.xp)
       ..writeByte(7)
-      ..write(obj.firstVisitUnlocked);
+      ..write(obj.level)
+      ..writeByte(8)
+      ..write(obj.currentWorld)
+      ..writeByte(9)
+      ..write(obj.unlockedAchievements);
   }
 
   @override

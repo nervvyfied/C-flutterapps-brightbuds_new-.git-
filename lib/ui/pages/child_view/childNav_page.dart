@@ -26,7 +26,23 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
   int _selectedIndex = 0;
   TokenNotifier? _tokenNotifier;
 
-  List<Widget> _buildPages(String parentId, String childId, String childName) {
+  List<Widget> _buildPages(
+    String parentId,
+    String childId,
+    String childName,
+    String therapistId,
+  ) {
+    final selectedChildProvider = context.read<SelectedChildProvider>();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      selectedChildProvider.setSelectedChild({
+        'id': childId,
+        'name': childName,
+        'xp': 0,
+        'unlockedDecor': [],
+      });
+    });
+  
     return [
       ChildQuestsPage(
         parentId: parentId,

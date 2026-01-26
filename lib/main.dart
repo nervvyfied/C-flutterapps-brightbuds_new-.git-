@@ -256,7 +256,16 @@ class _MyAppState extends State<MyApp> {
       providers: [
         ChangeNotifierProvider(create: (_) => SelectedChildProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => ProgressionProvider(child: ChildUser(cid: '', name: '', parentUid: ''))),
+        ChangeNotifierProvider(
+          create: (_) => ProgressionProvider(
+            child: ChildUser(
+              cid: '',
+              name: '',
+              parentUid: '',
+              therapistUid: '',
+            ),
+          ),
+        ),
         ChangeNotifierProvider(create: (_) => JournalProvider()),
         ChangeNotifierProvider(create: (_) => UnlockNotifier()),
         ChangeNotifierProvider(create: (_) => AchievementNotifier()),
@@ -281,23 +290,30 @@ class _MyAppState extends State<MyApp> {
                 fontFamily: 'Fredoka', // <- applies Fredoka globally
                 primarySwatch: Colors.blue,
               ),
-              home: Builder(
-                builder: (context) {
-                  if (auth.isLoading) {
-                    return const Scaffold(
-                      body: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-
-                  // Show splash screen first
-                  return const SplashScreen();
-                },
+              home: AchievementListener(
+                child: UnlockListener(child: const SplashScreen()),
               ),
-
-              routes: {
-                '/parentAuth': (context) => const ParentAuthPage(),
-                '/childAuth': (context) => const ChildAuthPage(),
-                '/achievements': (context) => const AchievementPage(),
+              onGenerateRoute: (settings) {
+                switch (settings.name) {
+                  case '/parentAuth':
+                    return MaterialPageRoute(
+                      builder: (_) => const ParentAuthPage(),
+                    );
+                  case '/childAuth':
+                    return MaterialPageRoute(
+                      builder: (_) => const ChildAuthPage(),
+                    );
+                  case '/achievements':
+                    final args = settings.arguments as Map<String, dynamic>;
+                    final child = args['child'] as ChildUser;
+                    final tasks = args['tasks'] as List<TaskModel>;
+                    return MaterialPageRoute(
+                      builder: (_) =>
+                          AchievementPage(child: child, tasks: tasks),
+                    );
+                  default:
+                    return null;
+                }
               },
             ),
           );

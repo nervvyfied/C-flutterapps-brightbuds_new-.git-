@@ -51,12 +51,10 @@ class TaskProvider extends ChangeNotifier {
   late final SyncService _syncService;
 
   late Box<ChildUser> _childBox;
-  Function(int newBalance)? onBalanceChanged;
-    TaskProvider() {
+  Function(int newXP)? onXPChanged;
+    TaskProvider(this.unlockManager,) {
       _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
     }
-
-  late ChildUser currentChild;
 
   final List<_PendingAction> _pendingActions = [];
   List<TaskModel> _tasks = [];
@@ -64,8 +62,35 @@ class TaskProvider extends ChangeNotifier {
   set tasks(List<TaskModel> newTasks) {
     _tasks = newTasks;
     notifyListeners();
+ // Initialize child box
+    _initChildBox();
   }
 
+  Future<void> _initChildBox() async {
+    _childBox = Hive.isBoxOpen('childrenBox')
+        ? Hive.box<ChildUser>('childrenBox')
+        : await Hive.openBox<ChildUser>('childrenBox');
+  }
+
+  CurrentUser? currentUser; // ✅ Who is using this provider
+  String? _currentUserId;
+  UserType? _currentUserType;
+
+  void setCurrentUser(String uid, UserType type) {
+    currentUser = CurrentUser(uid: uid, type: type);
+    debugPrint('👤 Current user set: $uid (${type.name})');
+  }
+
+  void clearCurrentUser() {
+    _currentUserId = null;
+    _currentUserType = null;
+    notifyListeners();
+  }
+
+  String? get currentUserId => _currentUserId;
+  UserType? get currentUserType => _currentUserType;
+
+  ChildUser? currentChild;
   bool canManageTask(TaskModel task) {
     if (currentUser == null) return false;
 
@@ -134,7 +159,7 @@ class TaskProvider extends ChangeNotifier {
     return {'done': done, 'notDone': notDone, 'missed': missed};
   }
 
-  void Function(int newLevel)? onLevelUp;
+ void Function(int newLevel)? onLevelUp;
 
   void _checkAchievements(ChildUser child) {
     final achievementManager = AchievementManager(
@@ -143,7 +168,6 @@ class TaskProvider extends ChangeNotifier {
     );
     achievementManager.checkAchievements();
   }
-
   // ---------------- FIRESTORE ----------------
   void startFirestoreSubscription({
     required String parentId,
@@ -724,7 +748,7 @@ class TaskProvider extends ChangeNotifier {
     );
 
     // ✅ Notify parent
-    await _notifyParentCompletion(updatedTask, childId);
+    await _notifyParentCompletion(updatedTask, childId, actualParentId);
 
     // ✅ Deduplicate any local duplicates after Firestore resync
     final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
@@ -848,9 +872,9 @@ class TaskProvider extends ChangeNotifier {
   }
 
   // ---------------- VERIFY TASK ----------------
-  Future<void> verifyTask(String taskId, String childId) async {
-    final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index == -1) return;
+   Future<void> verifyTask(String taskId, String childId) async {
+  final index = _tasks.indexWhere((t) => t.id == taskId);
+  if (index == -1) return;
 
   final task = _tasks[index];
 
@@ -868,103 +892,58 @@ class TaskProvider extends ChangeNotifier {
 
   final now = DateTime.now();
 
-    // ✅ Mark task as done
-    await markTaskAsDone(taskId, childId);
+  // 🧮 Calculate XP BASED ON DIFFICULTY (single source of truth)
+  final levelCalculator = LevelCalculator();
+  final earnedXP = levelCalculator.xpFromTask(task.difficulty ?? 'easy');
 
-    // ✅ Update locally (Hive & memory)
-    final updatedTask = task.copyWith(
-      verified: true,
-      isDone: true,
-      lastUpdated: now,
-    );
-    _tasks[index] = updatedTask;
-    await _taskBox?.put(updatedTask.id, updatedTask);
-    notifyListeners();
+  // ✅ Update task: verified = true
+  final verifiedTask = task.copyWith(
+    verified: true,
+    lastUpdated: now,
+  );
+
+  // --- LOCAL STATE ---
+  _tasks[index] = verifiedTask;
+  await _taskBox?.put(verifiedTask.id, verifiedTask);
+  notifyListeners();
 
   // --- REPO ---
   await _taskRepo.verifyTask(taskId, childId);
 
-    // ✅ Update child's balance
-    final rewardAmount = task.reward;
+  // --- XP GRANT (ONLY HERE) ---
+  await _userRepo.updateChildXP(
+  task.parentId,
+  childId,
+  earnedXP,
+);
+
+// 🔹 Update currentChild after fetchChildAndCache
+currentChild = (await _userRepo.fetchChildAndCache(task.parentId, childId))!;
+
+// 🔹 Trigger achievement check
+unlockManager.checkAchievementUnlocks(tasks, currentChild!);
+
+// 🔹 Optional: notify UI about XP change
+onXPChanged?.call(currentChild!.xp);
+
+  // --- FIRESTORE SYNC ---
+  if (await NetworkHelper.isOnline()) {
     try {
-      await _userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
-      final newBalance = currentChild.balance + rewardAmount;
-
-      // ✅ Add balance to pending queue
-      _updateLocalBalance(newBalance);
-
-      debugPrint(
-        "💰 Task reward $rewardAmount added. New balance: $newBalance",
+      await _syncToFirestore(verifiedTask);
+      await _syncService.syncAllPendingChanges(
+        parentId: verifiedTask.parentId,
+        childId: verifiedTask.childId,
       );
     } catch (e) {
-      debugPrint("⚠️ Failed to update child balance: $e");
-    }
-
-    // ✅ Only sync task to Firestore if online
-    if (await NetworkHelper.isOnline()) {
-      try {
-        final docRef = _firestore
-            .collection('users')
-            .doc(task.parentId)
-            .collection('children')
-            .doc(childId)
-            .collection('tasks')
-            .doc(taskId);
-
-        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
-        debugPrint('✅ Task verified, marked done, and synced: ${task.name}');
-      } catch (e) {
-        debugPrint('⚠️ Failed to sync verified task: $e');
-      }
+      debugPrint('⚠️ Firestore sync failed after verification: $e');
     }
   }
+  _checkAchievements(currentChild!);
 
- Future<void> _updateLocalBalance(int newBalance) async {
-    if (currentChild.balance == newBalance) return;
-
-    currentChild = currentChild.copyWith(balance: newBalance);
-
-    notifyListeners();
-    onBalanceChanged?.call(newBalance);
-
-    // Hive update
-    try {
-      final child = _childBox.get(currentChild.cid);
-      if (child != null) {
-        await _childBox.put(
-          currentChild.cid,
-          child.copyWith(balance: newBalance),
-        );
-      }
-    } catch (e) {
-      debugPrint('⚠️ Hive update failed: $e');
-    }
-
-    // Firestore update
-    try {
-      await _firestore
-          .collection('users')
-          .doc(currentChild.parentUid)
-          .collection('children')
-          .doc(currentChild.cid)
-          .set({'balance': newBalance}, SetOptions(merge: true));
-
-      if (kDebugMode) debugPrint('✅ Firestore balance updated: $newBalance');
-    } catch (e) {
-      debugPrint('⚠️ Firestore update failed: $e');
-    }
-
-    // Repository backup
-    try {
-      await _userRepo.updateChildBalance(
-        currentChild.parentUid,
-        currentChild.cid,
-        newBalance,
-      );
-    } catch (e) {
-      debugPrint('⚠️ Repo.updateBalance failed: $e');
-    }
-  }
+  debugPrint(
+    '✅ Task verified: ${verifiedTask.name}, XP granted: $earnedXP',
+  );
+}
 
   // ---------------- ALARMS ----------------
   Future<void> scheduleTaskAlarm(TaskModel task) async {

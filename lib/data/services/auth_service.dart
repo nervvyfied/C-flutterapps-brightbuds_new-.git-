@@ -219,8 +219,8 @@ class AuthService {
       cid: child.cid,
       parentUid: parent.uid,
       name: child.name,
-      balance: child.balance,
-      streak: child.streak,
+      streak: child.streak, 
+      therapistUid: child.therapistUid,
     );
 
   await _userRepo.cacheParent(parent);

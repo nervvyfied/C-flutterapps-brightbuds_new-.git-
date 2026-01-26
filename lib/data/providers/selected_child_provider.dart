@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 
 class SelectedChildProvider extends ChangeNotifier {
   Map<String, dynamic>? _selectedChild;
-
+  final UserRepository _userRepo = UserRepository();
   Map<String, dynamic>? get selectedChild => _selectedChild;
 
   ChildUser? get selectedChildAsUser {
@@ -18,11 +18,13 @@ class SelectedChildProvider extends ChangeNotifier {
       level: _selectedChild!['level'] ?? 1,
       streak: _selectedChild!['streak'] ?? 0,
       unlockedAchievements: List<String>.from(
-          _selectedChild!['unlockedAchievements'] ?? []),
+        _selectedChild!['unlockedAchievements'] ?? [],
+      ), 
+      therapistUid: _selectedChild!['therapistUid'] ?? '',
     );
   }
 
-  void setSelectedChild(Map<String, dynamic>? child) {
+   void setSelectedChild(Map<String, dynamic>? child) {
     debugPrint(
       "👶 Setting selected child: ${child?['name']} (${child?['cid']})",
     );
@@ -48,21 +50,30 @@ class SelectedChildProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> fetchChildAndSet(String parentUid, String childId) async {
-  final child = await _userRepo.fetchChildAndCache(parentUid, childId);
-  if (child != null) {
-    setSelectedChild({
-      'id': child.cid,
-      'parentUid': child.parentUid,
-      'name': child.name,
-      'xp': child.xp,
-      'level': child.level,
-      'streak': child.streak,
-      'unlockedAchievements': child.unlockedAchievements,
-    });
+  /// Update specific fields of the selected child
+  void updateSelectedChild(Map<String, dynamic> updatedFields) {
+    if (_selectedChild == null) {
+      debugPrint('⚠️ updateSelectedChild called but no child selected');
+      return;
+    }
   }
-}
+  Future<void> fetchChildAndSet(String parentUid, String childId) async {
+    final child = await _userRepo.fetchChildAndCache(parentUid, childId);
+    if (child != null) {
+      setSelectedChild({
+        'id': child.cid,
+        'parentUid': child.parentUid,
+        'name': child.name,
+        'xp': child.xp,
+        'level': child.level,
+        'streak': child.streak,
+        'unlockedAchievements': child.unlockedAchievements,
+        'therapistUid': child.therapistUid,
+      });
+    }
+  }
+Future loadEntries() async {}
+  /// Update specific fields of the selected child
 
-  /// Returns true if a child is selected.
-  bool get hasSelectedChild => _selectedChild != null;
-}
+    }
+  

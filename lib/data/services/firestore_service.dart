@@ -600,7 +600,6 @@ Future<List<Map<String, dynamic>>> getTherapistAssignedChildren(
             'parent': parent,
             'cid': child.cid,
             'name': child.name,
-            'balance': child.balance,
             'streak': child.streak,
             'parentUid': parent.uid,
             'parentName': parent.name,
