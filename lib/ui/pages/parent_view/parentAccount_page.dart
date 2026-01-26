@@ -1,5 +1,8 @@
 // ignore_for_file: file_names, unused_local_variable, use_build_context_synchronously, await_only_futures, avoid_print, deprecated_member_use
 
+import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
+import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -73,6 +76,22 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                 subtitle: Text("Access Code: ${childMap['accessCode']}"),
                 onTap: () async {
                   selectedChildProv.setSelectedChild(childMap);
+                  final taskProvider = context.read<TaskProvider>();
+                  final progression = context.read<ProgressionProvider>();
+
+                  final childModel = ChildUser(
+                    cid: childMap['cid'],
+                    name: childMap['name'],
+                    parentUid: widget.parentId,
+                    xp: childMap['xp'] ?? 0, // IMPORTANT
+                  );
+
+                  taskProvider.currentChild = childModel;
+                  progression.setChild(childModel);
+
+                  taskProvider.onXPChanged = (newXP) {
+                    progression.updateXP(newXP);
+                  };
                   await Provider.of<JournalProvider>(
                     context,
                     listen: false,
@@ -127,7 +146,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
           "cid": doc.id,
           "name": c['name'] ?? 'Child',
           "accessCode": code,
-          "balance": c['balance'] ?? 0,
+          "xp": c['xp'] ?? 0,
         };
       }).toList();
 
@@ -140,11 +159,29 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         var currentSelected = selectedChildProv.selectedChild;
         if (currentSelected == null ||
             !tempChildren.any((c) => c['cid'] == currentSelected['cid'])) {
-          selectedChildProv.setSelectedChild(tempChildren[0]);
+          final firstChild = tempChildren[0];
+          selectedChildProv.setSelectedChild(firstChild);
+          final taskProvider = context.read<TaskProvider>();
+          final progression = context.read<ProgressionProvider>();
+
+          final childModel = ChildUser(
+            cid: firstChild['cid'],
+            name: firstChild['name'],
+            parentUid: widget.parentId,
+            xp: firstChild['xp'] ?? 0,
+          );
+
+          taskProvider.currentChild = childModel;
+          progression.setChild(childModel);
+
+          taskProvider.onXPChanged = (newXP) {
+            progression.updateXP(newXP);
+          };
+
           await Provider.of<JournalProvider>(
             context,
             listen: false,
-          ).getEntries(tempChildren[0]['cid']);
+          ).getEntries(firstChild['cid']);
         } else {
           await Provider.of<JournalProvider>(
             context,
@@ -196,6 +233,22 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     listen: false,
                   );
                   selectedChildProv.setSelectedChild(childMap);
+                  final taskProvider = context.read<TaskProvider>();
+                  final progression = context.read<ProgressionProvider>();
+
+                  final childModel = ChildUser(
+                    cid: childMap['cid'],
+                    name: childMap['name'],
+                    parentUid: widget.parentId,
+                    xp: childMap['xp'] ?? 0, // IMPORTANT
+                  );
+
+                  taskProvider.currentChild = childModel;
+                  progression.setChild(childModel);
+
+                  taskProvider.onXPChanged = (newXP) {
+                    progression.updateXP(newXP);
+                  };
                   await Provider.of<JournalProvider>(
                     context,
                     listen: false,

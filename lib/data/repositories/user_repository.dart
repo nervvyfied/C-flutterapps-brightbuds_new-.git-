@@ -181,33 +181,52 @@ String? getCachedParentId() {
     await _childBox.clear();
   }
 
-  Future<void> updateChildBalance(
-    String parentUid,
-    String childId,
-    int amount,
-  ) async {
-    if (parentUid.isEmpty || childId.isEmpty) {
-      throw ArgumentError("parentUid and childId cannot be empty.");
+  Future<void> updateChildXP(
+  String parentUid,
+  String childId,
+  int xpAmount,
+) async {
+  if (parentUid.isEmpty || childId.isEmpty) {
+    throw ArgumentError("parentUid and childId cannot be empty.");
+  }
+
+  final childRef = _firestore
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .doc(childId);
+
+  await _firestore.runTransaction((transaction) async {
+    final snapshot = await transaction.get(childRef);
+
+    if (!snapshot.exists) {
+      throw Exception("Child $childId not found under parent $parentUid");
     }
 
-    final childRef = _firestore
-        .collection('users')
-        .doc(parentUid)
-        .collection('children')
-        .doc(childId);
+    final currentXP = (snapshot.data()?['xp'] ?? 0) as int;
+    final newXP = currentXP + xpAmount;
 
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(childRef);
-      if (!snapshot.exists) {
-        throw Exception("Child $childId not found under parent $parentUid");
-      }
+    transaction.update(childRef, {'xp': newXP});
+  });
 
-      final current = (snapshot.data()?['balance'] ?? 0) as int;
-      final newBalance = current + amount;
+  // ✅ Refresh Hive cache
+  await fetchChildAndCache(parentUid, childId);
+}
 
-      transaction.update(childRef, {'balance': newBalance});
-    });
+Future<void> updateChildAchievements(String parentUid, String childId, List<String> achievementIds) async {
+  if (parentUid.isEmpty || childId.isEmpty) return;
 
-    await fetchChildAndCache(parentUid, childId);
-  }
+  final childRef = _firestore
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .doc(childId);
+
+  await childRef.update({'unlockedAchievements': achievementIds});
+
+  // Refresh Hive cache
+  await fetchChildAndCache(parentUid, childId);
+}
+
+
 }

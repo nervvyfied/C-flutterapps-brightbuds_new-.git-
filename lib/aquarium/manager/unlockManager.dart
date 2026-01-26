@@ -1,108 +1,162 @@
-// ignore_for_file: file_names, avoid_types_as_parameter_names
-
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
+import 'package:brightbuds_new/aquarium/progression/achievement_resolver.dart';
+import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
+import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/models/task_model.dart';
+import 'package:brightbuds_new/data/repositories/user_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../providers/fish_provider.dart';
-import '../catalogs/fish_catalog.dart';
+import 'package:flutter/material.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
+import '../progression/unlock_resolver.dart';
 import '../models/fish_definition.dart';
-import '/data/models/task_model.dart';
-import '/data/models/child_model.dart';
-import '../models/placedDecor_model.dart';
-import '../../data/providers/selected_child_provider.dart';
+import '../models/decor_definition.dart';
 
-class UnlockManager {
-  final FishProvider fishProvider;
+class UnlockManager extends ChangeNotifier {
+  final UserRepository _userRepo = UserRepository();
+  final SelectedChildProvider childProvider;
   final UnlockNotifier unlockNotifier;
-  final SelectedChildProvider selectedChildProvider;
-  final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
-  UnlockManager({
-    required this.unlockNotifier,
-    required this.fishProvider,
-    required this.selectedChildProvider,
-  });
+  UnlockManager({required this.childProvider, required this.unlockNotifier});
 
-  /// Call after relevant actions (task completed, decor placed, aquarium visited)
- Future<List<FishDefinition>> checkUnlocks() async {
-  final child = fishProvider.currentChild;
+  /// Tracks the most recently unlocked fish or decor
+  FishDefinition? _lastFishUnlocked;
+  DecorDefinition? _lastDecorUnlocked;
 
-  // Fetch tasks
-  final tasksSnap = await firestore
-      .collection('users')
-      .doc(child.parentUid)
-      .collection('children')
-      .doc(child.cid)
-      .collection('tasks')
-      .get();
+  FishDefinition? get lastFishUnlocked => _lastFishUnlocked;
+  DecorDefinition? get lastDecorUnlocked => _lastDecorUnlocked;
 
-  List<TaskModel> tasks = tasksSnap.docs
-      .map((d) => TaskModel.fromFirestore(d.data(), d.id))
-      .toList();
+  /// Call this after the child completes a level
+  void checkLevelUnlocks(int currentLevel) {
+    final selectedChild = childProvider.selectedChild;
+    if (selectedChild == null) return;
 
-  // Fetch decors
-  final decorDoc = await firestore
-      .collection('users')
-      .doc(child.parentUid)
-      .collection('children')
-      .doc(child.cid)
-      .collection('aquarium')
-      .doc('decor')
-      .get();
+    final world = Worlds.getWorldForLevel(currentLevel);
 
-  List<PlacedDecor> decors = [];
-  if (decorDoc.exists && decorDoc.data()?['placedDecors'] != null) {
-    decors = (decorDoc.data()!['placedDecors'] as List)
-        .map((d) => PlacedDecor.fromMap(d))
-        .toList();
+    // Use Sets for uniqueness
+    final unlockedFishSet = Set<String>.from(selectedChild['unlockedFish'] ?? []);
+    final unlockedDecorSet = Set<String>.from(selectedChild['unlockedDecor'] ?? []);
+
+    final resolver = UnlockResolver(
+      currentLevel: currentLevel,
+      currentWorld: world.worldId,
+    );
+
+    FishDefinition? fishToUnlock;
+    DecorDefinition? decorToUnlock;
+
+    // Find the first new fish
+    for (var fish in resolver.unlockedFish) {
+      if (!unlockedFishSet.contains(fish.id)) {
+        fishToUnlock = fish;
+        break;
+      }
+    }
+
+    // If no fish, find the first new decor
+    if (fishToUnlock == null) {
+      for (var decor in resolver.unlockedDecor) {
+        if (!unlockedDecorSet.contains(decor.id)) {
+          decorToUnlock = decor;
+          break;
+        }
+      }
+    }
+
+    // Only trigger unlock if it's genuinely new
+    if (fishToUnlock != null && _lastFishUnlocked?.id != fishToUnlock.id) {
+      _lastFishUnlocked = fishToUnlock;
+      unlockedFishSet.add(fishToUnlock.id);
+      unlockNotifier.setUnlocked(fishToUnlock);
+    } else if (decorToUnlock != null && _lastDecorUnlocked?.id != decorToUnlock.id) {
+      _lastDecorUnlocked = decorToUnlock;
+      unlockedDecorSet.add(decorToUnlock.id);
+      unlockNotifier.setUnlocked(decorToUnlock);
+    }
+
+    // Persist changes if any unlock happened
+    if (_lastFishUnlocked != null || _lastDecorUnlocked != null) {
+      childProvider.updateSelectedChild({
+        ...selectedChild,
+        'unlockedFish': unlockedFishSet.toList(),
+        'unlockedDecor': unlockedDecorSet.toList(),
+      });
+
+      notifyListeners();
+      debugPrint('✅ Unlock triggered: ${_lastFishUnlocked?.name ?? _lastDecorUnlocked?.name}');
+    }
   }
 
-  List<FishDefinition> newlyUnlocked = [];
-
-  for (var fishDef in FishCatalog.all) {
-    if (fishDef.type != FishType.unlockable ||
-        fishProvider.isOwned(fishDef.id)) {
-      continue;
-    }
-
-    bool shouldUnlock = false;
-
-    if (fishDef.unlockConditionId == 'first_aquarium_visit') {
-      // handled separately in AquariumPage, skip here
-      continue;
-    } else {
-      shouldUnlock =
-          _isConditionMet(fishDef.unlockConditionId, child, tasks, decors);
-    }
-
-    if (shouldUnlock) {
-      await fishProvider.unlockFish(fishDef.id);
-      newlyUnlocked.add(fishDef);
-    }
+  /// Clear last unlock after showing popup
+  void clearLastUnlock() {
+    _lastFishUnlocked = null;
+    _lastDecorUnlocked = null;
+    notifyListeners();
   }
 
-  return newlyUnlocked;
+  void checkAchievementUnlocks(List<TaskModel> tasks, ChildUser child) {
+  final childUser = childProvider.selectedChildAsUser;
+  if (childUser == null) return;
+
+  final resolver = AchievementResolver(child: childUser, tasks: tasks);
+  final newAchievements = resolver.unlockedAchievements;
+
+  if (newAchievements.isNotEmpty) {
+    // Deduplicate
+    final updatedAchievements = {
+      ...childUser.unlockedAchievements,
+      ...newAchievements.map((a) => a.id),
+    }.toList();
+
+    childProvider.updateSelectedChild({'unlockedAchievements': updatedAchievements});
+
+    // Enqueue achievements for dialogs one by one
+    for (var achievement in newAchievements) {
+      unlockNotifier.setUnlocked(achievement);
+      saveUnlockedAchievement(childUser, achievement.id);
+    }
+  }
 }
 
 
-  bool _isConditionMet(String conditionId, ChildUser child, List<TaskModel> tasks, List<PlacedDecor> decors) {
-    switch (conditionId) {
-      case 'task_milestone_50':
-        int totalCompleted = tasks.fold(0, (sum, t) => sum + t.totalDaysCompleted);
-        bool streak50 = tasks.any((t) => t.activeStreak >= 50);
-        return totalCompleted >= 50 || streak50;
+Future<void> saveUnlockedAchievement(ChildUser child, String achievementId) async {
+    if (!child.unlockedAchievements.contains(achievementId)) {
+      child.unlockedAchievements.add(achievementId);
 
-      case 'place_5_decor':
-        int placedCount = decors.where((d) => d.isPlaced).length;
-        return placedCount >= 5;
+      // Update Hive cache
+      await _userRepo.cacheChild(child);
 
-      case 'complete_10_hard_tasks':
-        int hardDone = tasks
-            .where((t) => t.difficulty.toLowerCase() == 'Hard' && t.isDone)
-            .length;
-        return hardDone >= 10;
+      // Update Firestore
+      await _userRepo.updateChildAchievements(child.parentUid, child.cid, child.unlockedAchievements);
+    }
+  }
+  /// Returns the current last unlock (fish or decor)
+  dynamic get lastUnlock => _lastFishUnlocked ?? _lastDecorUnlocked;
 
-      default:
-        return false;
+  Future<void> setFishNeglected(String fishId, bool value) async {
+    final child = childProvider.selectedChild;
+    if (child == null) return;
+
+    // 1️⃣ Update in-memory state
+    if (child['fishes'] != null) {
+      final fish = child['fishes']
+          .firstWhere((f) => f['id'] == fishId, orElse: () => null);
+      if (fish != null) fish['neglected'] = value;
+    }
+
+    // 2️⃣ Persist to Firestore
+    final parentUid = child['parentUid'];
+    final cid = child['cid'];
+
+    if (parentUid != null && cid != null) {
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentUid)
+          .collection('children')
+          .doc(cid);
+
+      await docRef.update({
+        'fishes.$fishId.neglected': value,
+      });
     }
   }
 }
