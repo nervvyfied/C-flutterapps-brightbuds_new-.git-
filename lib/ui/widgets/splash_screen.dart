@@ -1,8 +1,9 @@
+import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
+import 'package:brightbuds_new/ui/pages/therapist_view/therapistNav_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 
 class SplashScreen extends StatefulWidget {

@@ -1,5 +1,6 @@
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
+import '/data/models/therapist_model.dart';
 import '/data/repositories/user_repository.dart';
 import '/data/repositories/task_repository.dart';
 import '/data/repositories/streak_repository.dart';
@@ -10,7 +11,7 @@ class SyncService {
   final TaskRepository _taskRepo;
   // ignore: unused_field
   final StreakRepository _streakRepo;
-  final JournalRepository _journalRepo; // internal instance
+  final JournalRepository _journalRepo;
 
   SyncService(
     this._userRepo,
@@ -23,7 +24,14 @@ class SyncService {
     String? uid,
     String? accessCode,
     required bool isParent,
+    bool isTherapist = false,
   }) async {
+    if (isTherapist) {
+      if (uid == null) return;
+      await _syncTherapist(uid);
+      return;
+    }
+
     if (isParent) {
       if (uid == null) return;
       await _syncParent(uid);
@@ -41,8 +49,7 @@ class SyncService {
     final List<ChildUser> children =
         await _userRepo.fetchChildrenAndCache(parentUid);
 
-    for (var child in children) {
-      // 🔹 Tasks only
+    for (final child in children) {
       await _taskRepo.pullChildTasks(parentUid, child.cid);
       await _taskRepo.pushPendingLocalChanges();
     }
@@ -58,25 +65,54 @@ class SyncService {
     final child = result['child'] as ChildUser?;
     if (parent == null || child == null) return;
 
-    // 🔹 Tasks
     await _taskRepo.pullChildTasks(parent.uid, child.cid);
     await _taskRepo.pushPendingLocalChanges();
 
-    // 🔹 Journals
     await _journalRepo.getMergedEntries(parent.uid, child.cid);
     await _journalRepo.pushPendingLocalChanges(parent.uid, child.cid);
   }
 
+  // ---------------- THERAPIST ----------------
+  Future<void> _syncTherapist(String therapistUid) async {
+    // 1️⃣ Fetch therapist (optional cache)
+    final TherapistUser? therapist =
+        await _userRepo.fetchTherapistAndCache(therapistUid);
+    if (therapist == null) return;
+
+    // 2️⃣ Fetch all parents linked to this therapist
+    final List<ParentUser> parents =
+        await _userRepo.fetchParentsByTherapist(therapistUid);
+
+    for (final parent in parents) {
+      // 3️⃣ Fetch children under parent
+      final children = await _userRepo.fetchChildren(parent.uid);
+
+      for (final child in children) {
+        // 🔒 Only sync children assigned to this therapist
+        if (child.therapistUid != therapistUid) continue;
+
+        // 🔹 Tasks
+        await _taskRepo.pullChildTasks(parent.uid, child.cid);
+        await _taskRepo.pushPendingLocalChanges();
+
+        // 🔹 Journals (therapist reads + writes)
+        await _journalRepo.getMergedEntries(parent.uid, child.cid);
+        await _journalRepo.pushPendingLocalChanges(parent.uid, child.cid);
+      }
+    }
+  }
+
   // ---------------- GLOBAL SYNC ----------------
-  Future<void> syncAllPendingChanges({String? parentId, String? childId}) async {
+  Future<void> syncAllPendingChanges({
+    String? parentId,
+    String? childId,
+  }) async {
     await _taskRepo.pushPendingLocalChanges();
 
-    // Only push journal changes if childId is provided
     if (parentId != null && childId != null) {
       await _journalRepo.pushPendingLocalChanges(parentId, childId);
     }
 
-    // Streaks optional
     // await _streakRepo.pushPendingLocalChanges();
   }
 }

@@ -52,10 +52,7 @@ class JournalProvider extends ChangeNotifier {
           try {
             // Push all local entries for this child
             await _journalRepo.pushPendingLocalChanges(parentId, childId);
-            await _syncService.syncAllPendingChanges(
-              parentId: parentId,
-              childId: childId,
-            );
+            await _syncService.syncAllPendingChanges(childId: childId);
             debugPrint(
               "✅ Pending journals pushed for child $childId (parent: $parentId)",
             );
@@ -202,6 +199,15 @@ class JournalProvider extends ChangeNotifier {
     }
   }
 
+  void clearEntries() {
+    _entries.clear();
+    _parentForChild.clear();
+    _journalSubscription?.cancel();
+    _journalSubscription = null;
+    _isLoading = false;
+    notifyListeners();
+  }
+
   List<JournalEntry> getEntries(String childId) => _entries[childId] ?? [];
 
   // ---------------- MANUAL FETCH ----------------
@@ -224,10 +230,7 @@ class JournalProvider extends ChangeNotifier {
   Future<void> pushPendingChanges(String parentId, String childId) async {
     try {
       await _journalRepo.pushPendingLocalChanges(parentId, childId);
-      await _syncService.syncAllPendingChanges(
-        parentId: parentId,
-        childId: childId,
-      );
+      await _syncService.syncAllPendingChanges(childId: childId);
       notifyListeners();
     } catch (e) {
       debugPrint("⚠️ Failed to push pending journal changes: $e");

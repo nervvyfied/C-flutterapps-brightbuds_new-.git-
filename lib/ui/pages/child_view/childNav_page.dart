@@ -25,15 +25,24 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
   int _selectedIndex = 0;
   TokenNotifier? _tokenNotifier;
 
-  List<Widget> _buildPages(String parentId, String childId, String childName) {
+  List<Widget> _buildPages(
+    String parentId,
+    String childId,
+    String childName,
+    String therapistId,
+  ) {
     return [
-      ChildQuestsPage(parentId: parentId, childId: childId, childName: childName),
+      ChildQuestsPage(
+        parentId: parentId,
+        childId: childId,
+        childName: childName,
+        therapistId: therapistId,
+      ),
       JournalListPage(parentId: parentId, childId: childId),
       ChildCBTPage(childId: childId, parentId: parentId),
       AquariumPage(),
     ];
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +52,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
     final parentId = child?.parentUid ?? '';
     final childId = child?.cid ?? '';
     final childName = child?.name ?? 'Child';
-
+    final therapistId = child?.therapistUid ?? '';
     return FutureBuilder(
       future: Hive.openBox('settings'),
       builder: (context, snapshot) {
@@ -70,16 +79,33 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
           value: _tokenNotifier!,
           child: TokenListener(
             child: Scaffold(
-              body: _buildPages(parentId, childId, childName)[_selectedIndex],
+              body: _buildPages(
+                parentId,
+                childId,
+                childName,
+                therapistId,
+              )[_selectedIndex],
               bottomNavigationBar: BottomNavigationBar(
                 currentIndex: _selectedIndex,
                 onTap: (index) => setState(() => _selectedIndex = index),
                 type: BottomNavigationBarType.fixed,
                 items: const [
-                  BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Quests'),
-                  BottomNavigationBarItem(icon: Icon(Icons.auto_stories), label: 'Journal'),
-                  BottomNavigationBarItem(icon: Icon(Icons.auto_awesome), label: 'Power Pack'),
-                  BottomNavigationBarItem(icon: Icon(Icons.bubble_chart), label: 'Aquarium'),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.checklist),
+                    label: 'Quests',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.auto_stories),
+                    label: 'Journal',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.auto_awesome),
+                    label: 'Power Pack',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.bubble_chart),
+                    label: 'Aquarium',
+                  ),
                 ],
               ),
             ),
@@ -97,8 +123,6 @@ class PlaceholderPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(title, style: const TextStyle(fontSize: 24)),
-    );
+    return Center(child: Text(title, style: const TextStyle(fontSize: 24)));
   }
 }

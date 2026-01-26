@@ -6,7 +6,7 @@ part 'task_model.g.dart';
 @HiveType(typeId: 2)
 class TaskModel {
   @HiveField(0)
-  final String id; // Firestore docId (uuid if offline)
+  final String id;
 
   @HiveField(1)
   final String name;
@@ -21,16 +21,16 @@ class TaskModel {
   final String routine; // "morning" | "afternoon" | "night" | "anytime"
 
   @HiveField(5)
-  final DateTime? alarm; // nullable if no alarm
+  final DateTime? alarm;
 
   @HiveField(6)
-  final String? note; // optional note (child’s note after completion)
+  final String? note; // optional child note
 
   @HiveField(7)
   final bool isDone;
 
   @HiveField(8)
-  final DateTime? doneAt; // when child marked as done
+  final DateTime? doneAt;
 
   @HiveField(9)
   final int activeStreak;
@@ -45,19 +45,28 @@ class TaskModel {
   final DateTime? lastCompletedDate;
 
   @HiveField(13)
-  final String parentId; // who assigned it
+  final String therapistId;
 
   @HiveField(14)
-  final String childId; // who does it
+  final String childId;
 
   @HiveField(15)
-  final DateTime? lastUpdated; // 🔑 sync timestamp
+  final DateTime? lastUpdated;
 
   @HiveField(16)
-  final bool verified; // parent verification
+  final bool verified;
 
   @HiveField(17)
   final DateTime createdAt;
+
+  @HiveField(18)
+  final String parentId;
+
+  @HiveField(19)
+  final String creatorId; // who created it
+
+  @HiveField(20)
+  final String creatorType; // "parent" | "therapist"
 
   TaskModel({
     required this.id,
@@ -73,16 +82,19 @@ class TaskModel {
     this.longestStreak = 0,
     this.totalDaysCompleted = 0,
     this.lastCompletedDate,
-    required this.parentId,
+    required this.therapistId,
     required this.childId,
+    required this.parentId,
     this.lastUpdated,
     this.verified = false,
     required this.createdAt,
+    required this.creatorId,
+    required this.creatorType,
   });
 
   // ---------------- FIRESTORE -> MODEL ----------------
   factory TaskModel.fromFirestore(Map<String, dynamic> data, String id) {
-    DateTime? toDate(dynamic raw) {
+    DateTime? parseDate(dynamic raw) {
       if (raw == null) return null;
       if (raw is Timestamp) return raw.toDate();
       if (raw is DateTime) return raw;
@@ -93,68 +105,62 @@ class TaskModel {
     return TaskModel(
       id: id,
       name: data['name'] as String? ?? '',
-      difficulty: data['difficulty'] as String? ?? 'Easy',
+      difficulty: data['difficulty'] as String? ?? 'easy',
       reward: (data['reward'] as num?)?.toInt() ?? 0,
-      routine: data['routine'] as String? ?? 'Anytime',
-      alarm: toDate(data['alarm']),
+      routine: data['routine'] as String? ?? 'anytime',
+      alarm: parseDate(data['alarm']),
       note: data['note'] as String?,
       isDone: data['isDone'] as bool? ?? false,
-      doneAt: toDate(data['doneAt']),
+      doneAt: parseDate(data['doneAt']),
       activeStreak: (data['activeStreak'] as num?)?.toInt() ?? 0,
       longestStreak: (data['longestStreak'] as num?)?.toInt() ?? 0,
       totalDaysCompleted: (data['totalDaysCompleted'] as num?)?.toInt() ?? 0,
-      lastCompletedDate: toDate(data['lastCompletedDate']),
-      parentId: data['parentId'] as String? ?? '',
+      lastCompletedDate: parseDate(data['lastCompletedDate']),
+      therapistId: data['therapistId'] as String? ?? '',
       childId: data['childId'] as String? ?? '',
-      lastUpdated: toDate(data['lastUpdated']),
+      parentId: data['parentId'] as String? ?? '',
+      lastUpdated: parseDate(data['lastUpdated']),
       verified: data['verified'] as bool? ?? false,
-      createdAt: toDate(data['createdAt']) ?? DateTime.now(),
+      createdAt: parseDate(data['createdAt']) ?? DateTime.now(),
+      creatorId: data['creatorId'] as String? ?? data['parentId'] ?? '',
+      creatorType: data['creatorType'] as String? ?? 'parent',
     );
   }
 
   // ---------------- MODEL -> FIRESTORE ----------------
   dynamic toTimestamp(DateTime? date) {
-    if (date == null || date.isBefore(DateTime(1900))) {
+    if (date == null || date.isBefore(DateTime(1900)))
       return Timestamp.fromDate(DateTime.now());
-    }
     return Timestamp.fromDate(date);
   }
 
- Map<String, dynamic> toFirestore({bool forUpdate = false}) {
-  if (forUpdate) {
+  Map<String, dynamic> toFirestore() {
+    Timestamp? ts(DateTime? dt) => dt != null ? Timestamp.fromDate(dt) : null;
+
     return {
+      'id': id,
       'name': name,
       'difficulty': difficulty,
       'reward': reward,
       'routine': routine,
-      'alarm': alarm != null ? Timestamp.fromDate(alarm!) : null,
-      'note': note,
-      'lastUpdated': toTimestamp(lastUpdated ?? DateTime.now()),
-    };
-  } else {
-    return {
-      'name': name,
-      'difficulty': difficulty,
-      'reward': reward,
-      'routine': routine,
-      'alarm': alarm != null ? Timestamp.fromDate(alarm!) : null,
+      'alarm': ts(alarm),
       'note': note,
       'isDone': isDone,
-      'doneAt': toTimestamp(doneAt),
+      'doneAt': ts(doneAt),
       'activeStreak': activeStreak,
       'longestStreak': longestStreak,
       'totalDaysCompleted': totalDaysCompleted,
-      'lastCompletedDate': toTimestamp(lastCompletedDate),
-      'parentId': parentId,
+      'lastCompletedDate': ts(lastCompletedDate),
+      'therapistId': therapistId,
       'childId': childId,
-      'lastUpdated': toTimestamp(lastUpdated ?? DateTime.now()),
+      'parentId': parentId,
+      'lastUpdated': ts(lastUpdated ?? DateTime.now()),
       'verified': verified,
-      'createdAt': toTimestamp(createdAt),
+      'createdAt': ts(createdAt),
+      'creatorId': creatorId,
+      'creatorType': creatorType,
     };
   }
-}
-
-
 
   Map<String, dynamic> toMap() => toFirestore();
 
@@ -173,11 +179,14 @@ class TaskModel {
     int? longestStreak,
     int? totalDaysCompleted,
     DateTime? lastCompletedDate,
-    String? parentId,
+    String? therapistId,
     String? childId,
     DateTime? lastUpdated,
     bool? verified,
     DateTime? createdAt,
+    String? parentId,
+    String? creatorId,
+    String? creatorType,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -193,17 +202,19 @@ class TaskModel {
       longestStreak: longestStreak ?? this.longestStreak,
       totalDaysCompleted: totalDaysCompleted ?? this.totalDaysCompleted,
       lastCompletedDate: lastCompletedDate ?? this.lastCompletedDate,
-      parentId: parentId ?? this.parentId,
+      therapistId: therapistId ?? this.therapistId,
       childId: childId ?? this.childId,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       verified: verified ?? this.verified,
       createdAt: createdAt ?? this.createdAt,
+      parentId: parentId ?? this.parentId,
+      creatorId: creatorId ?? this.creatorId,
+      creatorType: creatorType ?? this.creatorType,
     );
   }
-    // ---------------- MAP -> MODEL (for local Hive/offline use) ----------------
+
+  // ---------------- MAP -> MODEL (for Hive/offline) ----------------
   factory TaskModel.fromMap(Map<String, dynamic> map) {
     return TaskModel.fromFirestore(map, map['id'] ?? '');
   }
-
-  
 }

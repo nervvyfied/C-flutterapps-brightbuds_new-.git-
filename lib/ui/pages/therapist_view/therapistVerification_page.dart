@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -48,22 +47,22 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       setState(() => isEmailVerified = true);
       timer?.cancel();
 
-      // Load Parent Data
-      final parentDoc = await FirebaseFirestore.instance
-          .collection('users')
+      // Load Therapist Data
+      final therapistDoc = await FirebaseFirestore.instance
+          .collection('therapists')
           .doc(user.uid)
           .get();
 
-      if (parentDoc.exists) {
-        final parent = TherapistUser.fromMap(parentDoc.data()!, parentDoc.id);
+      if (therapistDoc.exists) {
+        final therapist = TherapistUser.fromMap(therapistDoc.data()!, therapistDoc.id);
         final authProvider = context.read<app_auth.AuthProvider>();
-        await authProvider.updateCurrentUserModel(parent);
+        await authProvider.updateCurrentUserModel(therapist);
       }
 
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
+          MaterialPageRoute(builder: (_) => const TherapistNavigationShell()),
         );
       }
     }
@@ -87,12 +86,14 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       String message = e.code == 'too-many-requests'
           ? 'Too many requests. Please wait a few minutes before trying again.'
           : 'Failed to send verification email: ${e.message}';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       if (mounted) setState(() => canResendEmail = true);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sending email: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error sending email: $e')));
       if (mounted) setState(() => canResendEmail = true);
     }
   }
@@ -113,8 +114,11 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
               : Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.mark_email_read,
-                        size: 90, color: Colors.deepPurple),
+                    const Icon(
+                      Icons.mark_email_read,
+                      size: 90,
+                      color: Colors.deepPurple,
+                    ),
                     const SizedBox(height: 20),
                     const Text(
                       "A verification link has been sent to:",
@@ -142,7 +146,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       width: 220,
                       height: 45,
                       child: ElevatedButton.icon(
-                        onPressed: canResendEmail ? sendVerificationEmail : null,
+                        onPressed: canResendEmail
+                            ? sendVerificationEmail
+                            : null,
                         icon: const Icon(Icons.refresh),
                         label: const Text("Resend Email"),
                         style: ElevatedButton.styleFrom(

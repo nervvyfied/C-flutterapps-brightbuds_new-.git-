@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
 import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
@@ -20,11 +21,12 @@ class ChildQuestsPage extends StatefulWidget {
   final String parentId;
   final String childId;
   final String childName;
-
+  final String therapistId;
   const ChildQuestsPage({
     required this.parentId,
     required this.childId,
     required this.childName,
+    required this.therapistId,
     super.key,
   });
 
@@ -39,8 +41,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
   StreamSubscription<QuerySnapshot>? _taskSubscription;
-  // Cached future to avoid racing openBox calls
-
 
   @override
   void initState() {
@@ -71,21 +71,30 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     final online = await NetworkHelper.isOnline();
     if (mounted) setState(() => _isOffline = !online);
 
+    // Get current logged-in user for parentId
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final parentId = auth.isParent
+        ? (auth.currentUserModel as ParentUser).uid
+        : '';
+
     // Initialize provider Hive & tasks asynchronously
     taskProvider.initHive();
-    taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
+    await taskProvider.loadTasks(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
     taskProvider.startDailyResetScheduler();
 
     // Start listeners
-    _listenToBalance();
-    _listenToTasks();
+    _listenToBalance(parentId);
+    _listenToTasks(parentId);
 
     // Fetch Firestore balance in background
     _fetchBalance();
   }
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
-  void _listenToTasks() {
+  void _listenToTasks(String parentId) {
     _taskSubscription?.cancel();
 
     final stream = FirebaseFirestore.instance
@@ -144,8 +153,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   }
 
   /// Listen to real-time balance updates and sync to Hive
-  /// Listen to real-time balance updates and sync to Hive safely
-  void _listenToBalance() {
+  void _listenToBalance(String parentId) {
     _balanceSubscription?.cancel();
 
     final docRef = FirebaseFirestore.instance
@@ -167,13 +175,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
       final cachedKey = 'cached_balance_${widget.childId}';
 
-      // ✅ Update UI immediately
       if (mounted) setState(() => _balance = newBalance);
 
-      // ✅ Save to settings Hive box
       await _settingsBox.put(cachedKey, newBalance);
 
-      // ✅ Persist to Hive childBox if open and type-safe
       if (Hive.isBoxOpen('childBox')) {
         try {
           final childBox = Hive.box<ChildUser>('childBox');
@@ -197,13 +202,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   /// Fetch balance from Firestore (offline-first) and sync to Hive safely
   Future<void> _fetchBalance() async {
     final cachedKey = 'cached_balance_${widget.childId}';
-
-    // ✅ Load cached Hive value immediately
     final cached = _settingsBox.get(cachedKey, defaultValue: 0);
     if (mounted) setState(() => _balance = cached);
     debugPrint('📦 Loaded cached balance: $cached');
 
-    // ✅ Fetch latest from Firestore if online
     if (await NetworkHelper.isOnline()) {
       try {
         final doc = await FirebaseFirestore.instance
@@ -226,7 +228,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           if (mounted) setState(() => _balance = fetched);
           await _settingsBox.put(cachedKey, fetched);
 
-          // ✅ Persist to Hive childBox safely
           if (Hive.isBoxOpen('childBox')) {
             try {
               final childBox = Hive.box<ChildUser>('childBox');
@@ -271,6 +272,13 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       default:
         return Colors.grey;
     }
+  }
+
+  @override
+  void dispose() {
+    _balanceSubscription?.cancel();
+    _taskSubscription?.cancel();
+    super.dispose();
   }
 
   Widget _buildTaskGroup(
@@ -434,13 +442,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _balanceSubscription?.cancel();
-    _taskSubscription?.cancel();
-    super.dispose();
   }
 
   @override

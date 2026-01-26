@@ -17,6 +17,7 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
     return ChildUser(
+      therapistUid: fields[8] as String?,
       cid: fields[0] as String,
       name: fields[1] as String,
       balance: fields[2] as int,
@@ -24,10 +25,10 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       parentUid: fields[4] as String,
       placedDecors: (fields[5] as List?)
           ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
+          ?.toList(),
       ownedFish: (fields[6] as List?)
           ?.map((dynamic e) => (e as Map).cast<String, dynamic>())
-          .toList(),
+          ?.toList(),
       firstVisitUnlocked: fields[7] as bool,
     );
   }
@@ -35,7 +36,7 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
   @override
   void write(BinaryWriter writer, ChildUser obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.cid)
       ..writeByte(1)
@@ -51,7 +52,9 @@ class ChildUserAdapter extends TypeAdapter<ChildUser> {
       ..writeByte(6)
       ..write(obj.ownedFish)
       ..writeByte(7)
-      ..write(obj.firstVisitUnlocked);
+      ..write(obj.firstVisitUnlocked)
+      ..writeByte(8)
+      ..write(obj.therapistUid);
   }
 
   @override

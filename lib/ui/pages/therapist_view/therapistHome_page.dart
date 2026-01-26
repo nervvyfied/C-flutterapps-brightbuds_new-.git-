@@ -1,8 +1,8 @@
 // ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
-import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
+import 'package:brightbuds_new/ui/pages/therapist_view/therapistAccount_page.dart';
 import 'package:intl/intl.dart';
 import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
+import 'package:brightbuds_new/cbt/pages/therapist_cbt_page.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -11,6 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import '../../../data/models/therapist_model.dart';
 import '/data/repositories/user_repository.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/journal_provider.dart';
@@ -18,20 +19,24 @@ import '../../../data/providers/task_provider.dart';
 import '../../../data/providers/selected_child_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ParentDashboardPage extends StatefulWidget {
+class TherapistDashboardPage extends StatefulWidget {
+  final String therapistId;
   final String parentId;
-
-  const ParentDashboardPage({super.key, required this.parentId});
+  const TherapistDashboardPage({
+    super.key,
+    required this.therapistId,
+    required this.parentId,
+  });
 
   @override
-  State<ParentDashboardPage> createState() => _ParentDashboardPageState();
+  State<TherapistDashboardPage> createState() => _TherapistDashboardPageState();
 }
 
 class TaskHistoryService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   Future<void> saveDailyTaskProgress({
-    required String parentId,
+    required String therapistId,
     required String childId,
     required int done,
     required int notDone,
@@ -44,7 +49,7 @@ class TaskHistoryService {
 
       final docRef = _db
           .collection('users')
-          .doc(parentId)
+          .doc(therapistId)
           .collection('children')
           .doc(childId)
           .collection('history')
@@ -70,9 +75,9 @@ extension StringCasingExtension on String {
       isNotEmpty ? '${this[0].toUpperCase()}${substring(1)}' : '';
 }
 
-class _ParentDashboardPageState extends State<ParentDashboardPage> {
+class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
   final UserRepository _userRepo = UserRepository();
-  ParentUser? _parent;
+  TherapistUser? _therapist;
   bool _loading = true;
   final GlobalKey _childChartKey = GlobalKey();
   final GlobalKey _taskChartKey = GlobalKey();
@@ -691,7 +696,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadParentData();
+      _loadTherapistData();
 
       final selectedChildProv = Provider.of<SelectedChildProvider>(
         context,
@@ -704,6 +709,29 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         _updateCBTListenerForSelectedChild();
       });
     });
+  }
+
+  void _listenToJournalEntries() {
+    final journalProv = Provider.of<JournalProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    final child = selectedChildProv.selectedChild;
+
+    if (child == null) return;
+    if (child['cid'] == null || child['cid'].toString().isEmpty) return;
+
+    final therapistId = _therapist?.uid;
+    if (therapistId == null || therapistId.isEmpty) return;
+
+    final childId = child['cid'];
+
+    journalProv.loadEntries(
+      childId: childId,
+      parentId: '', // therapist context
+    );
   }
 
   @override
@@ -730,7 +758,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final child = selectedChildProv.selectedChild;
     if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
 
-    final parentId = _parent?.uid ?? widget.parentId;
+    final therapistId = _therapist?.uid ?? widget.therapistId;
     final childId = child['cid'];
 
     // Initialize Hive if not yet
@@ -738,65 +766,64 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     // Load and sync CBTs
     await cbtProv.loadLocalCBT(childId);
-    await cbtProv.loadRemoteCBT(parentId, childId);
+    await cbtProv.loadRemoteCBT(therapistId, childId);
 
     // Start listening for real-time Firestore updates
-    cbtProv.updateRealtimeListenerForChild(parentId, childId);
+    cbtProv.updateRealtimeListenerForChild(therapistId, childId);
   }
 
-  Future<void> _loadParentData() async {
+  Future<void> _loadTherapistData() async {
     setState(() => _loading = true);
 
-    _notifiedTaskIds.clear();
+    await Future.delayed(
+      Duration(milliseconds: 500),
+    ); // Small delay to ensure auth is ready
+
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final parentModel = auth.currentUserModel;
-    if (parentModel == null || parentModel is! ParentUser) {
+    final therapistModel = auth.currentUserModel;
+
+    if (therapistModel == null || therapistModel is! TherapistUser) {
+      // Try to get therapist from Firestore directly
+      try {
+        final therapistSnap = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(widget.therapistId)
+            .get();
+
+        if (therapistSnap.exists) {
+          final therapist = TherapistUser.fromMap(
+            therapistSnap.data()!,
+            therapistSnap.id,
+          );
+
+          // Force a rebuild with the new data
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _therapist = therapist;
+                _loading = false;
+              });
+            }
+          });
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error fetching therapist: $e');
+      }
+
       setState(() => _loading = false);
       return;
     }
 
-    final parent = await _userRepo.fetchParentAndCache(parentModel.uid);
-
-    setState(() {
-      _parent = parent as ParentUser?;
-      _loading = false;
+    // Force UI update with animation frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _therapist = therapistModel;
+          _loading = false;
+        });
+      }
     });
-
-    final selectedChildProv = Provider.of<SelectedChildProvider>(
-      context,
-      listen: false,
-    );
-
-    // Load CBTs for currently selected child
-    _updateCBTListenerForSelectedChild();
-
-    // Listen for child changes
-    selectedChildProv.addListener(() {
-      _updateCBTListenerForSelectedChild();
-      _listenToJournalEntries();
-    });
-
-    // Start listening to journals for current child
-    _listenToJournalEntries();
-  }
-
-  void _listenToJournalEntries() {
-    final journalProv = Provider.of<JournalProvider>(context, listen: false);
-    final selectedChildProv = Provider.of<SelectedChildProvider>(
-      context,
-      listen: false,
-    );
-
-    final child = selectedChildProv.selectedChild;
-    if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
-
-    final parentId = _parent?.uid ?? widget.parentId;
-    final childId = child['cid'];
-
-    if (parentId.isEmpty || childId.isEmpty) return;
-
-    // 🔁 Attach Firestore listener for this child's journal entries
-    journalProv.loadEntries(parentId: parentId, childId: childId);
   }
 
   // ---------------- Task Completion Notification ----------------
@@ -831,14 +858,14 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   }
 
   Future<void> exportChildDataToPdfWithCharts(
-    String parentId,
+    String therapistId,
     String childId,
     Map<String, dynamic> childData,
   ) async {
     final pdf = pw.Document();
     final name = childData['name'] ?? 'Unknown';
-    final parentName = childData['parentName'] ?? '-';
-    final parentEmail = childData['parentEmail'] ?? '-';
+    final therapistName = childData['therapistName'] ?? '-';
+    final therapistEmail = childData['therapistEmail'] ?? '-';
     final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
     final now = DateTime.now();
     final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
@@ -847,7 +874,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     // ---------------- Fetch weekly task progress history ----------------
     final historySnap = await FirebaseFirestore.instance
         .collection('users')
-        .doc(parentId)
+        .doc(therapistId)
         .collection('children')
         .doc(childId)
         .collection('history')
@@ -869,7 +896,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     // ---------------- Fetch weekly CBT assignments ----------------
     final cbtSnap = await FirebaseFirestore.instance
         .collection('users')
-        .doc(parentId)
+        .doc(therapistId)
         .collection('children')
         .doc(childId)
         .collection('CBT')
@@ -975,7 +1002,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
             ),
             pw.SizedBox(height: 12),
             pw.Text(
-              "Parent: $parentName ($parentEmail)",
+              "Therapist: $therapistName ($therapistEmail)",
               style: const pw.TextStyle(fontSize: 12),
             ),
             pw.Divider(),
@@ -1096,7 +1123,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
             pw.SizedBox(height: 24),
             pw.Center(
               child: pw.Text(
-                "Generated by BrightBuds Parent Dashboard",
+                "Generated by BrightBuds Therapist Dashboard",
                 style: pw.TextStyle(fontSize: 10, color: PdfColors.grey),
               ),
             ),
@@ -1304,7 +1331,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
               };
 
               await exportChildDataToPdfWithCharts(
-                widget.parentId,
+                widget.therapistId,
                 childId,
                 fullChildData,
               );
@@ -1407,15 +1434,62 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        "This week's top mood is: $weeklyTopMood",
+                        "This week's top mood is: $weeklyTopMood, assign a Power Boost?",
                         style: const TextStyle(fontSize: 12),
                       ),
                       const SizedBox(height: 6),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          final therapistId = widget.therapistId;
+                          final childId = activeChild['cid'];
+
+                          if (childId == null || childId.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('No active child selected!'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => TherapistCBTPage(
+                                therapistId: therapistId,
+                                childId: childId,
+                                suggestedMood: weeklyTopMood,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.auto_awesome,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        label: const Text(
+                          "Assign Power Boost",
+                          style: TextStyle(fontSize: 12, color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFECE00),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          textStyle: const TextStyle(fontSize: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
+
             // ---------------- TASKS PROGRESS ----------------
             Expanded(
               child: GestureDetector(
@@ -1569,11 +1643,11 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           "cid": "",
           "name": "No Child",
           "balance": 0,
-          "parentUid": widget.parentId,
+          "therapistUid": widget.therapistId,
         };
 
-    final parentName = _parent?.name ?? "Parent";
-    final parentEmail = _parent?.email ?? "";
+    final therapistName = _therapist?.name ?? "Therapist";
+    final therapistEmail = _therapist?.email ?? "";
 
     // Get assigned CBT exercises for the selected child
     final childId = activeChild['cid'] ?? '';
@@ -1587,15 +1661,15 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         backgroundColor: const Color(0xFF8657F3),
         elevation: 0,
         title: const Text(
-          'Parent Dashboard',
+          'Therapist Dashboard',
           style: TextStyle(color: Colors.white),
         ),
         automaticallyImplyLeading: true,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      drawer: ParentAccountSidebar(parentId: widget.parentId),
+      drawer: TherapistAccountSidebar(therapistId: widget.therapistId),
       body: RefreshIndicator(
-        onRefresh: _loadParentData,
+        onRefresh: _loadTherapistData,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -1609,7 +1683,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                     radius: 30,
                     backgroundColor: Colors.white,
                     child: Text(
-                      parentName.isNotEmpty ? parentName[0].toUpperCase() : 'P',
+                      therapistName.isNotEmpty
+                          ? therapistName[0].toUpperCase()
+                          : 'P',
                       style: const TextStyle(
                         color: Color(0xFF8657F3),
                         fontSize: 24,
@@ -1623,7 +1699,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Welcome Back, $parentName!",
+                          "Welcome Back, $therapistName!",
                           style: const TextStyle(
                             fontSize: 20,
                             color: Colors.white,
@@ -1632,7 +1708,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          parentEmail,
+                          therapistEmail,
                           style: const TextStyle(
                             fontSize: 14,
                             color: Colors.white70,

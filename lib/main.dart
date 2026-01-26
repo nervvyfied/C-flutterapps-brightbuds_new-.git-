@@ -11,14 +11,18 @@ import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/journal_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
+import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/journal_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
+import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
 import 'package:brightbuds_new/ui/pages/childlogin_page.dart';
+import 'package:brightbuds_new/ui/pages/therapist_view/therapistHome_page.dart';
+import 'package:brightbuds_new/ui/pages/therapistlogin_page.dart';
 import 'package:brightbuds_new/ui/widgets/splash_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -126,7 +130,9 @@ void main() async {
 
   // ✅ Initialize Hive
   await Hive.initFlutter();
-
+  if (!Hive.isAdapterRegistered(TherapistUserAdapter().typeId)) {
+    Hive.registerAdapter(TherapistUserAdapter());
+  }
   if (!Hive.isAdapterRegistered(ParentUserAdapter().typeId)) {
     Hive.registerAdapter(ParentUserAdapter());
   }
@@ -149,6 +155,7 @@ void main() async {
     Hive.registerAdapter(CBTExerciseAdapter());
   }
 
+  await Hive.openBox<TherapistUser>('therapistBox');
   await Hive.openBox<ParentUser>('parentBox');
   await Hive.openBox<ChildUser>('childBox');
   await Hive.openBox<TaskModel>('tasksBox');
@@ -162,74 +169,92 @@ void main() async {
   runApp(const MyApp());
 }
 
+/// ------------------ FCM INITIALIZATION ------------------
+bool _fcmInitialized = false;
+
+Future<void> _initializeFCM() async {
+  if (_fcmInitialized) return;
+  _fcmInitialized = true;
+
+  final FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+  // Request permission
+  final settings = await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+  if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+    debugPrint('❌ Notifications not authorized!');
+  }
+
+  // Get FCM token
+  try {
+    final token = await messaging.getToken();
+    debugPrint('🔹 FCM token: $token');
+  } catch (e) {
+    debugPrint('⚠️ Failed to get FCM token: $e');
+  }
+
+  // Single listener for foreground messages
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+    debugPrint('📩 [FCM] Foreground message received!');
+    debugPrint('Title: ${message.notification?.title}');
+    debugPrint('Body: ${message.notification?.body}');
+    debugPrint('Data: ${message.data}');
+
+    final notification = message.notification;
+    final androidDetails = AndroidNotificationDetails(
+      _androidChannel.id,
+      _androidChannel.name,
+      channelDescription: _androidChannel.description,
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    // 🔔 Show local notification to confirm reception
+    await flutterLocalNotificationsPlugin.show(
+      message.hashCode,
+      notification?.title ?? 'BrightBuds',
+      notification?.body ?? 'You have a new update!',
+      NotificationDetails(android: androidDetails),
+    );
+  });
+
+  // When notification is tapped and app opens
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    debugPrint('🔹 Notification opened app: ${message.notification?.title}');
+  });
+
+  // Handle app launch from terminated state
+  final initialMessage = await messaging.getInitialMessage();
+  if (initialMessage != null) {
+    debugPrint(
+      '🔹 App opened from terminated state: ${initialMessage.notification?.title}',
+    );
+  }
+}
+
 /// ------------------ APP ------------------
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  Future<void> _initializeFCM() async {
-    final FirebaseMessaging messaging = FirebaseMessaging.instance;
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
 
-    // Request permission
-    final settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-      debugPrint('❌ Notifications not authorized!');
-    }
-
-    // Get FCM token
-    try {
-      final token = await messaging.getToken();
-      debugPrint('🔹 FCM token: $token');
-    } catch (e) {
-      debugPrint('⚠️ Failed to get FCM token: $e');
-    }
-
-    // Single listener for foreground messages
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      debugPrint('📩 [FCM] Foreground message received!');
-      debugPrint('Title: ${message.notification?.title}');
-      debugPrint('Body: ${message.notification?.body}');
-      debugPrint('Data: ${message.data}');
-
-      final notification = message.notification;
-      final androidDetails = AndroidNotificationDetails(
-        _androidChannel.id,
-        _androidChannel.name,
-        channelDescription: _androidChannel.description,
-        importance: Importance.high,
-        priority: Priority.high,
-      );
-
-      // 🔔 Show local notification to confirm reception
-      await flutterLocalNotificationsPlugin.show(
-        message.hashCode,
-        notification?.title ?? 'BrightBuds',
-        notification?.body ?? 'You have a new update!',
-        NotificationDetails(android: androidDetails),
-      );
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Initialize FCM in initState instead of build
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _initializeFCM();
     });
-
-    // When notification is tapped and app opens
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      debugPrint('🔹 Notification opened app: ${message.notification?.title}');
-    });
-
-    // Handle app launch from terminated state
-    final initialMessage = await messaging.getInitialMessage();
-    if (initialMessage != null) {
-      debugPrint(
-        '🔹 App opened from terminated state: ${initialMessage.notification?.title}',
-      );
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    _initializeFCM();
-
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SelectedChildProvider()),
@@ -279,8 +304,15 @@ class MyApp extends StatelessWidget {
 
               routes: {
                 '/parentAuth': (context) => const ParentAuthPage(),
+                '/therapistAuth': (context) => const TherapistAuthPage(),
                 '/childAuth': (context) => const ChildAuthPage(),
                 '/achievements': (context) => const AchievementPage(),
+                '/therapistHome': (context) => const TherapistDashboardPage(
+                  therapistId: '',
+                  parentId: '',
+                ), // Added
+                '/parentHome': (context) =>
+                    const ParentDashboardPage(parentId: ''), // Added
               },
             ),
           );

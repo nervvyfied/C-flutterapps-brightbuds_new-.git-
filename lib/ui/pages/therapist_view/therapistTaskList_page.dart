@@ -11,13 +11,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-class ParentTaskListScreen extends StatefulWidget {
+class TherapistTaskListScreen extends StatefulWidget {
   final String parentId;
   final String therapistId;
   final String creatorId;
   final String creatorType;
 
-  const ParentTaskListScreen({
+  const TherapistTaskListScreen({
     required this.parentId,
     required this.therapistId,
     required this.creatorId,
@@ -26,10 +26,11 @@ class ParentTaskListScreen extends StatefulWidget {
   });
 
   @override
-  State<ParentTaskListScreen> createState() => _ParentTaskListScreenState();
+  State<TherapistTaskListScreen> createState() =>
+      _TherapistTaskListScreenState();
 }
 
-class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
+class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   Timer? _autoResetTimer;
   late SelectedChildProvider _selectedChildProv;
   late TaskProvider _taskProvider;

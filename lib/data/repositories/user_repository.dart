@@ -1,3 +1,5 @@
+import 'package:brightbuds_new/data/models/therapist_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '/data/models/parent_model.dart';
@@ -9,12 +11,22 @@ class UserRepository {
 
   final Box<ParentUser> _parentBox = Hive.box<ParentUser>('parentBox');
   final Box<ChildUser> _childBox = Hive.box<ChildUser>('childBox');
+  final Box<TherapistUser> _therapistBox = Hive.box<TherapistUser>(
+    'therapistBox',
+  );
 
   // ---------------- PARENT ----------------
   Future<void> cacheParent(ParentUser parent) async =>
       await _parentBox.put(parent.uid, parent);
 
   ParentUser? getCachedParent(String uid) => _parentBox.get(uid);
+  Future<bool> isParent(String uid) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+    return doc.exists;
+  }
 
   /// Get parent by access code (parent only, no child)
   Future<ParentUser?> getParentByAccessCode(String code) async {
@@ -22,10 +34,35 @@ class UserRepository {
     if (parent != null) await cacheParent(parent);
     return parent;
   }
-String? getCachedParentId() {
-  if (_parentBox.isEmpty) return null;
-  return _parentBox.values.first.uid; // Assuming only one parent cached
-}
+
+  Future<void> linkChildByAccessCode({
+    required String therapistUid,
+    required String accessCode,
+  }) async {
+    try {
+      // ✅ Call the Firestore service with correct parameters
+      await _firestore.linkChildByAccessCode(
+        accessCode: accessCode,
+        therapistUid: therapistUid,
+      );
+
+      // After linking, refresh therapist cache to include the linked child
+      final therapist = await fetchTherapistAndCache(therapistUid);
+      if (therapist != null) {
+        await cacheTherapist(therapist);
+      }
+
+      debugPrint('✅ Child linked successfully to therapist $therapistUid');
+    } catch (e) {
+      debugPrint('❌ Error linking child by access code: $e');
+      rethrow;
+    }
+  }
+
+  String? getCachedParentId() {
+    if (_parentBox.isEmpty) return null;
+    return _parentBox.values.first.uid;
+  }
 
   /// Fetch parent from Firestore and cache locally
   Future<ParentUser?> fetchParentAndCache(String parentUid) async {
@@ -36,7 +73,46 @@ String? getCachedParentId() {
       await cacheParent(parent);
       return parent;
     } catch (e) {
+      debugPrint('Error fetching parent $parentUid: $e');
       return null;
+    }
+  }
+
+  /// Fetch parents linked to a specific therapist
+  Future<List<ParentUser>> fetchParentsByTherapist(String therapistUid) async {
+    try {
+      // This method should fetch parents whose children are linked to the therapist
+      // First, get all children linked to this therapist
+      final childrenStream = _firestore.streamTherapistChildren(therapistUid);
+
+      // We need to collect parent UIDs from children
+      final List<String> parentUids = [];
+
+      // Since we can't easily convert stream to future in a simple way,
+      // let's use first on the stream
+      final children = await childrenStream.first;
+
+      for (final item in children) {
+        final parentUid = item['parentUid'] as String;
+
+        if (!parentUids.contains(parentUid)) {
+          parentUids.add(parentUid);
+        }
+      }
+
+      // Now fetch each parent
+      final List<ParentUser> parents = [];
+      for (final parentUid in parentUids) {
+        final parent = await fetchParentAndCache(parentUid);
+        if (parent != null) {
+          parents.add(parent);
+        }
+      }
+
+      return parents;
+    } catch (e) {
+      debugPrint('Error fetching parents by therapist: $e');
+      return [];
     }
   }
 
@@ -60,10 +136,99 @@ String? getCachedParentId() {
 
       return children;
     } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching children: $e');
-      }
+      debugPrint('Error fetching children for parent $parentUid: $e');
       return [];
+    }
+  }
+
+  // ---------------- THERAPIST ----------------
+  Future<bool> isTherapist(String uid) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('therapists')
+        .doc(uid)
+        .get();
+    return doc.exists;
+  }
+
+  Future<void> cacheTherapist(TherapistUser therapist) async {
+    // Deep copy and sanitize timestamps
+    final sanitizedChildren = therapist.childrenAccessCodes?.map((key, value) {
+      final mapValue = Map<String, dynamic>.from(value);
+      if (mapValue['linkedAt'] is Timestamp) {
+        mapValue['linkedAt'] = (mapValue['linkedAt'] as Timestamp).toDate();
+      }
+      return MapEntry(key, mapValue);
+    });
+
+    final sanitizedTherapist = TherapistUser(
+      uid: therapist.uid,
+      name: therapist.name,
+      email: therapist.email,
+      isVerified: therapist.isVerified,
+      createdAt: therapist.createdAt,
+      childId: therapist.childId,
+      childrenAccessCodes: sanitizedChildren,
+    );
+
+    await _therapistBox.put(sanitizedTherapist.uid, sanitizedTherapist);
+  }
+
+  TherapistUser? getCachedTherapist(String uid) {
+    return _therapistBox.get(uid);
+  }
+
+  /// Fetch therapist from Firestore and cache
+  Future<TherapistUser?> fetchTherapistAndCache(String therapistUid) async {
+    try {
+      final therapist = await _firestore.getTherapist(therapistUid);
+      if (therapist == null) return null;
+
+      await cacheTherapist(therapist);
+      return therapist;
+    } catch (e) {
+      debugPrint('Error fetching therapist $therapistUid: $e');
+      return null;
+    }
+  }
+
+  /// Get therapist's linked children with full details
+  Future<List<Map<String, dynamic>>> getTherapistChildrenWithDetails(
+    String therapistUid,
+  ) async {
+    try {
+      return await _firestore.getTherapistChildrenWithDetails(therapistUid);
+    } catch (e) {
+      debugPrint('Error getting therapist children with details: $e');
+      return [];
+    }
+  }
+
+  /// Unlink child from therapist
+  /// Unlink child from therapist
+  Future<void> unlinkChildFromTherapist({
+    required String childId,
+    required String therapistUid,
+    required String parentUid,
+    required String accessCode, // ADD THIS PARAMETER
+  }) async {
+    try {
+      await _firestore.unlinkChildFromTherapist(
+        childId: childId,
+        therapistUid: therapistUid,
+        parentUid: parentUid,
+        accessCode: accessCode, // ADD THIS LINE
+      );
+
+      // Refresh therapist cache
+      final therapist = await fetchTherapistAndCache(therapistUid);
+      if (therapist != null) {
+        await cacheTherapist(therapist);
+      }
+
+      debugPrint('✅ Child $childId unlinked from therapist $therapistUid');
+    } catch (e) {
+      debugPrint('Error unlinking child: $e');
+      rethrow;
     }
   }
 
@@ -77,9 +242,9 @@ String? getCachedParentId() {
   Future<ChildUser?> createChild(
     String parentUid,
     ChildUser child,
-    String code,
+    String accessCode,
   ) async {
-    await _firestore.createChild(parentUid, child, code);
+    await _firestore.createChild(parentUid, child, accessCode);
     await cacheChild(child);
 
     // 🔑 Refresh parent cache to include new accessCode mapping
@@ -89,6 +254,23 @@ String? getCachedParentId() {
     }
 
     return child;
+  }
+
+  Future<List<ChildUser>> fetchChildren(String parentUid) async {
+    try {
+      final snapshot = await _firestore
+          .collection('users')
+          .doc(parentUid)
+          .collection('children')
+          .get();
+
+      return snapshot.docs
+          .map((doc) => ChildUser.fromMap(doc.data(), doc.id))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching children for parent $parentUid: $e');
+      return [];
+    }
   }
 
   Future<ChildUser?> fetchChildAndCache(
@@ -143,9 +325,7 @@ String? getCachedParentId() {
 
       return {'parent': parent, 'child': child};
     } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching parent/child by accessCode: $e');
-      }
+      debugPrint('Error fetching parent/child by accessCode: $e');
       return null;
     }
   }
@@ -172,13 +352,15 @@ String? getCachedParentId() {
 
       return null;
     } catch (e) {
+      debugPrint('Error fetching child by ID $childId: $e');
       return null;
     }
   }
- 
+
   Future<void> clearAllCachedData() async {
     await _parentBox.clear();
     await _childBox.clear();
+    await _therapistBox.clear();
   }
 
   Future<void> updateChildBalance(
@@ -209,5 +391,29 @@ String? getCachedParentId() {
     });
 
     await fetchChildAndCache(parentUid, childId);
+  }
+
+  /// Stream children linked to a therapist
+  Stream<List<Map<String, dynamic>>> getTherapistChildrenStream(
+    String therapistUid,
+  ) {
+    return _firestore.streamTherapistChildren(therapistUid);
+  }
+
+  /// Check if child is linked to a therapist
+  Future<bool> isChildLinkedToTherapist(
+    String childId,
+    String therapistUid,
+  ) async {
+    try {
+      final therapist = await _firestore.getTherapist(therapistUid);
+      if (therapist == null) return false;
+
+      final childrenAccessCodes = therapist.childrenAccessCodes ?? {};
+      return childrenAccessCodes.containsKey(childId);
+    } catch (e) {
+      debugPrint('Error checking child link: $e');
+      return false;
+    }
   }
 }

@@ -28,7 +28,11 @@ class ChildUser {
   @HiveField(7)
   bool firstVisitUnlocked;
 
+  @HiveField(8)
+  final String? therapistUid;
+
   ChildUser({
+    required this.therapistUid,
     required this.cid,
     required this.name,
     this.balance = 0,
@@ -37,9 +41,8 @@ class ChildUser {
     List<Map<String, dynamic>>? placedDecors,
     List<Map<String, dynamic>>? ownedFish,
     this.firstVisitUnlocked = false,
-  })  : placedDecors = placedDecors ?? <Map<String, dynamic>>[],
-        ownedFish = ownedFish ?? <Map<String, dynamic>>[];
-    
+  }) : placedDecors = placedDecors ?? <Map<String, dynamic>>[],
+       ownedFish = ownedFish ?? <Map<String, dynamic>>[];
 
   factory ChildUser.fromMap(Map<String, dynamic> data, String id) {
     return ChildUser(
@@ -55,6 +58,7 @@ class ChildUser {
           ? List<Map<String, dynamic>>.from(data['ownedFish'])
           : <Map<String, dynamic>>[],
       firstVisitUnlocked: data['firstVisitUnlocked'] ?? false,
+      therapistUid: data['therapistUid'] ?? '',
     );
   }
 
@@ -68,6 +72,7 @@ class ChildUser {
       "placedDecors": placedDecors,
       "ownedFish": ownedFish,
       "firstVisitUnlocked": firstVisitUnlocked,
+      "therapistUid": therapistUid,
     };
   }
 
@@ -80,6 +85,7 @@ class ChildUser {
     List<Map<String, dynamic>>? placedDecors,
     List<Map<String, dynamic>>? ownedFish,
     bool? firstVisitUnlocked,
+    String? therapistUid,
   }) {
     return ChildUser(
       cid: cid ?? this.cid,
@@ -90,6 +96,7 @@ class ChildUser {
       placedDecors: placedDecors ?? this.placedDecors,
       ownedFish: ownedFish ?? this.ownedFish,
       firstVisitUnlocked: firstVisitUnlocked ?? this.firstVisitUnlocked,
+      therapistUid: therapistUid ?? therapistUid,
     );
   }
 }
