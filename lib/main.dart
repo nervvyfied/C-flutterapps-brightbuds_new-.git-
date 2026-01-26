@@ -303,6 +303,10 @@ class _MyAppState extends State<MyApp> {
                     return MaterialPageRoute(
                       builder: (_) => const ChildAuthPage(),
                     );
+                  case 'therapistAuth':
+                    return MaterialPageRoute(
+                      builder: (_) => const TherapistAuthPage(),
+                    );
                   case '/achievements':
                     final args = settings.arguments as Map<String, dynamic>;
                     final child = args['child'] as ChildUser;
