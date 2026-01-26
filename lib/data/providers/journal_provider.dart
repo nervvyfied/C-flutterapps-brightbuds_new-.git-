@@ -152,26 +152,47 @@ class JournalProvider extends ChangeNotifier {
     String childId,
     JournalEntry entry,
   ) async {
+    // Create a new entry with unique ID and correct childId
     final newEntry = entry.copyWith(
       jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
       cid: childId,
       createdAt: DateTime.now(),
     );
 
+    // Track parent for child
     _parentForChild[childId] = parentId;
 
     // Save locally
     await _journalRepo.saveEntryLocal(newEntry);
 
+    // Update in-memory map
     _entries.putIfAbsent(childId, () => []);
     _entries[childId]!.insert(0, newEntry);
-    _checkAchievements(childId as ChildUser);
+
+    // ✅ Check achievements by childId (no casting needed)
+    await _checkAchievementsById(childId);
+
+    // Notify listeners
     notifyListeners();
 
     // Push pending changes if online
     if (await NetworkHelper.isOnline()) {
       await pushPendingChanges(parentId, childId);
     }
+  }
+
+  // ---------------- ACHIEVEMENTS (childId version) ----------------
+  Future<void> _checkAchievementsById(String childId) async {
+    // Fetch child object from user repository if your AchievementManager needs it
+    ChildUser? child = await _userRepo.fetchChildAndCacheById(childId);
+    if (child == null) return;
+
+    final achievementManager = AchievementManager(
+      achievementNotifier: AchievementNotifier(),
+      currentChild: child,
+    );
+
+    achievementManager.checkAchievements();
   }
 
   Future<void> updateEntry(

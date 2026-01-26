@@ -29,7 +29,10 @@ class ParentTaskListScreen extends StatefulWidget {
   State<ParentTaskListScreen> createState() => _ParentTaskListScreenState();
 }
 
+enum TaskFilter { all, done, notDone }
+
 class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
+  TaskFilter _currentFilter = TaskFilter.all; // default: show all
   Timer? _autoResetTimer;
   late SelectedChildProvider _selectedChildProv;
   late TaskProvider _taskProvider;
@@ -427,6 +430,31 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     );
   }
 
+  Widget _buildFilterButton(String label, TaskFilter filter) {
+    final selected = _currentFilter == filter;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _currentFilter = filter;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF8657F3) : Colors.grey[300],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedChildProv = Provider.of<SelectedChildProvider>(context);
@@ -446,9 +474,18 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
             children: [
               const SizedBox(height: 40),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    _buildFilterButton("All", TaskFilter.all),
+                    const SizedBox(width: 8),
+                    _buildFilterButton("Not Done", TaskFilter.notDone),
+                    const SizedBox(width: 8),
+                    _buildFilterButton("Done", TaskFilter.done),
                     Text(
                       'Quests for $childName',
                       style: const TextStyle(
@@ -475,11 +512,27 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                   ),
                   child: Consumer<TaskProvider>(
                     builder: (context, taskProvider, _) {
-                      final List<TaskModel> childTasks = childId != null
+                      List<TaskModel> childTasks = childId != null
                           ? taskProvider.tasks
                                 .where((t) => t.childId == childId)
                                 .toList()
                           : <TaskModel>[];
+
+                      switch (_currentFilter) {
+                        case TaskFilter.notDone:
+                          childTasks = childTasks
+                              .where((t) => !t.isDone)
+                              .toList();
+                          break;
+                        case TaskFilter.done:
+                          childTasks = childTasks
+                              .where((t) => t.isDone)
+                              .toList();
+                          break;
+                        case TaskFilter.all:
+                          // no filter
+                          break;
+                      }
 
                       if (taskProvider.isLoading) {
                         return const Center(child: CircularProgressIndicator());
