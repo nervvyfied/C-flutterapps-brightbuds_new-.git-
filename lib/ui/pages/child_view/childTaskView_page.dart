@@ -39,6 +39,19 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   StreamSubscription<QuerySnapshot>? _taskSubscription;
   // Cached future to avoid racing openBox calls
 
+  int _getXPForDifficulty(String difficulty) {
+      switch (difficulty.toLowerCase()) {
+        case 'easy':
+          return 5;
+        case 'medium':
+          return 10;
+        case 'hard':
+          return 20;
+        default:
+          return 0;
+      }
+    }
+
 
   @override
   void initState() {
@@ -143,9 +156,6 @@ void _listenToTasks() {
     }
   }, onError: (e) => debugPrint('❌ Task stream error: $e'));
 }
-
-  /// Listen to real-time balance updates and sync to Hive
-  /// Listen to real-time balance updates and sync to Hive safely
   /// Listen to real-time XP updates and sync to Hive safely
 void _listenToXP() {
   _balanceSubscription?.cancel(); // reuse subscription variable
@@ -356,9 +366,14 @@ Future<void> _fetchXP() async {
                       const SizedBox(width: 8),
                       Row(
                         children: [
-                          Image.asset('assets/coin.png', width: 16, height: 16),
+                          const Icon(Icons.flash_on, size: 16, color: Colors.orange),
                           const SizedBox(width: 4),
-                          Text('${task.reward}'),
+                          Text(
+                            '+${_getXPForDifficulty(task.difficulty)} XP',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -556,7 +571,7 @@ Future<void> _fetchXP() async {
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           children: [
                             const Text(
-                              "Complete your daily tasks to earn tokens!",
+                              "Complete your daily tasks to earn XP!",
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
@@ -624,14 +639,14 @@ Future<void> _fetchXP() async {
                                     ),
                                     child: Row(
                                       children: [
-                                        Image.asset(
-                                          'assets/coin.png',
-                                          width: 20,
-                                          height: 20,
+                                        const Icon(
+                                          Icons.flash_on,
+                                          color: Colors.orange,
+                                          size: 20,
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
-                                          '$_xp',
+                                          '$_xp XP',
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontWeight: FontWeight.bold,

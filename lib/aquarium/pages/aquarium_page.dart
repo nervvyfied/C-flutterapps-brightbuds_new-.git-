@@ -1038,7 +1038,24 @@ Widget build(BuildContext context) {
             IgnorePointer(
               child: Stack(
                 children: [
-                  ...decors.map((decor) {
+                  ...foodPellets.map((p) => Positioned(
+                        left: p.x,
+                        top: p.y,
+                        child: Transform.translate(
+                          offset: Offset(offsetX * parallax['sand2']!, 0),
+                          child: Image.asset(
+                            'assets/tools/foodpellet.png',
+                            width: 20,
+                          ),
+                        ),
+                      )),
+                ],
+              ),
+            ),
+
+            // Front sand
+            _buildLayer(bg.sand2, sand2Width, offsetX * parallax['sand2']!),
+            ...decors.map((decor) {
                       final screenSize = MediaQuery.of(context).size;
 
                       // Compute position using anchorX/Y (0..1) and parallax for x
@@ -1080,23 +1097,6 @@ Widget build(BuildContext context) {
                           ),
                         ),
                       )),
-                  ...foodPellets.map((p) => Positioned(
-                        left: p.x,
-                        top: p.y,
-                        child: Transform.translate(
-                          offset: Offset(offsetX * parallax['sand2']!, 0),
-                          child: Image.asset(
-                            'assets/tools/foodpellet.png',
-                            width: 20,
-                          ),
-                        ),
-                      )),
-                ],
-              ),
-            ),
-
-            // Front sand
-            _buildLayer(bg.sand2, sand2Width, offsetX * parallax['sand2']!),
           ],
         ),
       ),
