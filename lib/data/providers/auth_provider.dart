@@ -1016,14 +1016,52 @@ final taskProvider = Provider.of<TaskProvider>(
     }
   }
 
-  Future<void> checkTherapistEmailVerifiedStatus() async {
-    await firebaseUser?.reload();
-    if (firebaseUser != null && firebaseUser!.emailVerified) {
-      final therapist = await _userRepo.fetchTherapistAndCache(
-        firebaseUser!.uid,
-      );
-      if (therapist != null) await _saveTherapistSession(therapist);
+  Future<void> _saveParentSession(ParentUser parent) async {
+    currentUserModel = parent;
+    firebaseUser = _auth.currentUser;
+    await _userRepo.cacheParent(parent);
+    await _parentBox.put(parent.uid, parent);
+    await _childBox.clear();
+    notifyListeners();
+  }
+
+  Future<void> saveParentAfterVerification(ParentUser parent) async {
+    currentUserModel = parent;
+    await _userRepo.cacheParent(parent);
+    await _parentBox.put(parent.uid, parent);
+    notifyListeners();
+  }
+
+  // ---------------- CHILD METHODS ----------------
+  Future<ChildUser?> addChild(String name) async {
+    if (currentUserModel == null || currentUserModel is! ParentUser) {
+      return null;
     }
+
+    final parent = currentUserModel as ParentUser;
+    final code = _auth.generateChildAccessCode();
+
+    final child = ChildUser(
+      cid: DateTime.now().millisecondsSinceEpoch.toString(),
+      parentUid: parent.uid,
+      name: name,
+      balance: 0,
+      streak: 0,
+      firstVisitUnlocked: false,
+    );
+
+    final createdChild = await _userRepo.createChild(parent.uid, child, code);
+    if (createdChild != null) {
+      await _childBox.put(createdChild.cid, createdChild);
+
+      final updatedParent = await _userRepo.fetchParentAndCache(parent.uid);
+      if (updatedParent != null) {
+        currentUserModel = updatedParent;
+        await _parentBox.put(updatedParent.uid, updatedParent);
+      }
+    }
+
+    return createdChild;
   }
 
   Future<void> resendVerificationEmailTherapist() async {

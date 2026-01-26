@@ -1,42 +1,28 @@
-import 'package:flutter/foundation.dart';
-
-@immutable
 class DecorDefinition {
-  final String id;       // unique decor ID
-  final String name;     // e.g., "Rock", "Seaweed"
+  final String id;
+  final String name;
+  final int world;
+  final int unlockLevel;
   final String assetPath;
-  final int price;       // purchase cost
+  final int layer;
+
+  /// 0..1 relative position
+  final double anchorX;
+  final double anchorY;
+  final double widthFactor;
+
   final String description;
-  final bool isPlaced;
 
   const DecorDefinition({
     required this.id,
     required this.name,
+    required this.world,
+    required this.unlockLevel,
     required this.assetPath,
-    required this.price,
-    this.description = '',
-    this.isPlaced = false,
+    required this.layer,
+    required this.anchorX,
+    required this.anchorY,
+    required this.widthFactor,
+    required this.description,
   });
-
-  factory DecorDefinition.fromMap(Map<String, dynamic> map) {
-    return DecorDefinition(
-      id: map['id'] ?? '',
-      name: map['name'] ?? '',
-      assetPath: map['assetPath'] ?? '',
-      price: map['price'] ?? 0,
-      description: map['description'] ?? '',
-      isPlaced: map['isPlaced'] ?? false,
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'assetPath': assetPath,
-      'price': price,
-      'description': description,
-      'isPlaced': isPlaced,
-    };
-  }
 }

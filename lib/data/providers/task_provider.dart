@@ -1,11 +1,16 @@
 // ignore_for_file: unnecessary_null_comparison
 
 import 'dart:async';
+import 'package:brightbuds_new/aquarium/manager/achievement_manager.dart';
+import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
+import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
+import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:brightbuds_new/utils/xp_calculator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show ScaffoldMessenger, Text, BuildContext, SnackBar, TimeOfDay;
@@ -42,42 +47,17 @@ class TaskProvider extends ChangeNotifier {
   final TaskRepository _taskRepo = TaskRepository();
   final UserRepository _userRepo = UserRepository();
   final StreakRepository _streakRepo = StreakRepository();
+  final UnlockManager unlockManager;
   late final SyncService _syncService;
 
   late Box<ChildUser> _childBox;
   Function(int newBalance)? onBalanceChanged;
+    TaskProvider() {
+      _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
+    }
 
-  TaskProvider() {
-    _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
-    // Initialize child box
-    _initChildBox();
-  }
+  late ChildUser currentChild;
 
-  Future<void> _initChildBox() async {
-    _childBox = Hive.isBoxOpen('childrenBox')
-        ? Hive.box<ChildUser>('childrenBox')
-        : await Hive.openBox<ChildUser>('childrenBox');
-  }
-
-  CurrentUser? currentUser; // ✅ Who is using this provider
-  String? _currentUserId;
-  UserType? _currentUserType;
-
-  void setCurrentUser(String uid, UserType type) {
-    currentUser = CurrentUser(uid: uid, type: type);
-    debugPrint('👤 Current user set: $uid (${type.name})');
-  }
-
-  void clearCurrentUser() {
-    _currentUserId = null;
-    _currentUserType = null;
-    notifyListeners();
-  }
-
-  String? get currentUserId => _currentUserId;
-  UserType? get currentUserType => _currentUserType;
-
-  ChildUser? currentChild;
   final List<_PendingAction> _pendingActions = [];
   List<TaskModel> _tasks = [];
   List<TaskModel> get tasks => _tasks;
@@ -152,6 +132,16 @@ class TaskProvider extends ChangeNotifier {
     }
 
     return {'done': done, 'notDone': notDone, 'missed': missed};
+  }
+
+  void Function(int newLevel)? onLevelUp;
+
+  void _checkAchievements(ChildUser child) {
+    final achievementManager = AchievementManager(
+      achievementNotifier: AchievementNotifier(),
+      currentChild: child,
+    );
+    achievementManager.checkAchievements();
   }
 
   // ---------------- FIRESTORE ----------------
@@ -646,7 +636,7 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------------- TASK COMPLETION ----------------
+  /// ---------------- TASK COMPLETION (XP LOGIC) ----------------
   Future<void> markTaskAsDone(String taskId, String childId) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
     if (index == -1) return;
@@ -660,7 +650,7 @@ class TaskProvider extends ChangeNotifier {
       await _loadCurrentChild(childId);
     }
 
-    // ✅ Compute streak correctly
+    // ✅ Handle streak
     final bool isYesterday =
         task.lastCompletedDate != null &&
         task.lastCompletedDate!.difference(today).inDays == -1;
@@ -675,24 +665,23 @@ class TaskProvider extends ChangeNotifier {
       }
     }
 
-    // ✅ Update local task
     final updatedTask = task.copyWith(
       isDone: true,
       doneAt: now,
       lastCompletedDate: today,
       activeStreak: newActiveStreak,
-      longestStreak: newActiveStreak > task.longestStreak
+      longestStreak: newActiveStreak > (task.longestStreak)
           ? newActiveStreak
           : task.longestStreak,
-      totalDaysCompleted: task.totalDaysCompleted + 1,
+      totalDaysCompleted: (task.totalDaysCompleted) + 1,
       lastUpdated: now,
       parentId: actualParentId, // Ensure correct parentId
     );
 
-    // ✅ Update local Hive + memory
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
 
+    // Persist via repository so repo/pending logic knows about change
     try {
       await _taskRepo.saveTask(updatedTask);
     } catch (e) {
@@ -701,19 +690,19 @@ class TaskProvider extends ChangeNotifier {
 
     notifyListeners();
 
-    // ✅ Cancel alarm if any
+    // ✅ Cancel alarm if exists
     if (!kIsWeb && updatedTask.alarm != null) {
       await cancelTaskAlarm(updatedTask);
     }
 
-    // ✅ Try to sync immediately if online
+    // ✅ Try to sync immediately if online (push this single change)
     if (await NetworkHelper.isOnline()) {
       try {
-        await _syncToFirestore(updatedTask, parentIdOverride: actualParentId);
-
+        await _syncToFirestore(updatedTask);
+        // Also ensure syncService flushes any other pending changes for this child
         try {
           await _syncService.syncAllPendingChanges(
-            parentId: actualParentId,
+            parentId: updatedTask.parentId,
             childId: updatedTask.childId,
           );
         } catch (e) {
@@ -727,7 +716,7 @@ class TaskProvider extends ChangeNotifier {
       debugPrint('⚠️ Offline: will sync later (mark done).');
     }
 
-    // ✅ Update streak data
+    // ✅ Update streak
     await _streakRepo.updateStreak(
       updatedTask.childId,
       actualParentId,
@@ -735,7 +724,7 @@ class TaskProvider extends ChangeNotifier {
     );
 
     // ✅ Notify parent
-    await _notifyParentCompletion(updatedTask, childId, actualParentId);
+    await _notifyParentCompletion(updatedTask, childId);
 
     // ✅ Deduplicate any local duplicates after Firestore resync
     final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
@@ -860,95 +849,90 @@ class TaskProvider extends ChangeNotifier {
 
   // ---------------- VERIFY TASK ----------------
   Future<void> verifyTask(String taskId, String childId) async {
-    // ✅ Ensure current child is set for this operation
-    if (currentChild == null || currentChild!.cid != childId) {
-      await _loadCurrentChild(childId);
-    }
-
-    if (currentChild == null) {
-      debugPrint('⚠️ currentChild is null, skipping balance update');
-      return;
-    }
-
     final index = _tasks.indexWhere((t) => t.id == taskId);
     if (index == -1) return;
 
-    final task = _tasks[index];
-    if (task.verified) return;
+  final task = _tasks[index];
 
-    final now = DateTime.now();
+  // 🔒 Guard 1: Already verified → do nothing
+  if (task.verified) {
+    debugPrint('⚠️ Task already verified, skipping XP grant');
+    return;
+  }
 
-    // ✅ Get actual parent ID
-    String actualParentId = task.parentId;
-    if (currentUser?.type == UserType.therapist) {
-      final fetchedParentId = await _getParentIdForChild(childId);
-      if (fetchedParentId != null) {
-        actualParentId = fetchedParentId;
-      }
-    }
+  // 🔒 Guard 2: Task must be done first
+  if (!task.isDone) {
+    debugPrint('⚠️ Cannot verify task that is not done');
+    return;
+  }
 
-    // ✅ Mark task as done first
+  final now = DateTime.now();
+
+    // ✅ Mark task as done
     await markTaskAsDone(taskId, childId);
-
-    await _syncToFirestore(
-      task.copyWith(verified: true, parentId: actualParentId),
-      parentIdOverride: actualParentId,
-    );
 
     // ✅ Update locally (Hive & memory)
     final updatedTask = task.copyWith(
       verified: true,
       isDone: true,
       lastUpdated: now,
-      parentId: actualParentId,
     );
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
     notifyListeners();
 
-    // ✅ Update in repository
-    await _taskRepo.verifyTask(taskId, childId);
+  // --- REPO ---
+  await _taskRepo.verifyTask(taskId, childId);
 
     // ✅ Update child's balance
     final rewardAmount = task.reward;
     try {
-      await _userRepo.updateChildBalance(actualParentId, childId, rewardAmount);
+      await _userRepo.updateChildBalance(task.parentId, childId, rewardAmount);
+      final newBalance = currentChild.balance + rewardAmount;
 
-      // ✅ Reload current child to get updated balance
-      await _loadCurrentChild(childId);
+      // ✅ Add balance to pending queue
+      _updateLocalBalance(newBalance);
 
-      if (currentChild != null) {
-        final newBalance = currentChild!.balance + rewardAmount;
-        await _updateLocalBalance(newBalance);
-        debugPrint(
-          "💰 Task reward $rewardAmount added. New balance: $newBalance",
-        );
-      }
+      debugPrint(
+        "💰 Task reward $rewardAmount added. New balance: $newBalance",
+      );
     } catch (e) {
       debugPrint("⚠️ Failed to update child balance: $e");
     }
+
+    // ✅ Only sync task to Firestore if online
+    if (await NetworkHelper.isOnline()) {
+      try {
+        final docRef = _firestore
+            .collection('users')
+            .doc(task.parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('tasks')
+            .doc(taskId);
+
+        await docRef.set(updatedTask.toMap(), SetOptions(merge: true));
+        debugPrint('✅ Task verified, marked done, and synced: ${task.name}');
+      } catch (e) {
+        debugPrint('⚠️ Failed to sync verified task: $e');
+      }
+    }
   }
 
-  // ---------------- UPDATE LOCAL BALANCE ----------------
-  Future<void> _updateLocalBalance(int newBalance) async {
-    if (currentChild == null) {
-      debugPrint('⚠️ currentChild is null, cannot update balance');
-      return;
-    }
+ Future<void> _updateLocalBalance(int newBalance) async {
+    if (currentChild.balance == newBalance) return;
 
-    if (currentChild!.balance == newBalance) return;
-
-    currentChild = currentChild!.copyWith(balance: newBalance);
+    currentChild = currentChild.copyWith(balance: newBalance);
 
     notifyListeners();
     onBalanceChanged?.call(newBalance);
 
     // Hive update
     try {
-      final child = _childBox.get(currentChild!.cid);
+      final child = _childBox.get(currentChild.cid);
       if (child != null) {
         await _childBox.put(
-          currentChild!.cid,
+          currentChild.cid,
           child.copyWith(balance: newBalance),
         );
       }
@@ -960,9 +944,9 @@ class TaskProvider extends ChangeNotifier {
     try {
       await _firestore
           .collection('users')
-          .doc(currentChild!.parentUid)
+          .doc(currentChild.parentUid)
           .collection('children')
-          .doc(currentChild!.cid)
+          .doc(currentChild.cid)
           .set({'balance': newBalance}, SetOptions(merge: true));
 
       if (kDebugMode) debugPrint('✅ Firestore balance updated: $newBalance');
@@ -973,8 +957,8 @@ class TaskProvider extends ChangeNotifier {
     // Repository backup
     try {
       await _userRepo.updateChildBalance(
-        currentChild!.parentUid,
-        currentChild!.cid,
+        currentChild.parentUid,
+        currentChild.cid,
         newBalance,
       );
     } catch (e) {

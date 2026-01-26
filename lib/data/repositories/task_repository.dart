@@ -373,64 +373,48 @@ class TaskRepository {
   }
 
   Future<void> verifyTask(String taskId, String childId) async {
-    try {
-      // 1️⃣ Get local task
-      final localTask = getTaskLocal(taskId);
-      if (localTask == null) {
-        debugPrint("Task $taskId not found locally.");
-        return;
-      }
-
-      if (localTask.verified) {
-        debugPrint("Task $taskId is already verified.");
-        return;
-      }
-
-      final parentId = localTask.parentId;
-      if (parentId.isEmpty || childId.isEmpty) {
-        debugPrint(
-          "Cannot verify task: parentId or childId is empty. parentId='$parentId', childId='$childId'",
-        );
-        return;
-      }
-
-      // 2️⃣ Mark task as verified
-      final updatedTask = localTask.copyWith(verified: true);
-
-      await saveTask(updatedTask); // saves both locally + remotely
-      debugPrint("Task $taskId marked as verified locally and remotely.");
-
-      // 3️⃣ Get or fetch child
-      final userRepo = UserRepository();
-      var child = userRepo.getCachedChild(childId);
-
-      if (child == null) {
-        child = await userRepo.fetchChildAndCache(parentId, childId);
-
-        if (child == null) {
-          debugPrint("Child $childId under parent $parentId not found.");
-          return; // exit early if child cannot be fetched
-        }
-      }
-
-      // 4️⃣ Ensure child has a valid parentUid
-      final childParentUid = child.parentUid.isNotEmpty
-          ? child.parentUid
-          : parentId;
-
-      // 5️⃣ Update child balance
-      await userRepo.updateChildBalance(
-        childParentUid,
-        child.cid,
-        updatedTask.reward,
-      );
-
-      debugPrint(
-        "Task $taskId verified and child ${child.cid} balance updated successfully.",
-      );
-    } catch (e, st) {
-      debugPrint('Error in verifyTask: $e\n$st');
-      rethrow;
+  try {
+    // 1️⃣ Get local task
+    final localTask = getTaskLocal(taskId);
+    if (localTask == null) {
+      debugPrint("Task $taskId not found locally.");
+      return;
     }
+
+    if (localTask.verified) {
+      debugPrint("Task $taskId is already verified.");
+      return;
+    }
+
+    final parentId = localTask.parentId;
+    if (parentId.isEmpty || childId.isEmpty) {
+      debugPrint(
+        "Cannot verify task: parentId or childId is empty. parentId='$parentId', childId='$childId'",
+      );
+      return;
+    }
+
+    // 2️⃣ Mark task as verified
+    final updatedTask = localTask.copyWith(verified: true);
+    await saveTask(updatedTask);
+
+    debugPrint("✅ Task $taskId marked as verified.");
+
+    // 3️⃣ Get or fetch child
+    final userRepo = UserRepository();
+    var child = userRepo.getCachedChild(childId);
+
+    if (child == null) {
+      child = await userRepo.fetchChildAndCache(parentId, childId);
+      if (child == null) {
+        debugPrint("Child $childId under parent $parentId not found.");
+        return;
+      }
+    }
+
+  } catch (e, st) {
+    debugPrint('❌ Error in verifyTask: $e\n$st');
+    rethrow;
   }
+}
 }

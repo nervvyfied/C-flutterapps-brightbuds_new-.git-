@@ -10,8 +10,8 @@ class ChildUser {
   @HiveField(1)
   final String name;
 
-  @HiveField(2)
-  final int balance;
+  // Removed: balance
+  // HiveField(2) is removed but not reused
 
   @HiveField(3)
   final int streak;
@@ -19,46 +19,30 @@ class ChildUser {
   @HiveField(4)
   final String parentUid;
 
-  @HiveField(5)
-  List<Map<String, dynamic>> placedDecors;
-
-  @HiveField(6)
-  List<Map<String, dynamic>> ownedFish;
+  // Removed: placedDecors and ownedFish
+  // HiveField(5) and HiveField(6) removed
 
   @HiveField(7)
   bool firstVisitUnlocked;
-
-  @HiveField(8)
-  final String? therapistUid;
 
   ChildUser({
     required this.therapistUid,
     required this.cid,
     required this.name,
-    this.balance = 0,
     this.streak = 0,
     required this.parentUid,
-    List<Map<String, dynamic>>? placedDecors,
-    List<Map<String, dynamic>>? ownedFish,
     this.firstVisitUnlocked = false,
-  }) : placedDecors = placedDecors ?? <Map<String, dynamic>>[],
-       ownedFish = ownedFish ?? <Map<String, dynamic>>[];
+  })  : placedDecors = placedDecors ?? <Map<String, dynamic>>[],
+        ownedFish = ownedFish ?? <Map<String, dynamic>>[];
+    
 
   factory ChildUser.fromMap(Map<String, dynamic> data, String id) {
     return ChildUser(
       cid: id,
       name: data['name'] ?? '',
-      balance: data['balance'] ?? 0,
       streak: data['streak'] ?? 0,
       parentUid: data['parentUid'] ?? '',
-      placedDecors: data['placedDecors'] != null
-          ? List<Map<String, dynamic>>.from(data['placedDecors'])
-          : <Map<String, dynamic>>[],
-      ownedFish: data['ownedFish'] != null
-          ? List<Map<String, dynamic>>.from(data['ownedFish'])
-          : <Map<String, dynamic>>[],
       firstVisitUnlocked: data['firstVisitUnlocked'] ?? false,
-      therapistUid: data['therapistUid'] ?? '',
     );
   }
 
@@ -66,37 +50,25 @@ class ChildUser {
     return {
       "cid": cid,
       "name": name,
-      "balance": balance,
       "streak": streak,
       "parentUid": parentUid,
-      "placedDecors": placedDecors,
-      "ownedFish": ownedFish,
       "firstVisitUnlocked": firstVisitUnlocked,
-      "therapistUid": therapistUid,
     };
   }
 
   ChildUser copyWith({
     String? cid,
     String? name,
-    int? balance,
     int? streak,
     String? parentUid,
-    List<Map<String, dynamic>>? placedDecors,
-    List<Map<String, dynamic>>? ownedFish,
     bool? firstVisitUnlocked,
-    String? therapistUid,
   }) {
     return ChildUser(
       cid: cid ?? this.cid,
       name: name ?? this.name,
-      balance: balance ?? this.balance,
       streak: streak ?? this.streak,
       parentUid: parentUid ?? this.parentUid,
-      placedDecors: placedDecors ?? this.placedDecors,
-      ownedFish: ownedFish ?? this.ownedFish,
       firstVisitUnlocked: firstVisitUnlocked ?? this.firstVisitUnlocked,
-      therapistUid: therapistUid ?? therapistUid,
     );
   }
 }

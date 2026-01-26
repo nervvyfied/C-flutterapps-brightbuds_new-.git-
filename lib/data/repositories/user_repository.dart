@@ -363,57 +363,34 @@ class UserRepository {
     await _therapistBox.clear();
   }
 
-  Future<void> updateChildBalance(
-    String parentUid,
-    String childId,
-    int amount,
-  ) async {
-    if (parentUid.isEmpty || childId.isEmpty) {
-      throw ArgumentError("parentUid and childId cannot be empty.");
+  Future<void> updateChildXP(
+  String parentUid,
+  String childId,
+  int xpAmount,
+) async {
+  if (parentUid.isEmpty || childId.isEmpty) {
+    throw ArgumentError("parentUid and childId cannot be empty.");
+  }
+
+  final childRef = _firestore
+      .collection('users')
+      .doc(parentUid)
+      .collection('children')
+      .doc(childId);
+
+  await _firestore.runTransaction((transaction) async {
+    final snapshot = await transaction.get(childRef);
+
+    if (!snapshot.exists) {
+      throw Exception("Child $childId not found under parent $parentUid");
     }
 
-    final childRef = _firestore
-        .collection('users')
-        .doc(parentUid)
-        .collection('children')
-        .doc(childId);
-
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(childRef);
-      if (!snapshot.exists) {
-        throw Exception("Child $childId not found under parent $parentUid");
-      }
-
-      final current = (snapshot.data()?['balance'] ?? 0) as int;
-      final newBalance = current + amount;
+    final currentXP = (snapshot.data()?['xp'] ?? 0) as int;
+    final newXP = currentXP + xpAmount;
 
       transaction.update(childRef, {'balance': newBalance});
     });
 
     await fetchChildAndCache(parentUid, childId);
-  }
-
-  /// Stream children linked to a therapist
-  Stream<List<Map<String, dynamic>>> getTherapistChildrenStream(
-    String therapistUid,
-  ) {
-    return _firestore.streamTherapistChildren(therapistUid);
-  }
-
-  /// Check if child is linked to a therapist
-  Future<bool> isChildLinkedToTherapist(
-    String childId,
-    String therapistUid,
-  ) async {
-    try {
-      final therapist = await _firestore.getTherapist(therapistUid);
-      if (therapist == null) return false;
-
-      final childrenAccessCodes = therapist.childrenAccessCodes ?? {};
-      return childrenAccessCodes.containsKey(childId);
-    } catch (e) {
-      debugPrint('Error checking child link: $e');
-      return false;
-    }
   }
 }

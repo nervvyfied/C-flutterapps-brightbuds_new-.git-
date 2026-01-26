@@ -5,8 +5,6 @@ import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
-import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
-import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
@@ -36,7 +34,7 @@ class ChildQuestsPage extends StatefulWidget {
 
 class _ChildQuestsPageState extends State<ChildQuestsPage> {
   bool _isOffline = false;
-  int _balance = 0;
+  int _xp = 0;
   late Box _settingsBox;
 
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
@@ -50,135 +48,134 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
   /// Initialize page: load cached data immediately, then fetch online data
   Future<void> _initialize() async {
-    _settingsBox = await Hive.openBox('settings');
+  _settingsBox = await Hive.openBox('settings');
 
-    // Load cached balance immediately
-    final cachedBalance = _settingsBox.get(
-      'cached_balance_${widget.childId}',
-      defaultValue: 0,
-    );
-    setState(() => _balance = cachedBalance);
+  // 1️⃣ Load cached XP safely
+  final cachedXP = _settingsBox.get(
+    'cached_xp_${widget.childId}',
+    defaultValue: 0,
+  );
+  setState(() => _xp = cachedXP);
 
-    // Load cached tasks immediately
-    final cachedTasks = _settingsBox.get(
-      'cached_tasks_${widget.childId}',
-      defaultValue: [],
-    );
-    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    if (cachedTasks.isNotEmpty) taskProvider.loadCachedTasks(cachedTasks);
+  // 2️⃣ Load cached tasks safely
+  final rawCachedTasks = _settingsBox.get(
+    'cached_tasks_${widget.childId}',
+    defaultValue: [],
+  ) as List<dynamic>; // Always dynamic on Web
 
-    // Check connectivity
-    final online = await NetworkHelper.isOnline();
-    if (mounted) setState(() => _isOffline = !online);
+  final cachedTasks = rawCachedTasks.map((e) {
+    if (e is TaskModel) return e;           // Mobile: already TaskModel
+    if (e is Map<String, dynamic>) return TaskModel.fromMap(e); // Web: stored as Map
+    return null;
+  }).whereType<TaskModel>().toList();
 
-    // Get current logged-in user for parentId
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final parentId = auth.isParent
-        ? (auth.currentUserModel as ParentUser).uid
-        : '';
+  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+  if (cachedTasks.isNotEmpty) {
+    taskProvider.loadCachedTasks(cachedTasks);
+  }
+
+  // 3️⃣ Check connectivity
+  final online = await NetworkHelper.isOnline();
+  if (mounted) setState(() => _isOffline = !online);
 
     // Initialize provider Hive & tasks asynchronously
     taskProvider.initHive();
+    taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
+    taskProvider.startDailyResetScheduler();
+
+    // Start listeners
+    _listenToBalance();
+    _listenToTasks();
+
+  // 6️⃣ Fetch XP from Firestore in background
+  _fetchXP();
+}
+
+  /// Real-time task listener — reloads provider tasks and checks for new tokens
+  void _listenToTasks() {
+    _taskSubscription?.cancel();
+
+  final stream = FirebaseFirestore.instance
+      .collection('users')
+      .doc(widget.parentId)
+      .collection('children')
+      .doc(widget.childId)
+      .collection('tasks')
+      .snapshots();
+
+  _taskSubscription = stream.listen((snapshot) async {
+    if (!mounted) return;
+    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+    final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+
+    // Reload tasks from Firestore
     await taskProvider.loadTasks(
       parentId: widget.parentId,
       childId: widget.childId,
     );
-    taskProvider.startDailyResetScheduler();
 
-    // Start listeners
-    _listenToBalance(parentId);
-    _listenToTasks(parentId);
+    // ✅ Save tasks to Hive safely (always convert to Map for Web)
+    final tasksToCache = taskProvider.tasks.map((t) => t.toMapForHive()).toList();
+    await _settingsBox.put('cached_tasks_${widget.childId}', tasksToCache);
 
-    // Fetch Firestore balance in background
-    _fetchBalance();
-  }
+    // Find newly verified tasks
+    final newlyVerifiedTasks = taskProvider.tasks.where((t) {
+      if (t.verified != true) return false;
 
-  /// Real-time task listener — reloads provider tasks and checks for new tokens
-  void _listenToTasks(String parentId) {
-    _taskSubscription?.cancel();
+      final rawSeen = _settingsBox.get(
+        'seen_verified_tasks_${widget.childId}',
+        defaultValue: [],
+      ) as List<dynamic>; // Always dynamic
+      final seenIds = rawSeen.whereType<String>().toList();
 
-    final stream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.parentId)
-        .collection('children')
-        .doc(widget.childId)
-        .collection('tasks')
-        .snapshots();
+      return !seenIds.contains(t.id);
+    }).toList();
 
-    _taskSubscription = stream.listen((snapshot) async {
-      if (!mounted) return;
-      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+    if (newlyVerifiedTasks.isNotEmpty) {
+      final rawSeen = _settingsBox.get(
+        'seen_verified_tasks_${widget.childId}',
+        defaultValue: [],
+      ) as List<dynamic>;
+      final seenIds = rawSeen.whereType<String>().toList();
+      seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
+      await _settingsBox.put('seen_verified_tasks_${widget.childId}', seenIds);
 
-      // Reload tasks from Firestore
-      await taskProvider.loadTasks(
-        parentId: widget.parentId,
-        childId: widget.childId,
-      );
-
-      // Save tasks to Hive for instant next load
-      await _settingsBox.put(
-        'cached_tasks_${widget.childId}',
-        taskProvider.tasks,
-      );
-
-      // Find newly verified tasks
-      final newlyVerifiedTasks = taskProvider.tasks.where((t) {
-        if (t.verified != true) return false;
-        final seenIds = List<String>.from(
-          _settingsBox.get(
-            'seen_verified_tasks_${widget.childId}',
-            defaultValue: [],
-          ),
-        );
-        return !seenIds.contains(t.id);
-      }).toList();
-
-      if (newlyVerifiedTasks.isNotEmpty) {
-        final seenIds = List<String>.from(
-          _settingsBox.get(
-            'seen_verified_tasks_${widget.childId}',
-            defaultValue: [],
-          ),
-        );
-        seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
-        await _settingsBox.put(
-          'seen_verified_tasks_${widget.childId}',
-          seenIds,
-        );
-
-        tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
-      }
-    }, onError: (e) => debugPrint('❌ Task stream error: $e'));
-  }
+      tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
+    }
+  }, onError: (e) => debugPrint('❌ Task stream error: $e'));
+}
 
   /// Listen to real-time balance updates and sync to Hive
-  void _listenToBalance(String parentId) {
+  /// Listen to real-time balance updates and sync to Hive safely
+  void _listenToBalance() {
     _balanceSubscription?.cancel();
 
-    final docRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.parentId)
-        .collection('children')
-        .doc(widget.childId);
+  final docRef = FirebaseFirestore.instance
+      .collection('users')
+      .doc(widget.parentId)
+      .collection('children')
+      .doc(widget.childId);
 
-    _balanceSubscription = docRef.snapshots().listen((snapshot) async {
-      if (!snapshot.exists) return;
-      final data = snapshot.data();
-      if (data == null) return;
+  _balanceSubscription = docRef.snapshots().listen((snapshot) async {
+    if (!snapshot.exists) return;
+    final data = snapshot.data();
+    if (data == null) return;
 
-      final newBalance = (data['balance'] is int)
-          ? data['balance']
-          : (data['balance'] is double)
-          ? (data['balance'] as double).toInt()
-          : int.tryParse('${data['balance']}') ?? 0;
+    final newXP = (data['xp'] is int)
+        ? data['xp']
+        : (data['xp'] is double)
+            ? (data['xp'] as double).toInt()
+            : int.tryParse('${data['xp']}') ?? 0;
 
-      final cachedKey = 'cached_balance_${widget.childId}';
+    final cachedKey = 'cached_xp_${widget.childId}';
 
+      // ✅ Update UI immediately
       if (mounted) setState(() => _balance = newBalance);
 
+      // ✅ Save to settings Hive box
       await _settingsBox.put(cachedKey, newBalance);
 
+      // ✅ Persist to Hive childBox if open and type-safe
       if (Hive.isBoxOpen('childBox')) {
         try {
           final childBox = Hive.box<ChildUser>('childBox');
@@ -195,17 +192,21 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         debugPrint('⚠️ childBox not open yet, skipping balance update.');
       }
 
-      debugPrint('💰 Balance synced Firestore → Hive: $newBalance');
-    }, onError: (e) => debugPrint('❌ Balance stream error: $e'));
-  }
+    debugPrint('🟢 XP synced Firestore → Hive: $newXP');
+  }, onError: (e) => debugPrint('❌ XP stream error: $e'));
+}
+
 
   /// Fetch balance from Firestore (offline-first) and sync to Hive safely
   Future<void> _fetchBalance() async {
     final cachedKey = 'cached_balance_${widget.childId}';
+
+    // ✅ Load cached Hive value immediately
     final cached = _settingsBox.get(cachedKey, defaultValue: 0);
     if (mounted) setState(() => _balance = cached);
     debugPrint('📦 Loaded cached balance: $cached');
 
+    // ✅ Fetch latest from Firestore if online
     if (await NetworkHelper.isOnline()) {
       try {
         final doc = await FirebaseFirestore.instance
@@ -215,19 +216,20 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
             .doc(widget.childId)
             .get();
 
-        if (!doc.exists || doc.data() == null) return;
+      if (!doc.exists || doc.data() == null) return;
 
-        final val = doc['balance'];
-        final fetched = (val is int)
-            ? val
-            : (val is double)
-            ? val.toInt()
-            : int.tryParse('$val') ?? 0;
+      final val = doc['xp'];
+      final fetched = (val is int)
+          ? val
+          : (val is double)
+              ? val.toInt()
+              : int.tryParse('$val') ?? 0;
 
-        if (fetched != cached) {
-          if (mounted) setState(() => _balance = fetched);
-          await _settingsBox.put(cachedKey, fetched);
+      if (fetched != cached) {
+        if (mounted) setState(() => _xp = fetched);
+        await _settingsBox.put(cachedKey, fetched);
 
+          // ✅ Persist to Hive childBox safely
           if (Hive.isBoxOpen('childBox')) {
             try {
               final childBox = Hive.box<ChildUser>('childBox');
@@ -244,15 +246,15 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
             debugPrint('⚠️ childBox not open yet, skipping Hive update.');
           }
 
-          debugPrint('💰 Balance refreshed Firestore → Hive: $fetched');
-        }
-      } catch (e) {
-        debugPrint('⚠️ Error fetching balance from Firestore: $e');
+        debugPrint('🟢 XP refreshed Firestore → Hive: $fetched');
       }
-    } else {
-      debugPrint('📴 Offline mode — using cached Hive balance.');
+    } catch (e) {
+      debugPrint('⚠️ Error fetching XP from Firestore: $e');
     }
+  } else {
+    debugPrint('📴 Offline mode — using cached Hive XP.');
   }
+}
 
   String _getGreeting() {
     final h = DateTime.now().hour;
@@ -415,13 +417,15 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                     task.copyWith(isDone: value),
                                   );
 
-                                  unlockManager.checkUnlocks();
+                                  final childMap = unlockManager.childProvider.selectedChild;
+                                  final currentLevel = childMap?['level'] ?? 1; // fallback to 1 if null
+                                  unlockManager.checkLevelUnlocks(currentLevel);
 
                                   if (!_isOffline) {
                                     await taskProvider.pushPendingChanges();
                                   }
 
-                                  await _fetchBalance();
+                                  await _fetchXP();
                                 } catch (e) {
                                   debugPrint('⚠️ Error updating task: $e');
                                 }
@@ -480,17 +484,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                           context,
                           listen: false,
                         );
-                        final fish = Provider.of<FishProvider>(
-                          context,
-                          listen: false,
-                        );
-                        final decor = Provider.of<DecorProvider>(
-                          context,
-                          listen: false,
-                        );
                         await auth.signOut();
-                        fish.clearData();
-                        decor.clearData();
                         if (!mounted) return;
                         Navigator.pushAndRemoveUntil(
                           context,
@@ -636,7 +630,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
-                                          '$_balance',
+                                          '$_xp',
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontWeight: FontWeight.bold,

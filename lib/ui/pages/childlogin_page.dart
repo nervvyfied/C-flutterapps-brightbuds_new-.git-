@@ -1,7 +1,7 @@
-import 'package:brightbuds_new/aquarium/providers/decor_provider.dart';
-import 'package:brightbuds_new/aquarium/providers/fish_provider.dart';
+import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart' show ChooseRolePage;
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
@@ -36,10 +36,16 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
 
       final child = authProvider.currentUserModel as ChildUser;
 
-      final fishProvider = context.read<FishProvider>();
-      final decorProvider = context.read<DecorProvider>();
-      await fishProvider.setChild(child);
-      await decorProvider.setChild(child);
+      final taskProvider = context.read<TaskProvider>();
+      final progression = context.read<ProgressionProvider>();
+
+      taskProvider.currentChild = child;
+      progression.setChild(child);
+
+      // XP bridge
+      taskProvider.onXPChanged = (newXP) {
+        progression.updateXP(newXP);
+      };
 
       ScaffoldMessenger.of(
         context,
@@ -48,6 +54,7 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
         context,
         MaterialPageRoute(builder: (_) => const ChildNavigationShell()),
       );
+
     } on FirebaseAuthException catch (e) {
       String message;
       switch (e.code) {

@@ -6,6 +6,7 @@ import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:brightbuds_new/data/notifiers/token_listener.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childJournalList_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childTaskView_page.dart';
@@ -25,12 +26,7 @@ class _ChildNavigationShellState extends State<ChildNavigationShell> {
   int _selectedIndex = 0;
   TokenNotifier? _tokenNotifier;
 
-  List<Widget> _buildPages(
-    String parentId,
-    String childId,
-    String childName,
-    String therapistId,
-  ) {
+  List<Widget> _buildPages(String parentId, String childId, String childName) {
     return [
       ChildQuestsPage(
         parentId: parentId,

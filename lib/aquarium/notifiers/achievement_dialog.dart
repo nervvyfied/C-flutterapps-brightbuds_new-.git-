@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
-import '../models/fish_definition.dart';
-import '../models/decor_definition.dart';
 import '../models/achievement_definition.dart';
+import 'package:provider/provider.dart';
+import '../notifiers/achievement_notifier.dart';
 
-class UnlockDialog extends StatefulWidget {
-  final dynamic unlockedItem; // FishDefinition, DecorDefinition, or AchievementDefinition
-
-  const UnlockDialog({super.key, required this.unlockedItem});
+class AchievementDialog extends StatefulWidget {
+  final AchievementDefinition achievement;
+  const AchievementDialog({super.key, required this.achievement});
 
   @override
-  State<UnlockDialog> createState() => _UnlockDialogState();
+  State<AchievementDialog> createState() => _AchievementDialogState();
 }
 
-class _UnlockDialogState extends State<UnlockDialog> {
+class _AchievementDialogState extends State<AchievementDialog> {
   late ConfettiController _confettiController;
 
   @override
@@ -32,30 +31,7 @@ class _UnlockDialogState extends State<UnlockDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isFish = widget.unlockedItem is FishDefinition;
-    final isDecor = widget.unlockedItem is DecorDefinition;
-    final isAchievement = widget.unlockedItem is AchievementDefinition;
-
-    String name = '';
-    String description = '';
-    String asset = '';
-
-    if (isFish) {
-      final fish = widget.unlockedItem as FishDefinition;
-      name = fish.name;
-      description = fish.description;
-      asset = fish.normalAsset;
-    } else if (isDecor) {
-      final decor = widget.unlockedItem as DecorDefinition;
-      name = decor.name;
-      description = decor.description;
-      asset = decor.assetPath;
-    } else if (isAchievement) {
-      final achievement = widget.unlockedItem as AchievementDefinition;
-      name = achievement.title;
-      description = achievement.description;
-      asset = achievement.iconAsset;
-    }
+    final notifier = context.read<AchievementNotifier>();
 
     return Stack(
       alignment: Alignment.center,
@@ -71,30 +47,32 @@ class _UnlockDialogState extends State<UnlockDialog> {
             borderRadius: BorderRadius.circular(16),
           ),
           title: const Text(
-            "🎉 New Unlock!",
+            "🏆 Achievement Unlocked!",
             textAlign: TextAlign.center,
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset(asset, width: 100, height: 100),
+              Image.asset(widget.achievement.iconAsset, width: 100, height: 100),
               const SizedBox(height: 12),
               Text(
-                "You unlocked $name!",
+                "You unlocked ${widget.achievement.title}!",
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
-              Text(description, textAlign: TextAlign.center),
+              Text(widget.achievement.description, textAlign: TextAlign.center),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.of(context).pop(); // close dialog
+                    notifier.clear();
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pushNamed("/achievements");
                   },
-                  child: Text("Close"),
+                  child: const Text("Go to Achievements"),
                 ),
               ),
             ],
