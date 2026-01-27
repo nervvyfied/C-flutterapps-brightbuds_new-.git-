@@ -37,6 +37,20 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
   late SelectedChildProvider _selectedChildProv;
   late TaskProvider _taskProvider;
 
+  int _getXPForDifficulty(String difficulty) {
+  switch (difficulty.toLowerCase()) {
+    case 'easy':
+      return 5;
+    case 'medium':
+      return 10;
+    case 'hard':
+      return 20;
+    default:
+      return 0;
+  }
+}
+
+
   @override
   void initState() {
     super.initState();
@@ -192,29 +206,42 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                     task.totalDaysCompleted.toString(),
                   ),
 
-                  const SizedBox(height: 24),
+                // Task details
+                _buildDetailRow("Task Name", task.name),
+                _buildDetailRow(
+                  "Time Completed",
+                  task.doneAt != null
+                      ? "${task.doneAt!.hour.toString().padLeft(2, '0')}:${task.doneAt!.minute.toString().padLeft(2, '0')}"
+                      : "N/A",
+                ),
+                _buildDetailRow("Difficulty", task.difficulty),
+                _buildDetailRow(
+                    "XP Gained",
+                    "${_getXPForDifficulty(task.difficulty)} XP",
+                  ),
+                _buildDetailRow("Active Streak", task.activeStreak.toString()),
+                _buildDetailRow("Longest Streak", task.longestStreak.toString()),
+                _buildDetailRow("Days Completed", task.totalDaysCompleted.toString()),
 
-                  // Confirm button
-                  Center(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final taskProvider = Provider.of<TaskProvider>(
-                          context,
-                          listen: false,
-                        );
-                        taskProvider.verifyTask(task.id, task.childId);
-                        Navigator.pop(context); // Close modal
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                const SizedBox(height: 24),
+
+                // Confirm button
+                Center(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final taskProvider = Provider.of<TaskProvider>(
+                        context,
+                        listen: false,
+                      );
+                      taskProvider.verifyTask(task.id, task.childId);
+                      Navigator.pop(context); // Close modal
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
                       ),
                       child: const Text(
                         "Confirm Verification",
@@ -365,13 +392,16 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                           const SizedBox(width: 8),
                           Row(
                             children: [
-                              Image.asset(
-                                'assets/coin.png',
-                                width: 16,
-                                height: 16,
+                              const Icon(
+                                Icons.flash_on,
+                                size: 16,
+                                color: Colors.orange,
                               ),
                               const SizedBox(width: 4),
-                              Text('${task.reward}'),
+                              Text(
+                                '+${_getXPForDifficulty(task.difficulty)} XP',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
                             ],
                           ),
                         ],
@@ -603,29 +633,20 @@ class _TaskFormModalState extends State<TaskFormModal> {
 
   late String taskName;
   late String difficulty;
-  late int reward;
   late String routine;
   DateTime? alarmDateTime;
-
-  late final TextEditingController _rewardController = TextEditingController();
-
-  final Map<String, int> defaultTokens = {'Easy': 3, 'Medium': 5, 'Hard': 25};
 
   @override
   void initState() {
     super.initState();
     taskName = widget.task?.name ?? '';
     difficulty = widget.task?.difficulty ?? 'Easy';
-    reward = widget.task?.reward ?? defaultTokens[difficulty]!;
     routine = widget.task?.routine ?? 'Anytime';
     alarmDateTime = widget.task?.alarm;
-
-    _rewardController.text = reward.toString();
   }
 
   @override
   void dispose() {
-    _rewardController.dispose();
     super.dispose();
   }
 
@@ -636,8 +657,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
         if (!mounted) return;
         setState(() {
           difficulty = value;
-          reward = defaultTokens[difficulty]!; // auto-set tokens
-          _rewardController.text = reward.toString(); // update field
         });
       },
       child: Container(
@@ -758,52 +777,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   ],
                 ),
                 const SizedBox(height: 16),
-
-                // Reward container
-                Text(
-                  "Reward (tokens)",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset('assets/coin.png', width: 24, height: 24),
-                    const SizedBox(width: 8),
-
-                    // Inside _TaskFormModalState, replace the reward TextFormField:
-                    SizedBox(
-                      width: 80,
-                      child: TextFormField(
-                        controller: _rewardController,
-                        textAlign: TextAlign.center,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter
-                              .digitsOnly, // Only allows numbers
-                        ],
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.isEmpty) {
-                            return "Enter a reward";
-                          }
-                          final parsed = int.tryParse(val);
-                          if (parsed == null) return "Invalid number";
-                          if (parsed <= 0) return "Reward must be positive";
-                          return null;
-                        },
-                        onSaved: (val) {
-                          reward = int.tryParse(val ?? '0') ?? 0;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
 
                 const SizedBox(height: 16),
 
@@ -937,9 +910,32 @@ class _TaskFormModalState extends State<TaskFormModal> {
                           );
 
                           if (widget.task == null) {
-                            taskProvider.addTask(task, context);
+                            final newTask = TaskModel(
+                              id: DateTime.now().millisecondsSinceEpoch
+                                  .toString(),
+                              name: taskName,
+                              difficulty: difficulty,
+                              reward: 0,
+                              routine: routine,
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                              createdAt: DateTime.now(),
+                              alarm: alarmDateTime,
+                            );
+                            taskProvider.addTask(newTask, context);
                           } else {
-                            taskProvider.updateTask(task);
+                            final updatedTask = TaskModel(
+                              id: widget.task!.id,
+                              name: taskName,
+                              difficulty: difficulty,
+                              reward: 0,
+                              routine: routine,
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                              createdAt: widget.task!.createdAt,
+                              alarm: alarmDateTime,
+                            );
+                            taskProvider.updateTask(updatedTask);
                           }
 
                           Navigator.pop(context);
