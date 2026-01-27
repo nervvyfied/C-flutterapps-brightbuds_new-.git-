@@ -1,6 +1,7 @@
 // ignore_for_file: file_names
 
-import 'package:brightbuds_new/data/models/parent_model.dart';
+import 'package:brightbuds_new/data/models/parent_model.dart'; // <- make sure this is the parent model
+import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentTaskList_page.dart';
@@ -17,10 +18,21 @@ class ParentNavigationShell extends StatefulWidget {
 class _ParentNavigationShellState extends State<ParentNavigationShell> {
   int _selectedIndex = 0;
 
-  List<Widget> _buildPages(String parentId) {
+  List<Widget> _buildPages({
+    required String parentId,
+    required String therapistId,
+    required String creatorId,
+    required String creatorType,
+  }) {
     return [
       ParentDashboardPage(parentId: parentId),
-      ParentTaskListScreen(parentId: parentId),
+
+      ParentTaskListScreen(
+        parentId: parentId,
+        therapistId: therapistId,
+        creatorId: creatorId,
+        creatorType: creatorType,
+      ),
     ];
   }
 
@@ -33,16 +45,43 @@ class _ParentNavigationShellState extends State<ParentNavigationShell> {
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
-    final parentId = auth.isParent ? (auth.currentUserModel as ParentUser).uid : '';
+
+    // Redirect if not logged in or not a parent
+    if (auth.currentUserModel == null || auth.currentUserModel is! ParentUser) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pushReplacementNamed('/parentAuth');
+      });
+      return const SizedBox.shrink();
+    }
+
+    final parent = auth.currentUserModel as ParentUser;
+
+    final parentId = parent.uid;
+    final creatorId = parent.uid;
+    final creatorType = 'parent';
+    final therapistId = parent.uid;
+
+    final pages = _buildPages(
+      parentId: parentId,
+      therapistId: therapistId,
+      creatorId: creatorId,
+      creatorType: creatorType,
+    );
 
     return Scaffold(
-      body: _buildPages(parentId)[_selectedIndex],
+      body: pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-          BottomNavigationBarItem(icon: Icon(Icons.checklist), label: 'Manage Quests'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.checklist),
+            label: 'Manage Quests',
+          ),
         ],
       ),
     );
@@ -56,8 +95,6 @@ class PlaceholderPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(title, style: const TextStyle(fontSize: 24)),
-    );
+    return Center(child: Text(title, style: const TextStyle(fontSize: 24)));
   }
 }

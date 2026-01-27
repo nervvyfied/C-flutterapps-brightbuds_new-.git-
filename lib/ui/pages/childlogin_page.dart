@@ -33,7 +33,6 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
     try {
       final authProvider = context.read<AuthProvider>();
       await authProvider.loginChild(code);
-      await authProvider.saveFcmToken();
 
       final child = authProvider.currentUserModel as ChildUser;
 

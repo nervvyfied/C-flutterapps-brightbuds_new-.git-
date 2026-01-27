@@ -1,6 +1,8 @@
 import 'dart:math';
+import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/repositories/user_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import '/data/services/firestore_service.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
@@ -51,7 +53,7 @@ class AuthService {
   }
 
   // ---------------- PARENT GOOGLE LOGIN ----------------
-  Future<ParentUser?> signInWithGoogle() async {
+  Future<ParentUser?> signInParentWithGoogle() async {
     try {
       final GoogleSignIn googleSignIn = GoogleSignIn();
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
@@ -95,6 +97,101 @@ class AuthService {
     }
   }
 
+  // ---------------- THERAPIST ----------------
+  Future<TherapistUser?> signUpTherapist(
+    String name,
+    String email,
+    String password,
+  ) async {
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      throw Exception("Name, email, and password cannot be empty");
+    }
+
+    final credential = await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+
+    final therapist = TherapistUser(
+      uid: credential.user!.uid,
+      name: name,
+      email: email,
+      childrenAccessCodes: {},
+      createdAt: DateTime.now(), // added createdAt
+      isVerified: false,
+    );
+
+    await _firestore.createTherapist(therapist);
+    return therapist;
+  }
+
+  Future<TherapistUser?> loginTherapist(String email, String password) async {
+    try {
+      // Use FirebaseAuth directly
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // Fetch therapist from Firestore
+      final therapist = await _firestore.getTherapist(credential.user!.uid);
+      if (therapist == null) {
+        // UID exists in Auth but not in Firestore
+        await _auth.signOut();
+        throw Exception("UID exists in Auth but not in Firestore");
+      }
+
+      return therapist;
+    } catch (e) {
+      debugPrint('❌ Therapist login failed: $e');
+      rethrow;
+    }
+  }
+
+  Future<TherapistUser?> signInTherapistWithGoogle() async {
+    try {
+      final GoogleSignIn googleSignIn = GoogleSignIn();
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+      if (googleUser == null) return null; // User canceled login
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user;
+      if (user == null) throw Exception("No Firebase user found");
+
+      // Check if therapist already exists in Firestore
+      TherapistUser? therapist = await _firestore.getTherapist(user.uid);
+
+      if (therapist == null) {
+        // If not, create a new TherapistUser
+        therapist = TherapistUser(
+          uid: user.uid,
+          name: user.displayName ?? '',
+          email: user.email ?? '',
+          createdAt: DateTime.now(),
+          isVerified: false,
+        );
+
+        await _firestore.createTherapist(therapist);
+      }
+
+      // Cache the user
+      await _userRepo.cacheTherapist(therapist);
+
+      return therapist; // ← FIXED: Return the therapist object!
+    } catch (e) {
+      throw Exception("Google sign-in failed: $e");
+    }
+  }
+
   // ---------------- CHILD ----------------
   /// Generates a **unique access code** for a new child
   String generateChildAccessCode({int length = 6}) {
@@ -118,10 +215,13 @@ class AuthService {
   final child = result['child'] as ChildUser?;
   if (child == null) throw Exception("Child not found");
 
-  // Ensure parentUid is correct but KEEP XP / LEVEL / WORLD
-  final updatedChild = child.parentUid == parent.uid
-      ? child
-      : child.copyWith(parentUid: parent.uid);
+    final updatedChild = ChildUser(
+      cid: child.cid,
+      parentUid: parent.uid,
+      name: child.name,
+      streak: child.streak, 
+      therapistUid: child.therapistUid,
+    );
 
   await _userRepo.cacheParent(parent);
   await _userRepo.cacheChild(updatedChild);

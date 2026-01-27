@@ -83,7 +83,8 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     cid: childMap['cid'],
                     name: childMap['name'],
                     parentUid: widget.parentId,
-                    xp: childMap['xp'] ?? 0, // IMPORTANT
+                    xp: childMap['xp'] ?? 0, 
+                    therapistUid: null, // IMPORTANT
                   );
 
                   taskProvider.currentChild = childModel;
@@ -168,7 +169,8 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
             cid: firstChild['cid'],
             name: firstChild['name'],
             parentUid: widget.parentId,
-            xp: firstChild['xp'] ?? 0,
+            xp: firstChild['xp'] ?? 0, 
+            therapistUid: null,
           );
 
           taskProvider.currentChild = childModel;
@@ -241,6 +243,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     name: childMap['name'],
                     parentUid: widget.parentId,
                     xp: childMap['xp'] ?? 0, // IMPORTANT
+                    therapistUid: null,
                   );
 
                   taskProvider.currentChild = childModel;
