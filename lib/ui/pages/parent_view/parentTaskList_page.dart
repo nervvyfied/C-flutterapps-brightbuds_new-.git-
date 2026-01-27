@@ -38,18 +38,17 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
   late TaskProvider _taskProvider;
 
   int _getXPForDifficulty(String difficulty) {
-  switch (difficulty.toLowerCase()) {
-    case 'easy':
-      return 5;
-    case 'medium':
-      return 10;
-    case 'hard':
-      return 20;
-    default:
-      return 0;
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return 5;
+      case 'medium':
+        return 10;
+      case 'hard':
+        return 20;
+      default:
+        return 0;
+    }
   }
-}
-
 
   @override
   void initState() {
@@ -182,7 +181,6 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
                   // Task details
                   _buildDetailRow("Task Name", task.name),
                   _buildDetailRow(
@@ -192,7 +190,10 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                         : "N/A",
                   ),
                   _buildDetailRow("Difficulty", task.difficulty),
-                  _buildDetailRow("Reward", task.reward.toString()),
+                  _buildDetailRow(
+                    "XP Gained",
+                    "${_getXPForDifficulty(task.difficulty)} XP",
+                  ),
                   _buildDetailRow(
                     "Active Streak",
                     task.activeStreak.toString(),
@@ -206,42 +207,29 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                     task.totalDaysCompleted.toString(),
                   ),
 
-                // Task details
-                _buildDetailRow("Task Name", task.name),
-                _buildDetailRow(
-                  "Time Completed",
-                  task.doneAt != null
-                      ? "${task.doneAt!.hour.toString().padLeft(2, '0')}:${task.doneAt!.minute.toString().padLeft(2, '0')}"
-                      : "N/A",
-                ),
-                _buildDetailRow("Difficulty", task.difficulty),
-                _buildDetailRow(
-                    "XP Gained",
-                    "${_getXPForDifficulty(task.difficulty)} XP",
-                  ),
-                _buildDetailRow("Active Streak", task.activeStreak.toString()),
-                _buildDetailRow("Longest Streak", task.longestStreak.toString()),
-                _buildDetailRow("Days Completed", task.totalDaysCompleted.toString()),
+                  const SizedBox(height: 24),
 
-                const SizedBox(height: 24),
-
-                // Confirm button
-                Center(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      final taskProvider = Provider.of<TaskProvider>(
-                        context,
-                        listen: false,
-                      );
-                      taskProvider.verifyTask(task.id, task.childId);
-                      Navigator.pop(context); // Close modal
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
+                  // Confirm button
+                  Center(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final taskProvider = Provider.of<TaskProvider>(
+                          context,
+                          listen: false,
+                        );
+                        taskProvider.verifyTask(task.id, task.childId);
+                        Navigator.pop(context); // Close modal
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       child: const Text(
                         "Confirm Verification",
@@ -400,7 +388,9 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                               const SizedBox(width: 4),
                               Text(
                                 '+${_getXPForDifficulty(task.difficulty)} XP',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ],
                           ),
@@ -898,7 +888,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                                     .toString(),
                             name: taskName,
                             difficulty: difficulty,
-                            reward: reward,
+                            reward: 0,
                             routine: routine,
                             parentId: widget.parentId,
                             childId: widget.childId,
@@ -921,6 +911,9 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               childId: widget.childId,
                               createdAt: DateTime.now(),
                               alarm: alarmDateTime,
+                              therapistId: '',
+                              creatorId: '',
+                              creatorType: '',
                             );
                             taskProvider.addTask(newTask, context);
                           } else {
@@ -934,6 +927,9 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               childId: widget.childId,
                               createdAt: widget.task!.createdAt,
                               alarm: alarmDateTime,
+                              therapistId: '',
+                              creatorId: '',
+                              creatorType: '',
                             );
                             taskProvider.updateTask(updatedTask);
                           }
