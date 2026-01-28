@@ -231,12 +231,16 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text(
-                        "Confirm Verification",
-                        style: TextStyle(fontSize: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
+                    child: const Text(
+                      "Confirm Verification",
+                      style: TextStyle(fontSize: 16),
+                    ),
                   ),
+                ),
                   const SizedBox(height: 16),
                 ],
               ),
