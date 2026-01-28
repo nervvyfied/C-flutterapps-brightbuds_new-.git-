@@ -230,10 +230,6 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
                     ),
                     child: const Text(
                       "Confirm Verification",

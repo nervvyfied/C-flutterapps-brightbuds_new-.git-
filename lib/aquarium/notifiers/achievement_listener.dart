@@ -12,7 +12,8 @@ class AchievementListener extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<AchievementNotifier>(
       builder: (context, achievementNotifier, _) {
-        if (achievementNotifier.justUnlocked != null) {
+        if (achievementNotifier.justUnlocked != null &&
+          ModalRoute.of(context)?.isCurrent == true) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _showAchievementDialog(context, achievementNotifier.justUnlocked!);
           });

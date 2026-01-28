@@ -70,7 +70,8 @@ class _AchievementDialogState extends State<AchievementDialog> {
                   onPressed: () {
                     notifier.clear();
                     Navigator.of(context).pop();
-                    Navigator.of(context).pushNamed("/achievements");
+                    Navigator.of(context, rootNavigator: true)
+                    .pushNamed("/achievements");
                   },
                   child: const Text("Go to Achievements"),
                 ),

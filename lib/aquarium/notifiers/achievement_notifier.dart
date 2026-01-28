@@ -20,7 +20,13 @@ class AchievementNotifier extends ChangeNotifier {
     _unlockedIds
       ..clear()
       ..addAll(child.unlockedAchievements);
-    notifyListeners();
+    WidgetsBinding.instance.addPostFrameCallback((_) => notifyListeners());
+  }
+
+  void markUnlocked(String achievementId) {
+    if (_unlockedIds.add(achievementId)) {
+      notifyListeners();
+    }
   }
 
   void clear() {

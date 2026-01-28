@@ -21,6 +21,7 @@ class JournalProvider extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
   final TaskRepository _taskRepo = TaskRepository();
   final StreakRepository _streakRepo = StreakRepository();
+  final AchievementNotifier achievementNotifier;
   late final SyncService _syncService;
 
   /// childId -> list of entries shown in UI
@@ -35,7 +36,7 @@ class JournalProvider extends ChangeNotifier {
   StreamSubscription<QuerySnapshot>? _journalSubscription;
   StreamSubscription<ConnectivityResult>? _connectivitySubscription;
 
-  JournalProvider() {
+  JournalProvider(this.achievementNotifier,) {
     _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
     _startConnectivityListener();
   }
@@ -69,14 +70,6 @@ class JournalProvider extends ChangeNotifier {
         notifyListeners();
       }
     });
-  }
-
-  void _checkAchievements(ChildUser child) {
-    final achievementManager = AchievementManager(
-      achievementNotifier: AchievementNotifier(),
-      currentChild: child,
-    );
-    achievementManager.checkAchievements();
   }
 
   // ---------------- LOAD ENTRIES ----------------
@@ -183,17 +176,16 @@ class JournalProvider extends ChangeNotifier {
 
   // ---------------- ACHIEVEMENTS (childId version) ----------------
   Future<void> _checkAchievementsById(String childId) async {
-    // Fetch child object from user repository if your AchievementManager needs it
-    ChildUser? child = await _userRepo.fetchChildAndCacheById(childId);
-    if (child == null) return;
+  ChildUser? child = await _userRepo.fetchChildAndCacheById(childId);
+  if (child == null) return;
 
-    final achievementManager = AchievementManager(
-      achievementNotifier: AchievementNotifier(),
-      currentChild: child,
-    );
+  final achievementManager = AchievementManager(
+    achievementNotifier: achievementNotifier, // ✅ shared instance
+    child: child,
+  );
 
-    achievementManager.checkAchievements();
-  }
+  achievementManager.checkAchievements();
+}
 
   Future<void> updateEntry(
     String parentId,

@@ -69,21 +69,21 @@ class _ChooseRolePageState extends State<ChooseRolePage> {
 
                 _roleButton(
                   color: const Color(0xFFFECE00),
-                  label: 'Parent Login/Sign Up',
+                  label: 'Parent',
                   route: '/parentAuth',
                 ),
                 const SizedBox(height: 20),
 
                 _roleButton(
                   color: const Color(0xFF8657F3),
-                  label: 'Enter Access Code',
+                  label: 'Child',
                   route: '/childAuth',
                 ),
                 const SizedBox(height: 20),
 
                 _roleButton(
-                  color: const Color(0xFF00BFA6),
-                  label: 'Therapist Login/Sign Up',
+                  color: const Color(0xFF2CC66D),
+                  label: 'Therapist',
                   route: '/therapistAuth',
                 ),
               ],

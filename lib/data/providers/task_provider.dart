@@ -48,11 +48,12 @@ class TaskProvider extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
   final StreakRepository _streakRepo = StreakRepository();
   final UnlockManager unlockManager;
+  final AchievementNotifier achievementNotifier;
   late final SyncService _syncService;
 
   late Box<ChildUser> _childBox;
   Function(int newXP)? onXPChanged;
-    TaskProvider(this.unlockManager,) {
+    TaskProvider(this.unlockManager,this.achievementNotifier,) {
       _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
     }
 
@@ -163,9 +164,10 @@ class TaskProvider extends ChangeNotifier {
 
   void _checkAchievements(ChildUser child) {
     final achievementManager = AchievementManager(
-      achievementNotifier: AchievementNotifier(),
-      currentChild: child,
+      achievementNotifier: achievementNotifier, // ✅ shared instance
+      child: child,
     );
+
     achievementManager.checkAchievements();
   }
   // ---------------- FIRESTORE ----------------
@@ -920,11 +922,11 @@ class TaskProvider extends ChangeNotifier {
 // 🔹 Update currentChild after fetchChildAndCache
 currentChild = (await _userRepo.fetchChildAndCache(task.parentId, childId))!;
 
-// 🔹 Trigger achievement check
-unlockManager.checkAchievementUnlocks(tasks, currentChild!);
-
 // 🔹 Optional: notify UI about XP change
 onXPChanged?.call(currentChild!.xp);
+
+_checkAchievements(currentChild!);
+
 
   // --- FIRESTORE SYNC ---
   if (await NetworkHelper.isOnline()) {
