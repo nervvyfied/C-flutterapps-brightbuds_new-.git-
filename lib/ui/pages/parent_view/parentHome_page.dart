@@ -739,9 +739,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     // Load and sync CBTs
     await cbtProv.loadLocalCBT(childId);
     await cbtProv.loadRemoteCBT(parentId, childId);
-
-    // Start listening for real-time Firestore updates
-    cbtProv.updateRealtimeListenerForChild(parentId, childId);
   }
 
   Future<void> _loadParentData() async {

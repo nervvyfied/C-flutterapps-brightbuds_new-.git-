@@ -1,5 +1,6 @@
 // ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
 import 'package:brightbuds_new/ui/pages/therapist_view/therapistAccount_page.dart';
+import 'package:carousel_slider/carousel_slider.dart';
 import 'package:intl/intl.dart';
 import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
 import 'package:brightbuds_new/cbt/pages/therapist_cbt_page.dart';
@@ -18,10 +19,12 @@ import '../../../data/providers/journal_provider.dart';
 import '../../../data/providers/task_provider.dart';
 import '../../../data/providers/selected_child_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:math';
 
 class TherapistDashboardPage extends StatefulWidget {
   final String therapistId;
   final String parentId;
+
   const TherapistDashboardPage({
     super.key,
     required this.therapistId,
@@ -48,7 +51,6 @@ class TaskHistoryService {
       final dateKey =
           "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
-      // Save under parent's path (for parent app)
       final parentDocRef = _db
           .collection('users')
           .doc(parentId)
@@ -63,11 +65,11 @@ class TaskHistoryService {
         'missed': missed,
         'totalTasks': done + notDone,
         'timestamp': FieldValue.serverTimestamp(),
-        'savedBy': 'parent',
+        'savedBy': 'therapist',
       });
 
       print(
-        "✅ Daily progress saved for $childId on $dateKey (both parent & therapist)",
+        "✅ Daily progress saved for $childId on $dateKey in parent collection ($parentId)",
       );
     } catch (e) {
       print("❌ Failed to save daily task progress: $e");
@@ -82,10 +84,15 @@ extension StringCasingExtension on String {
 
 class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
   final UserRepository _userRepo = UserRepository();
+
+  // UPDATED: Using PageController instead of CarouselController
+  final PageController _pageController = PageController();
+  int _currentCarouselIndex = 0;
+
   TherapistUser? _therapist;
+  Map<String, dynamic>? _parent;
   bool _loading = true;
   final GlobalKey _childChartKey = GlobalKey();
-  final GlobalKey _taskChartKey = GlobalKey();
   final Set<String> _notifiedTaskIds = {};
   final dateFormat = DateFormat('MMM dd, yyyy');
 
@@ -93,7 +100,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     'morning': const TimeOfDay(hour: 5, minute: 0),
     'afternoon': const TimeOfDay(hour: 12, minute: 0),
     'evening': const TimeOfDay(hour: 17, minute: 0),
-    'anytime': const TimeOfDay(hour: 0, minute: 0), // always valid
+    'anytime': const TimeOfDay(hour: 0, minute: 0),
   };
 
   Map<String, TimeOfDay> routineEndTimes = {
@@ -115,8 +122,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         done++;
       } else {
         notDone++;
-        // Check if task is missed
-        final routineKey = (task.routine).toLowerCase().trim(); // normalize
+        final routineKey = (task.routine).toLowerCase().trim();
         final end = routineEndTimes[routineKey];
         if (end != null && routineKey != 'anytime') {
           if (_timeOfDayToDouble(now) > _timeOfDayToDouble(end)) {
@@ -128,7 +134,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     return {'done': done, 'notDone': notDone, 'missed': missed};
   }
 
-  // Helper: convert TimeOfDay to double for easy comparison
   double _timeOfDayToDouble(TimeOfDay t) => t.hour + t.minute / 60.0;
 
   Future<void> _showTaskHistoryModal(
@@ -140,11 +145,33 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     try {
       List<Map<String, dynamic>> historyData = [];
 
-      // Try to fetch from therapist's collection first
+      final parentId = await _getParentIdFromChild(childId);
+
+      if (parentId == null || parentId.isEmpty) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("Cannot Load History"),
+            content: const Text("Parent information not found for this child."),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      print(
+        'Fetching from parent collection: users/$parentId/children/$childId/history',
+      );
+
       try {
-        final therapistSnap = await FirebaseFirestore.instance
-            .collection('therapists')
-            .doc(widget.therapistId)
+        final parentSnap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(parentId)
             .collection('children')
             .doc(childId)
             .collection('history')
@@ -152,54 +179,22 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             .limit(90)
             .get();
 
-        if (therapistSnap.docs.isNotEmpty) {
-          print('Found ${therapistSnap.docs.length} records in therapist path');
-          historyData = therapistSnap.docs
+        if (parentSnap.docs.isNotEmpty) {
+          print('Found ${parentSnap.docs.length} records in parent collection');
+          historyData = parentSnap.docs
               .map(
-                (d) => {
+                (d) => ({
                   'date': d.id,
                   'done': d['done'] ?? 0,
                   'notDone': d['notDone'] ?? 0,
                   'missed': d['missed'] ?? 0,
-                  'source': 'therapist',
-                },
+                  'source': 'parent',
+                }),
               )
               .toList();
         }
       } catch (e) {
-        print('Error fetching from therapist path: $e');
-      }
-
-      // If no data in therapist path, try parent path
-      if (historyData.isEmpty && widget.parentId.isNotEmpty) {
-        try {
-          final parentSnap = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.parentId)
-              .collection('children')
-              .doc(childId)
-              .collection('history')
-              .orderBy('timestamp', descending: true)
-              .limit(90)
-              .get();
-
-          if (parentSnap.docs.isNotEmpty) {
-            print('Found ${parentSnap.docs.length} records in parent path');
-            historyData = parentSnap.docs
-                .map(
-                  (d) => {
-                    'date': d.id,
-                    'done': d['done'] ?? 0,
-                    'notDone': d['notDone'] ?? 0,
-                    'missed': d['missed'] ?? 0,
-                    'source': 'parent',
-                  },
-                )
-                .toList();
-          }
-        } catch (e) {
-          print('Error fetching from parent path: $e');
-        }
+        print('Error fetching from parent collection: $e');
       }
 
       if (historyData.isEmpty) {
@@ -222,8 +217,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       }
 
       print('Total history records: ${historyData.length}');
-
-      // Show the modal with the fetched data
       _showTaskHistoryModalWithData(context, historyData);
     } catch (e) {
       print('Error fetching task history: $e');
@@ -257,11 +250,9 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            // Initialize state variables
             int currentIndex = 0;
             String viewMode = 'Daily';
 
-            // Helper function to get displayed data
             List<Map<String, dynamic>> getDisplayedData() {
               if (historyData.isEmpty) return [];
 
@@ -277,7 +268,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final slice = historyData.sublist(start, end);
 
               if (viewMode == 'Weekly') {
-                // Aggregate weekly data
                 int done = 0, notDone = 0, missed = 0;
                 for (var d in slice) {
                   done += d['done'] as int;
@@ -298,7 +288,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   },
                 ];
               } else {
-                // Daily view - show individual days
                 return slice
                     .map(
                       (d) => ({
@@ -313,8 +302,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             }
 
             final displayedData = getDisplayedData();
-
-            // Determine if arrows should be disabled
             final windowSize = viewMode == 'Daily' ? 1 : 7;
             final isPrevDisabled =
                 currentIndex + windowSize >= historyData.length;
@@ -360,7 +347,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Toggle Daily / Weekly
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: ['Daily', 'Weekly'].map((mode) {
@@ -387,7 +373,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Chart with arrows
                     Expanded(
                       child: Row(
                         children: [
@@ -448,12 +433,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                                                       displayedData[value
                                                               .toInt()]['date']
                                                           .toString();
-                                                  // Format date for display
                                                   String displayDate;
                                                   if (viewMode == 'Weekly') {
                                                     displayDate = 'Week';
                                                   } else {
-                                                    // Try to parse date for better formatting
                                                     try {
                                                       final parts = date.split(
                                                         '-',
@@ -464,13 +447,19 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                                                       } else {
                                                         displayDate =
                                                             date.length > 10
-                                                            ? '${date.substring(5, 10)}'
+                                                            ? date.substring(
+                                                                5,
+                                                                10,
+                                                              )
                                                             : date;
                                                       }
                                                     } catch (e) {
                                                       displayDate =
                                                           date.length > 10
-                                                          ? '${date.substring(5, 10)}'
+                                                          ? date.substring(
+                                                              5,
+                                                              10,
+                                                            )
                                                           : date;
                                                     }
                                                   }
@@ -561,7 +550,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                     const SizedBox(height: 16),
 
-                    // Legend with aggregated data
                     if (displayedData.isNotEmpty) ...[
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -644,7 +632,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       return;
     }
 
-    // Mood configuration
     final Map<String, Color> moodColors = {
       'calm': const Color(0xFFA6C26F),
       'sad': const Color(0xFF57A0F3),
@@ -672,7 +659,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       'scared',
     ];
 
-    // --- WEEKLY DATA ---
     Map<String, List> weekGroups = {};
     List<DateTime> weekStarts = [];
 
@@ -687,9 +673,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       }
       weekGroups[key]!.add(entry);
     }
-    weekStarts.sort((a, b) => b.compareTo(a)); // latest first
+    weekStarts.sort((a, b) => b.compareTo(a));
 
-    // --- MONTHLY DATA ---
     List<DateTime> monthStarts = [];
     for (var entry in allEntries) {
       final monthStart = DateTime(
@@ -703,7 +688,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         monthStarts.add(monthStart);
       }
     }
-    monthStarts.sort((a, b) => b.compareTo(a)); // latest first
+    monthStarts.sort((a, b) => b.compareTo(a));
 
     int currentWeekIndex = 0;
     int currentMonthIndex = 0;
@@ -722,7 +707,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           String label;
 
           if (isMonthly) {
-            // --- MONTHLY VIEW ---
             final monthStart = monthStarts[currentMonthIndex];
             entriesToDisplay = allEntries
                 .where(
@@ -733,7 +717,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                 .toList();
             label = "${monthStart.month}/${monthStart.year}";
           } else {
-            // --- WEEKLY VIEW ---
             final weekStart = weekStarts[currentWeekIndex];
             final weekEnd = weekStart.add(const Duration(days: 6));
             final key = "${weekStart.year}-${weekStart.month}-${weekStart.day}";
@@ -742,7 +725,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                 "Week of ${weekStart.month}/${weekStart.day}-${weekEnd.month}/${weekEnd.day}";
           }
 
-          // Count moods
           final counts = {for (var m in moodOrder) m: 0};
           for (var entry in entriesToDisplay) {
             final mood = entry.mood.toLowerCase();
@@ -756,7 +738,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                // Header + navigation
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -790,7 +771,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Pie chart
                 if (sortedMoods.isEmpty)
                   const Text("No mood entries to display")
                 else
@@ -820,7 +800,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                   ),
                 const SizedBox(height: 16),
-                // Weekly Bar chart
                 if (!isMonthly)
                   Expanded(
                     child: BarChart(
@@ -883,7 +862,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                   ),
                 const SizedBox(height: 12),
-                // Mood legend with icons
                 Wrap(
                   spacing: 12,
                   children: moodOrder.map((m) {
@@ -896,7 +874,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   }).toList(),
                 ),
                 const SizedBox(height: 12),
-                // Weekly/Monthly switch
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -915,49 +892,37 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     );
   }
 
-  Map<String, int> _getMonthlyCounts(List entries, DateTime month) {
-    final counts = {for (var m in _moodOrder) m: 0};
-    for (var entry in entries) {
-      if (entry.createdAt.month == month.month &&
-          entry.createdAt.year == month.year) {
-        final mood = entry.mood.toLowerCase();
-        counts[mood] = counts[mood]! + 1;
-      }
-    }
-    return counts;
-  }
-
-  DateTime _startOfWeek() {
-    final now = DateTime.now();
-    return DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).subtract(Duration(days: now.weekday - 1));
-  }
-
-  DateTime _endOfWeek() {
-    return _startOfWeek().add(const Duration(days: 6));
-  }
-
   @override
   void initState() {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadTherapistData();
-
       final selectedChildProv = Provider.of<SelectedChildProvider>(
         context,
         listen: false,
       );
 
-      // Listen to child changes once
       selectedChildProv.addListener(() {
         _listenToJournalEntries();
         _updateCBTListenerForSelectedChild();
       });
     });
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose(); // Dispose the PageController
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+    selectedChildProv.removeListener(_listenToJournalEntries);
+
+    final cbtProv = Provider.of<CBTProvider>(context, listen: false);
+    cbtProv.clear();
+
+    super.dispose();
   }
 
   void _listenToJournalEntries() {
@@ -972,29 +937,22 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     if (child == null) return;
     if (child['cid'] == null || child['cid'].toString().isEmpty) return;
 
-    final therapistId = _therapist?.uid;
-    if (therapistId == null || therapistId.isEmpty) return;
-
     final childId = child['cid'];
 
-    journalProv.loadEntries(
-      childId: childId,
-      parentId: '', // therapist context
-    );
-  }
+    _getParentIdFromChild(childId).then((parentId) {
+      if (parentId != null && parentId.isNotEmpty) {
+        print(
+          '📝 Loading journal entries for child $childId with parent $parentId',
+        );
+        journalProv.loadEntries(childId: childId, parentId: parentId);
 
-  @override
-  void dispose() {
-    final selectedChildProv = Provider.of<SelectedChildProvider>(
-      context,
-      listen: false,
-    );
-    selectedChildProv.removeListener(_listenToJournalEntries);
-
-    final cbtProv = Provider.of<CBTProvider>(context, listen: false);
-    cbtProv.clear();
-
-    super.dispose();
+        _loadParentDataFromChild(childId);
+      } else {
+        print(
+          '⚠️ Cannot load journal entries: No parent found for child $childId',
+        );
+      }
+    });
   }
 
   void _updateCBTListenerForSelectedChild() async {
@@ -1010,29 +968,26 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final therapistId = _therapist?.uid ?? widget.therapistId;
     final childId = child['cid'];
 
-    // Initialize Hive if not yet
+    final parentId = await _getParentIdFromChild(childId);
+
+    if (parentId == null || parentId.isEmpty) {
+      print('⚠️ Cannot load CBT: No parent found for child $childId');
+      return;
+    }
+
+    print('✅ Found parent $parentId for child $childId, loading CBT...');
     await cbtProv.initHive();
-
-    // Load and sync CBTs
-    await cbtProv.loadLocalCBT(childId);
-    await cbtProv.loadRemoteCBT(therapistId, childId);
-
-    // Start listening for real-time Firestore updates
-    cbtProv.updateRealtimeListenerForChild(therapistId, childId);
   }
 
   Future<void> _loadTherapistData() async {
     setState(() => _loading = true);
 
-    await Future.delayed(
-      Duration(milliseconds: 500),
-    ); // Small delay to ensure auth is ready
+    await Future.delayed(Duration(milliseconds: 500));
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final therapistModel = auth.currentUserModel;
 
     if (therapistModel == null || therapistModel is! TherapistUser) {
-      // Try to get therapist from Firestore directly
       try {
         final therapistSnap = await FirebaseFirestore.instance
             .collection('therapists')
@@ -1045,43 +1000,247 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             therapistSnap.id,
           );
 
-          // Force a rebuild with the new data
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
                 _therapist = therapist;
-                _loading = false;
               });
             }
           });
-          return;
         }
       } catch (e) {
         debugPrint('Error fetching therapist: $e');
       }
-
-      setState(() => _loading = false);
-      return;
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _therapist = therapistModel;
+          });
+        }
+      });
     }
 
-    // Force UI update with animation frame
+    try {
+      final selectedChildProv = Provider.of<SelectedChildProvider>(
+        context,
+        listen: false,
+      );
+
+      final child = selectedChildProv.selectedChild;
+      if (child != null &&
+          child['cid'] != null &&
+          (child['cid'] as String).isNotEmpty) {
+        final childId = child['cid'] as String;
+        await _loadParentDataFromChild(childId);
+      } else {
+        print('⚠️ No child selected yet, skipping parent data load');
+      }
+    } catch (e) {
+      print('Error loading parent data in init: $e');
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
-          _therapist = therapistModel;
           _loading = false;
         });
       }
     });
   }
 
-  // ---------------- Task Completion Notification ----------------
+  Future<void> _loadParentDataFromChild(String childId) async {
+    if (childId.isEmpty) return;
+
+    print('🔄 Loading parent data for child: $childId');
+
+    final parentId = await _getParentIdFromChild(childId);
+
+    if (parentId != null &&
+        parentId.isNotEmpty &&
+        parentId != widget.therapistId) {
+      try {
+        print('🔍 Fetching parent document at users/$parentId');
+
+        final parentDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(parentId)
+            .get();
+
+        if (parentDoc.exists) {
+          final parentData = parentDoc.data()!;
+          print('✅ Found parent document!');
+          print('   Parent name: ${parentData['name']}');
+          print('   Parent email: ${parentData['email']}');
+
+          setState(() {
+            _parent = {
+              'id': parentId,
+              'name': parentData['name'] ?? 'Parent',
+              'email': parentData['email'] ?? '',
+            };
+          });
+        } else {
+          print('❌ Parent document not found at users/$parentId');
+          setState(() {
+            _parent = {'id': parentId, 'name': 'Parent', 'email': ''};
+          });
+        }
+      } catch (e) {
+        print('❌ Error fetching parent data: $e');
+        setState(() {
+          _parent = {'id': parentId, 'name': 'Parent', 'email': ''};
+        });
+      }
+    } else {
+      print('⚠️ No valid parent ID found for child: $childId');
+    }
+  }
+
+  Future<String?> _getParentIdFromChild(String childId) async {
+    if (childId.isEmpty) return null;
+
+    print('🔍 Looking for parent of child: $childId');
+
+    try {
+      try {
+        final childInTherapist = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(widget.therapistId)
+            .collection('children')
+            .doc(childId)
+            .get();
+
+        if (childInTherapist.exists) {
+          final data = childInTherapist.data();
+          print('📄 Child document in therapist collection: ${data?.keys}');
+
+          String? parentUID;
+          if (data != null) {
+            parentUID =
+                data['parentUID'] ?? data['parentUid'] ?? data['parentId'];
+          }
+
+          if (parentUID != null &&
+              parentUID is String &&
+              parentUID.isNotEmpty) {
+            if (parentUID != widget.therapistId) {
+              print('✅ Found parentUID in therapist/children: $parentUID');
+              return parentUID;
+            } else {
+              print('⚠️ parentUID matches therapistId, ignoring');
+            }
+          } else {
+            print(
+              '⚠️ No parentUID/parentUid/parentId field found in child document',
+            );
+            print('   Available fields: ${data?.keys}');
+          }
+        } else {
+          print('❌ Child document not found in therapist collection');
+        }
+      } catch (e) {
+        print('   Error checking therapist children: $e');
+      }
+
+      print('   Searching users collection for child...');
+      try {
+        final usersSnapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .limit(50)
+            .get();
+
+        for (final userDoc in usersSnapshot.docs) {
+          final userId = userDoc.id;
+
+          if (userId == widget.therapistId) continue;
+
+          try {
+            final childDoc = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(userId)
+                .collection('children')
+                .doc(childId)
+                .get();
+
+            if (childDoc.exists) {
+              print('✅ Found child in user $userId children collection');
+              return userId;
+            }
+          } catch (e) {}
+        }
+      } catch (e) {
+        print('   Error searching users: $e');
+      }
+
+      try {
+        final childDoc = await FirebaseFirestore.instance
+            .collection('children')
+            .doc(childId)
+            .get();
+
+        if (childDoc.exists) {
+          final data = childDoc.data();
+          final parentUID =
+              data?['parentUID'] ?? data?['parentUid'] ?? data?['parentId'];
+          if (parentUID != null &&
+              parentUID is String &&
+              parentUID.isNotEmpty) {
+            print('✅ Found parentUID in child document: $parentUID');
+            return parentUID;
+          }
+        }
+      } catch (e) {
+        print('   Error checking child document: $e');
+      }
+
+      print('❌ Could not find parent for child: $childId');
+      return null;
+    } catch (e) {
+      print('❌ Error in _getParentIdFromChild: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> _findParentFromChild(String childId) async {
+    final parentId = await _getParentIdFromChild(childId);
+
+    if (parentId != null &&
+        parentId != widget.therapistId &&
+        parentId.isNotEmpty) {
+      try {
+        final parentDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(parentId)
+            .get();
+
+        if (parentDoc.exists) {
+          final parentDocData = parentDoc.data()!;
+          return {
+            'id': parentId,
+            'name': parentDocData['name'] ?? 'Parent',
+            'email': parentDocData['email'] ?? '',
+          };
+        }
+      } catch (e) {
+        print('   Error fetching found parent: $e');
+      }
+    }
+
+    return {
+      'id': widget.parentId.isNotEmpty && widget.parentId != widget.therapistId
+          ? widget.parentId
+          : '',
+      'name': 'Parent',
+      'email': '',
+    };
+  }
+
   void _showTaskCompletionSnackBar({
     required String childName,
-    required String taskId, // pass the task id
+    required String taskId,
     required String taskName,
   }) {
-    // If already notified, do nothing
     if (_notifiedTaskIds.contains(taskId)) return;
 
     final snackBar = SnackBar(
@@ -1093,7 +1252,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         label: 'Dismiss',
         textColor: Colors.white,
         onPressed: () {
-          // Mark as notified if user dismisses
           _notifiedTaskIds.add(taskId);
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
         },
@@ -1101,8 +1259,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     );
 
     ScaffoldMessenger.of(context).showSnackBar(snackBar);
-
-    // Automatically mark as notified so it won't show again after auto-dismiss
     _notifiedTaskIds.add(taskId);
   }
 
@@ -1111,18 +1267,29 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     String parentId,
     String childId,
     Map<String, dynamic> childData,
+    Map<String, dynamic> therapistData,
+    Map<String, dynamic> parentData,
   ) async {
+    if (parentId.isEmpty || parentId == therapistId) {
+      print('⚠️ Cannot generate PDF: Invalid parent ID');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot generate report: Parent information not found'),
+        ),
+      );
+      return;
+    }
+
     final pdf = pw.Document();
     final name = childData['name'] ?? 'Unknown';
-    final parentName = childData['parentName'] ?? '-';
-    final therapistName = childData['therapistName'] ?? '-';
-    final therapistEmail = childData['therapistEmail'] ?? '-';
+    final parentName = parentData['name'] ?? '-';
+    final therapistName = therapistData['name'] ?? '-';
+    final therapistEmail = therapistData['email'] ?? '-';
     final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
     final now = DateTime.now();
     final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-    // ---------------- Fetch weekly task progress history ----------------
     final historySnap = await FirebaseFirestore.instance
         .collection('users')
         .doc(parentId)
@@ -1144,7 +1311,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         )
         .toList();
 
-    // ---------------- Fetch weekly CBT assignments ----------------
     final cbtSnap = await FirebaseFirestore.instance
         .collection('users')
         .doc(parentId)
@@ -1153,26 +1319,21 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         .collection('CBT')
         .get();
 
-    // Filter assignments for this week and map them
     final cbtTasks = cbtSnap.docs
         .map((d) {
           final data = d.data();
-
-          // Use exerciseId instead of title/docId
           final exerciseId = data['exerciseId'] ?? d.id;
-
-          // Get the assigned date or createdAt (must exist in your DB)
           final assignedAt = data['assignedAt'];
           DateTime assignedDate;
+
           if (assignedAt is Timestamp) {
             assignedDate = assignedAt.toDate();
           } else if (assignedAt is DateTime) {
             assignedDate = assignedAt;
           } else {
-            assignedDate = DateTime.now(); // fallback if no date
+            assignedDate = DateTime.now();
           }
 
-          // Only include if assigned within this week
           if (assignedDate.isBefore(startOfWeek) ||
               assignedDate.isAfter(endOfWeek)) {
             return null;
@@ -1186,14 +1347,13 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         .where((e) => e != null)
         .toList();
 
-    // ---------------- Compute Summary Statistics ----------------
     int done = 0, notDone = 0, missed = 0;
     for (var h in weeklyHistory) {
       done += (h['done'] as num).toInt();
       notDone += (h['notDone'] as num).toInt();
       missed += (h['missed'] as num).toInt();
     }
-    final totalTasks = done + notDone + missed;
+    final totalTasks = done + notDone;
     final completionRate = totalTasks > 0
         ? (done / totalTasks * 100).toStringAsFixed(1)
         : '0';
@@ -1201,7 +1361,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         ? (missed / totalTasks * 100).toStringAsFixed(1)
         : '0';
 
-    // Compute top mood safely
     String topMood = '-';
     if (moodCounts.isNotEmpty && moodCounts.values.any((v) => v > 0)) {
       final maxEntry = moodCounts.entries.reduce(
@@ -1214,7 +1373,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         .length
         .toString();
 
-    // ---------------- Behavioral Insights ----------------
     String mostProductiveDay = '-';
     String mostMissedDay = '-';
     double highestCompletionRate = 0;
@@ -1236,14 +1394,12 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       }
     }
 
-    // ---------------- PDF BUILD ----------------
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (context) {
           return [
-            // HEADER
             pw.Text(
               "$name's Weekly Progress Report",
               style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
@@ -1253,12 +1409,14 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             ),
             pw.SizedBox(height: 12),
             pw.Text(
+              "Parent: $parentName",
+              style: const pw.TextStyle(fontSize: 12),
+            ),
+            pw.Text(
               "Therapist: $therapistName ($therapistEmail)",
               style: const pw.TextStyle(fontSize: 12),
             ),
             pw.Divider(),
-
-            // SUMMARY STATISTICS
             pw.Text(
               "Summary Statistics",
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -1270,8 +1428,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             pw.Bullet(text: "Most Frequent Mood: $topMood"),
             pw.Bullet(text: "Mood Diversity: $moodDiversity"),
             pw.SizedBox(height: 16),
-
-            // MOOD SUMMARY
             pw.Text(
               "Mood Summary",
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -1303,8 +1459,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               ),
             ),
             pw.SizedBox(height: 16),
-
-            // DAILY BREAKDOWN TABLE
             pw.Text(
               "Daily Task Breakdown",
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -1327,8 +1481,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               }).toList(),
             ),
             pw.SizedBox(height: 16),
-
-            // CBT ASSIGNMENTS
             pw.Text(
               "CBT Assignments",
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -1348,8 +1500,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                   ),
             pw.SizedBox(height: 16),
-
-            // BEHAVIORAL INSIGHTS
             pw.Text(
               "Behavioral Insights",
               style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
@@ -1370,7 +1520,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               text:
                   "Emotional Stability: ${moodDiversity} moods expressed this week (${topMood != '-' ? 'mainly $topMood' : 'no mood data'})",
             ),
-
             pw.SizedBox(height: 24),
             pw.Center(
               child: pw.Text(
@@ -1413,10 +1562,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     'confused': '😕',
     'scared': '😨',
   };
-  static const Map<String, Color> _taskColor = {
-    'done': Colors.deepPurpleAccent,
-    'notDone': Colors.yellow,
-  };
+
   Map<String, int> _moodCountsThisWeek(
     JournalProvider journalProv,
     String childId,
@@ -1492,9 +1638,18 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
     final statusCounts = _countTaskStatuses(childTasks);
 
+    final parentId = await _getParentIdFromChild(childId);
+
+    if (parentId == null || parentId.isEmpty) {
+      print('⚠️ Cannot save task progress: No parent found for child $childId');
+      return;
+    }
+
+    print('✅ Saving task progress to parent $parentId for child $childId');
+
     final taskHistoryService = TaskHistoryService();
     await taskHistoryService.saveDailyTaskProgress(
-      parentId: widget.parentId,
+      parentId: parentId,
       therapistId: widget.therapistId,
       childId: childId,
       done: statusCounts['done']!,
@@ -1503,6 +1658,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     );
   }
 
+  // ==================== FIXED _buildChildCharts METHOD ====================
   List<Widget> _buildChildCharts(
     JournalProvider journalProv,
     TaskProvider taskProv,
@@ -1512,11 +1668,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final childTasks = taskProv.tasks
         .where((t) => t.childId == activeChild['cid'])
         .toList();
-    // At the end of _buildChildCharts method, add:
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _saveCurrentTaskProgress(taskProv, activeChild);
     });
-    // ✅ Count done, not done, and missed using helper
+
     final statusCounts = _countTaskStatuses(childTasks);
     final done = statusCounts['done']!.toDouble();
     final notDone = statusCounts['notDone']!.toDouble();
@@ -1525,7 +1681,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final notDoneWithoutMissed = notDone - missed;
     final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
-    // ✅ Show SnackBar once per completed task
     for (var task in childTasks) {
       if (task.isDone && !task.verified == true) {
         Future.microtask(() {
@@ -1538,9 +1693,537 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       }
     }
 
+    // Create carousel items
+    final List<Widget> carouselItems = [
+      // CARD 1: TASKS PROGRESS
+      GestureDetector(
+        onTap: () async {
+          await _showTaskHistoryModal(context, activeChild['cid']);
+        },
+        child: Card(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 3,
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                const Text(
+                  "Tasks Progress",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF8657F3),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 180,
+                  child: Center(
+                    child: PieChart(
+                      PieChartData(
+                        startDegreeOffset: -90,
+                        sectionsSpace: 2,
+                        centerSpaceRadius: 30,
+                        sections: [
+                          PieChartSectionData(
+                            value: notDoneWithoutMissed,
+                            color: Colors.yellow,
+                            radius: 50,
+                            showTitle: false,
+                          ),
+                          PieChartSectionData(
+                            value: missed,
+                            color: Colors.redAccent,
+                            radius: 50,
+                            showTitle: false,
+                          ),
+                          PieChartSectionData(
+                            value: done,
+                            color: Colors.deepPurpleAccent,
+                            radius: 50,
+                            showTitle: false,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _legendWithCounter(
+                      color: Colors.deepPurpleAccent,
+                      label: 'Done',
+                      count: done.toInt(),
+                    ),
+                    _legendWithCounter(
+                      color: Colors.yellow,
+                      label: 'Not Done',
+                      count: notDoneWithoutMissed.toInt(),
+                    ),
+                    _legendWithCounter(
+                      color: Colors.redAccent,
+                      label: 'Missed',
+                      count: missed.toInt(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Tap to view history →",
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+
+      // CARD 2: WEEKLY TASK ANALYSIS
+      Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        elevation: 3,
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.analytics,
+                    color: Colors.deepPurpleAccent,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    "Weekly Task Analysis",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF8657F3),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.refresh, size: 16),
+                    color: Colors.deepPurpleAccent,
+                    padding: EdgeInsets.zero,
+                    constraints: BoxConstraints(),
+                    onPressed: () {
+                      setState(() {});
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FutureBuilder<Map<String, dynamic>>(
+                future: _getWeeklyTaskAnalysis(activeChild['cid']),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Text(
+                        "Error loading analysis: ${snapshot.error}",
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    );
+                  }
+
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: Text(
+                        "No task analysis available for this week.",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    );
+                  }
+
+                  final analysis = snapshot.data!;
+                  final totalTasks = analysis['totalTasks'] as int;
+                  final totalCompleted = analysis['totalCompleted'] as int;
+                  final completionRate = analysis['completionRate'] as double;
+                  final activeStreak = analysis['activeStreak'] as int;
+                  final bestPerformingTask =
+                      analysis['bestPerformingTask'] as String;
+                  final bestTaskDaysCompleted =
+                      analysis['bestTaskDaysCompleted'] as int;
+                  final topTasks =
+                      analysis['topTasks'] as List<Map<String, dynamic>>;
+                  final consistencyScore =
+                      analysis['consistencyScore'] as double;
+                  final weeklyTrend = analysis['weeklyTrend'] as List<int>;
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Streak & Consistency Section
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurpleAccent.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.deepPurpleAccent.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            // Active Streak
+                            Column(
+                              children: [
+                                Container(
+                                  width: 50,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: activeStreak > 0
+                                        ? Colors.deepPurpleAccent
+                                        : Colors.grey[300],
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      "$activeStreak",
+                                      style: TextStyle(
+                                        color: activeStreak > 0
+                                            ? Colors.white
+                                            : Colors.grey[700],
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "Day Streak",
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.grey[600],
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 16),
+                            // Completion Rate
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Weekly Completion",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 3,
+                                        child: LinearProgressIndicator(
+                                          value: completionRate,
+                                          backgroundColor: Colors.grey[200],
+                                          color: _getCompletionRateColor(
+                                            completionRate,
+                                          ),
+                                          minHeight: 8,
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        flex: 1,
+                                        child: Text(
+                                          "${(completionRate * 100).toInt()}%",
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: _getCompletionRateColor(
+                                              completionRate,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    "$totalCompleted/$totalTasks tasks",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Best Performing Task
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.amber.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.amber,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.emoji_events,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    bestPerformingTask,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    "Completed $bestTaskDaysCompleted day${bestTaskDaysCompleted != 1 ? 's' : ''} this week",
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  if (bestTaskDaysCompleted == 7)
+                                    Chip(
+                                      label: Text(
+                                        "Perfect Week!",
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.amber[800],
+                                        ),
+                                      ),
+                                      backgroundColor: Colors.amber[100],
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.trending_up,
+                                    size: 14,
+                                    color: Colors.amber[800],
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    "#1",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.amber[800],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Top 3 Most Consistent Tasks
+                      if (topTasks.isNotEmpty)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "Most Consistent Tasks",
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ...topTasks.asMap().entries.map((entry) {
+                              final index = entry.key;
+                              final task = entry.value;
+                              final taskName = task['name'] as String;
+                              final daysCompleted =
+                                  task['totalDaysCompleted'] as int;
+                              final completionPercentage =
+                                  (daysCompleted / 7) * 100;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[50],
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: Colors.grey[200]!,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Rank Badge
+                                      Container(
+                                        width: 28,
+                                        height: 28,
+                                        decoration: BoxDecoration(
+                                          color: _getRankColor(index),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            '${index + 1}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Task Info
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              taskName,
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Text(
+                                              "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed",
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Progress Bar
+                                      Column(
+                                        children: [
+                                          Container(
+                                            width: 60,
+                                            height: 6,
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey[200],
+                                              borderRadius:
+                                                  BorderRadius.circular(3),
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Container(
+                                                width:
+                                                    completionPercentage * 0.6,
+                                                height: 6,
+                                                decoration: BoxDecoration(
+                                                  color: _getConsistencyColor(
+                                                    completionPercentage,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(3),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            "${completionPercentage.toInt()}%",
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: _getConsistencyColor(
+                                                completionPercentage,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ],
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+
     return [
       const SizedBox(height: 10),
-      // ---------------- CHILD REPORT CARD ----------------
+      // CHILD REPORT CARD (same as before)
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         color: const Color(0xFFA6C26F),
@@ -1569,6 +2252,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
               final moodCounts = <String, int>{};
               final childId = activeChild['cid'] ?? '';
+
+              print('   Child ID: $childId');
+              print('   Child data: $activeChild');
+
               if (childId.isNotEmpty) {
                 final entries = journalProv.getEntries(childId);
                 final now = DateTime.now();
@@ -1605,25 +2292,79 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                 'moodCounts': moodCounts,
                 'done': statusCounts['done']!,
                 'notDone': statusCounts['notDone']!,
-                'missed': statusCounts['missed']!, // <-- include missed here
+                'missed': statusCounts['missed']!,
               };
+
+              final therapistData = {
+                'name': _therapist?.name ?? 'Unknown Therapist',
+                'email': _therapist?.email ?? '',
+              };
+
+              final parentId = await _getParentIdFromChild(childId);
+
+              if (parentId == null || parentId.isEmpty) {
+                print(
+                  '⚠️ Cannot generate PDF: No parent found for child $childId',
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Cannot generate report: Parent information not found',
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              Map<String, dynamic> parentData;
+              try {
+                final parentDoc = await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(parentId)
+                    .get();
+
+                if (parentDoc.exists) {
+                  final parentDocData = parentDoc.data()!;
+                  parentData = {
+                    'id': parentId,
+                    'name': parentDocData['name'] ?? 'Parent',
+                    'email': parentDocData['email'] ?? '',
+                  };
+                } else {
+                  parentData = {'id': parentId, 'name': 'Parent', 'email': ''};
+                }
+              } catch (e) {
+                print('   Error fetching parent details: $e');
+                parentData = {'id': parentId, 'name': 'Parent', 'email': ''};
+              }
+
+              print('📄 Generating PDF with:');
+              print('   - Therapist: ${therapistData['name']}');
+              print(
+                '   - Parent: ${parentData['name']} (ID: ${parentData['id']})',
+              );
+              print('   - Child: ${activeChild['name']} (ID: $childId)');
 
               await exportChildDataToPdfWithCharts(
                 widget.therapistId,
+                parentData['id'],
                 childId,
-                activeChild['name'],
                 fullChildData,
+                therapistData,
+                parentData,
               );
             },
           ),
         ),
       ),
       const SizedBox(height: 12),
+
+      // MAIN CHARTS ROW
       IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ---------------- WEEKLY MOOD TREND ----------------
+            // WEEKLY MOOD TREND CARD (unchanged)
             Expanded(
               child: Card(
                 shape: RoundedRectangleBorder(
@@ -1736,6 +2477,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                             MaterialPageRoute(
                               builder: (context) => TherapistCBTPage(
                                 therapistId: therapistId,
+                                parentId: widget.parentId,
                                 childId: childId,
                                 suggestedMood: weeklyTopMood,
                               ),
@@ -1769,93 +2511,98 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               ),
             ),
 
-            // ---------------- TASKS PROGRESS ----------------
+            // UPDATED: CAROUSEL FOR TASK PROGRESS & ANALYSIS USING PageView
             Expanded(
-              child: GestureDetector(
-                onTap: () async {
-                  await _showTaskHistoryModal(context, activeChild['cid']);
-                },
-                child: Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+              child: Column(
+                children: [
+                  // PageView Carousel
+                  SizedBox(
+                    height: 400,
+                    child: PageView.builder(
+                      controller: _pageController,
+                      itemCount: carouselItems.length,
+                      onPageChanged: (index) {
+                        setState(() {
+                          _currentCarouselIndex = index;
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                          child: carouselItems[index],
+                        );
+                      },
+                    ),
                   ),
-                  elevation: 3,
-                  margin: const EdgeInsets.only(left: 6),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
+                  const SizedBox(height: 8),
+
+                  // Carousel indicators
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: carouselItems.asMap().entries.map((entry) {
+                      return GestureDetector(
+                        onTap: () {
+                          _pageController.animateToPage(
+                            entry.key,
+                            duration: Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                          );
+                        },
+                        child: Container(
+                          width: 8.0,
+                          height: 8.0,
+                          margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _currentCarouselIndex == entry.key
+                                ? Colors.deepPurpleAccent
+                                : Colors.grey[300],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+
+                  // Navigation buttons
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text(
-                          "Tasks Progress",
+                        IconButton(
+                          icon: Icon(Icons.arrow_back_ios, size: 16),
+                          onPressed: _currentCarouselIndex > 0
+                              ? () {
+                                  _pageController.previousPage(
+                                    duration: Duration(milliseconds: 300),
+                                    curve: Curves.easeInOut,
+                                  );
+                                }
+                              : null,
+                        ),
+                        Text(
+                          "${_currentCarouselIndex + 1}/${carouselItems.length}",
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF8657F3),
+                            fontSize: 12,
+                            color: Colors.grey[600],
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 200,
-                          child: Center(
-                            child: PieChart(
-                              PieChartData(
-                                startDegreeOffset: -90,
-                                sectionsSpace: 2,
-                                centerSpaceRadius: 20,
-                                sections: [
-                                  PieChartSectionData(
-                                    value: notDoneWithoutMissed,
-                                    color: Colors.yellow,
-                                    radius: 50,
-                                    showTitle: false,
-                                  ),
-                                  PieChartSectionData(
-                                    value: missed,
-                                    color: Colors
-                                        .redAccent, // visually highlights missed
-                                    radius: 50,
-                                    showTitle: false,
-                                  ),
-                                  PieChartSectionData(
-                                    value: done,
-                                    color: Colors.deepPurpleAccent,
-                                    radius: 50,
-                                    showTitle: false,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Task Progress Legend + Counter Column
-                        Column(
-                          children: [
-                            _legendWithCounter(
-                              color: Colors.deepPurpleAccent,
-                              label: 'Done',
-                              count: done.toInt(),
-                            ),
-                            const SizedBox(height: 8),
-                            _legendWithCounter(
-                              color: Colors.yellow,
-                              label: 'Not Done',
-                              count: notDone.toInt(),
-                            ),
-                            const SizedBox(height: 8),
-                            _legendWithCounter(
-                              color: Colors.redAccent,
-                              label: 'Missed',
-                              count: missed.toInt(),
-                            ),
-                          ],
+                        IconButton(
+                          icon: Icon(Icons.arrow_forward_ios, size: 16),
+                          onPressed:
+                              _currentCarouselIndex < carouselItems.length - 1
+                              ? () {
+                                  _pageController.nextPage(
+                                    duration: Duration(milliseconds: 300),
+                                    curve: Curves.easeInOut,
+                                  );
+                                }
+                              : null,
                         ),
                       ],
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ],
@@ -1864,91 +2611,159 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     ];
   }
 
-  Widget _buildAnalyticsPage<T>({
-    required String title,
-    required IconData icon,
-    required Color color,
-    required List<T> items,
-    required Widget Function(T) builder,
-  }) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 3,
-      margin: const EdgeInsets.all(8),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 24),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: items.isEmpty
-                  ? Center(
-                      child: Text(
-                        "No data available",
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    )
-                  : ListView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: items.length,
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: builder(item),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
+  // Helper Methods
+  Color _getCompletionRateColor(double rate) {
+    if (rate >= 0.8) return Colors.greenAccent;
+    if (rate >= 0.6) return Colors.blueAccent;
+    if (rate >= 0.4) return Colors.orangeAccent;
+    return Colors.redAccent;
   }
 
-  Widget _buildStatCard({
-    required String value,
-    required String label,
-    required IconData icon,
-    required Color color,
-  }) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
+  Color _getRankColor(int index) {
+    switch (index) {
+      case 0:
+        return Colors.amber;
+      case 1:
+        return Colors.grey[400]!;
+      case 2:
+        return Colors.brown[400]!;
+      default:
+        return Colors.grey[300]!;
+    }
+  }
+
+  Future<Map<String, dynamic>> _getWeeklyTaskAnalysis(String childId) async {
+    try {
+      final parentId = await _getParentIdFromChild(childId);
+
+      if (parentId == null || parentId.isEmpty) {
+        throw Exception('Parent not found for child');
+      }
+
+      print(
+        '🔍 Fetching task analysis for child $childId from parent $parentId',
+      );
+
+      final tasksSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('tasks')
+          .get();
+
+      if (tasksSnap.docs.isEmpty) {
+        print('⚠️ No tasks found for child');
+        return {};
+      }
+
+      final tasks = tasksSnap.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'name': data['name'] ?? 'Unnamed Task',
+          'activeStreak': data['activeStreak'] ?? 0,
+          'totalDaysCompleted': data['totalDaysCompleted'] ?? 0,
+          'isDone': data['isDone'] ?? false,
+          'createdAt': data['createdAt'] is Timestamp
+              ? (data['createdAt'] as Timestamp).toDate()
+              : DateTime.now(),
+        };
+      }).toList();
+
+      print('📊 Found ${tasks.length} tasks');
+
+      int totalTasks = tasks.length;
+      int totalCompleted = tasks.where((t) => t['isDone'] == true).length;
+      double completionRate = totalTasks > 0 ? totalCompleted / totalTasks : 0;
+
+      int activeStreak = tasks.fold<int>(0, (max, task) {
+        final streak = task['activeStreak'] as int;
+        return streak > max ? streak : max;
+      });
+
+      Map<String, dynamic> bestTask = {
+        'name': 'No tasks',
+        'totalDaysCompleted': 0,
+      };
+      for (var task in tasks) {
+        final daysCompleted = task['totalDaysCompleted'] as int;
+        if (daysCompleted > (bestTask['totalDaysCompleted'] as int)) {
+          bestTask = {
+            'name': task['name'],
+            'totalDaysCompleted': daysCompleted,
+          };
+        }
+      }
+
+      final topTasks = tasks
+        ..sort(
+          (a, b) => (b['totalDaysCompleted'] as int).compareTo(
+            a['totalDaysCompleted'] as int,
           ),
-          child: Icon(icon, color: color, size: 24),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      ],
-    );
+        );
+
+      final top3Tasks = topTasks
+          .take(3)
+          .map(
+            (task) => {
+              'name': task['name'],
+              'totalDaysCompleted': task['totalDaysCompleted'],
+            },
+          )
+          .toList();
+
+      int daysWithCompletion = 0;
+      for (var task in tasks) {
+        if (task['totalDaysCompleted'] != null &&
+            (task['totalDaysCompleted'] as int) > 0) {
+          daysWithCompletion++;
+        }
+      }
+
+      double consistencyScore = totalTasks > 0
+          ? daysWithCompletion / totalTasks
+          : 0;
+
+      final weeklyTrend = List.generate(7, (index) {
+        final random = Random().nextDouble();
+        return random < completionRate ? Random().nextInt(5) + 1 : 0;
+      });
+
+      print('✅ Analysis complete:');
+      print('   - Total tasks: $totalTasks');
+      print('   - Completed: $totalCompleted');
+      print(
+        '   - Completion rate: ${(completionRate * 100).toStringAsFixed(1)}%',
+      );
+      print('   - Active streak: $activeStreak days');
+      print(
+        '   - Best task: ${bestTask['name']} (${bestTask['totalDaysCompleted']} days)',
+      );
+      print('   - Top 3 tasks: ${top3Tasks.length}');
+
+      return {
+        'totalTasks': totalTasks,
+        'totalCompleted': totalCompleted,
+        'completionRate': completionRate,
+        'activeStreak': activeStreak,
+        'bestPerformingTask': bestTask['name'] as String,
+        'bestTaskDaysCompleted': bestTask['totalDaysCompleted'] as int,
+        'topTasks': top3Tasks,
+        'consistencyScore': consistencyScore,
+        'weeklyTrend': weeklyTrend,
+      };
+    } catch (e) {
+      print('❌ Error fetching weekly task analysis: $e');
+      return {};
+    }
+  }
+
+  Color _getConsistencyColor(double percentage) {
+    if (percentage >= 85) return Colors.greenAccent;
+    if (percentage >= 70) return Colors.lightGreenAccent;
+    if (percentage >= 50) return Colors.orangeAccent;
+    return Colors.redAccent;
   }
 
   Widget _legendWithCounter({
@@ -1973,24 +2788,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     );
   }
 
-  // Helper function for legend items
-  Widget _legendItem({required Color color, required String label}) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final journalProv = Provider.of<JournalProvider>(context);
@@ -2002,7 +2799,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // Ensure selected child is not null
     final activeChild =
         selectedChildProv.selectedChild ??
         {"cid": "", "name": "No Child", "therapistUid": widget.therapistId};
@@ -2010,7 +2806,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final therapistName = _therapist?.name ?? "Therapist";
     final therapistEmail = _therapist?.email ?? "";
 
-    // Get assigned CBT exercises for the selected child
     final childId = activeChild['cid'] ?? '';
     final assignedCBT = childId.isNotEmpty
         ? cbtProv.getCurrentWeekAssignments(childId: childId)
@@ -2037,7 +2832,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ---------------- Greeting Area ----------------
               Row(
                 children: [
                   CircleAvatar(
@@ -2082,7 +2876,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               ),
               const SizedBox(height: 16),
 
-              // ---------------- Dashboard Container ----------------
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -2101,16 +2894,12 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 16),
-
-                    // ---------------- Child Charts ----------------
                     ..._buildChildCharts(
                       journalProv,
                       taskProv,
                       activeChild,
                       selectedChildProv,
                     ),
-
-                    // ---------------- Scrollable CBT Exercises ----------------
                     const SizedBox(height: 12),
                     Card(
                       shape: RoundedRectangleBorder(
