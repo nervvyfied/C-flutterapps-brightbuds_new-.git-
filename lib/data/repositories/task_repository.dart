@@ -49,10 +49,33 @@ class TaskRepository {
   }
 
   Future<void> saveTaskRemote(TaskModel task) async {
-    await _childTasksRef(
-      task.parentId,
-      task.childId,
-    ).doc(task.id).set(task.toFirestore(), SetOptions(merge: true));
+    try {
+      if (task.parentId.isEmpty || task.childId.isEmpty) {
+        debugPrint(
+          "❌ Cannot save task remotely: parentId or childId is empty. Task ID: ${task.id}",
+        );
+        return;
+      }
+
+      final ref = _childTasksRef(task.parentId, task.childId).doc(task.id);
+
+      final data = task.toFirestore();
+      if (data.isEmpty) {
+        debugPrint(
+          "❌ Task ${task.id} toFirestore() returned empty map. Skipping Firestore save.",
+        );
+        return;
+      }
+
+      debugPrint("➡️ Saving task to Firestore at path: ${ref.path}");
+      debugPrint("➡️ Data: $data");
+
+      await ref.set(data, SetOptions(merge: true));
+
+      debugPrint("✅ Task ${task.id} saved remotely.");
+    } catch (e, st) {
+      debugPrint("❌ Error saving task remotely: $e\n$st");
+    }
   }
 
   Future<TaskModel?> getTaskRemote(
@@ -97,55 +120,68 @@ class TaskRepository {
 
   /// Save task both locally and remotely (always updates lastUpdated)
   Future<void> saveTask(TaskModel task) async {
-    // 1️⃣ Validate parentId and childId
-    if (task.parentId.isEmpty) {
-      throw Exception("Cannot save task: parentId is empty.");
-    }
+    // 1️⃣ Ensure childId exists
     if (task.childId.isEmpty) {
       throw Exception("Cannot save task: childId is empty.");
     }
 
-    // 2️⃣ Ensure task has a valid ID and timestamp
+    // 2️⃣ Fetch parent UID of the child if needed
+    String parentId = task.parentId;
+    if (parentId.isEmpty) {
+      // If parentId is empty, fetch the child and get its parentUid
+      final userRepo = UserRepository();
+      final child = await userRepo.fetchChildAndCache(
+        task.parentId,
+        task.childId,
+      );
+      if (child != null) {
+        parentId = child.parentUid;
+      } else {
+        throw Exception(
+          "Cannot save task: parentId unknown and child not found.",
+        );
+      }
+    }
+
+    // 3️⃣ Ensure task has a valid ID and lastUpdated
     final updatedTask = task.copyWith(
       id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
+      parentId: parentId, // <-- assign correct parentId
       lastUpdated: DateTime.now(),
     );
 
-    // 3️⃣ Save locally and remotely
+    // 4️⃣ Save locally and remotely
     await saveTaskLocal(updatedTask);
     await saveTaskRemote(updatedTask);
 
-    debugPrint("Task ${updatedTask.id} saved locally and remotely.");
+    debugPrint(
+      "Task ${updatedTask.id} saved locally and remotely under parent $parentId.",
+    );
   }
 
   Future<void> updateTask(TaskModel task) async {
-    try {
-      if (task.parentId.isEmpty || task.childId.isEmpty) {
-        throw Exception("Cannot update task: parentId or childId is empty.");
-      }
-
-      // 1️⃣ Always refresh lastUpdated and preserve alarm field
-      final existing = _taskBox.get(task.id);
-      final updatedTask = task.copyWith(
-        alarm: task.alarm ?? existing?.alarm,
-        lastUpdated: DateTime.now(),
-      );
-
-      // 2️⃣ Save to local Hive
-      await saveTaskLocal(updatedTask);
-
-      // 3️⃣ Save to Firestore (merge = true so only changed fields overwrite)
-      await _childTasksRef(
-        task.parentId,
-        task.childId,
-      ).doc(task.id).set(updatedTask.toFirestore(), SetOptions(merge: true));
-
-      debugPrint("✅ Task ${updatedTask.id} updated locally and remotely.");
-    } catch (e) {
-      debugPrint("❌ Error in updateTask: $e");
-      rethrow;
+  try {
+    if (task.id.isEmpty) {
+      throw Exception("Cannot update task: taskId is empty.");
     }
+
+    // Preserve alarm + update timestamp
+    final existing = _taskBox.get(task.id);
+    final updatedTask = task.copyWith(
+      alarm: task.alarm ?? existing?.alarm,
+      lastUpdated: DateTime.now(),
+    );
+
+    // ✅ LOCAL ONLY
+    await saveTaskLocal(updatedTask);
+
+    debugPrint("✅ Task ${updatedTask.id} updated locally.");
+  } catch (e) {
+    debugPrint("❌ Error in updateTask (local only): $e");
+    rethrow;
   }
+}
+
 
   /// Delete task both locally and remotely
   Future<void> deleteTask(
@@ -218,23 +254,47 @@ class TaskRepository {
   Future<void> pushPendingLocalChanges() async {
     final localTasks = getAllTasksLocal();
 
-    for (final task in localTasks) {
-      final remote = await getTaskRemote(task.parentId, task.childId, task.id);
+    debugPrint("🔄 Pushing ${localTasks.length} local tasks to Firestore...");
 
-      if (remote == null) {
-        await saveTaskRemote(task);
-      } else {
-        // Conflict resolution by lastUpdated
+    for (final task in localTasks) {
+      try {
+        if (task.parentId.isEmpty || task.childId.isEmpty) {
+          debugPrint(
+            "⚠️ Skipping task ${task.id}: parentId or childId is empty.",
+          );
+          continue;
+        }
+
+        final remote = await getTaskRemote(
+          task.parentId,
+          task.childId,
+          task.id,
+        );
+
         final localUpdated =
             task.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
         final remoteUpdated =
-            remote.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
+            remote?.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
 
-        if (localUpdated.isAfter(remoteUpdated)) {
+        debugPrint(
+          "Task ${task.id} - Local updated: ${localUpdated.toIso8601String()}, Remote updated: ${remoteUpdated.toIso8601String()}",
+        );
+
+        if (remote == null) {
+          debugPrint("📌 Task ${task.id} does not exist remotely. Saving...");
           await saveTaskRemote(task);
+        } else if (localUpdated.isAfter(remoteUpdated)) {
+          debugPrint("📌 Task ${task.id} is newer locally. Updating remote...");
+          await saveTaskRemote(task);
+        } else {
+          debugPrint("📌 Task ${task.id} is up-to-date remotely. Skipping.");
         }
+      } catch (e, st) {
+        debugPrint("❌ Error pushing task ${task.id}: $e\n$st");
       }
     }
+
+    debugPrint("✅ Finished pushing local tasks to Firestore.");
   }
 
   /// Merge remote tasks into local Hive (respecting lastUpdated)

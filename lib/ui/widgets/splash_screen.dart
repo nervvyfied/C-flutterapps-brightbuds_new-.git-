@@ -1,8 +1,9 @@
+import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
+import 'package:brightbuds_new/ui/pages/therapist_view/therapistNav_page.dart';
 import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -40,6 +41,8 @@ class _SplashScreenState extends State<SplashScreen>
         nextPage = const ParentNavigationShell();
       } else if (auth.isChild) {
         nextPage = const ChildNavigationShell();
+      } else if (auth.isTherapist) {
+        nextPage = const TherapistNavigationShell();
       } else {
         nextPage = const ChooseRolePage();
       }
@@ -64,11 +67,7 @@ class _SplashScreenState extends State<SplashScreen>
       body: Center(
         child: FadeTransition(
           opacity: _animation,
-          child: Image.asset(
-            'assets/bb3.png',
-            width: 150,
-            height: 150,
-          ),
+          child: Image.asset('assets/bb3.png', width: 150, height: 150),
         ),
       ),
     );

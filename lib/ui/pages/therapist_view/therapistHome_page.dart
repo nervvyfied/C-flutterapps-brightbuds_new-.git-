@@ -1,8 +1,8 @@
 // ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
-import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
+import 'package:brightbuds_new/ui/pages/therapist_view/therapistAccount_page.dart';
 import 'package:intl/intl.dart';
 import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
+import 'package:brightbuds_new/cbt/pages/therapist_cbt_page.dart';
 import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -11,6 +11,7 @@ import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import '../../../data/models/therapist_model.dart';
 import '/data/repositories/user_repository.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/journal_provider.dart';
@@ -18,13 +19,17 @@ import '../../../data/providers/task_provider.dart';
 import '../../../data/providers/selected_child_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class ParentDashboardPage extends StatefulWidget {
+class TherapistDashboardPage extends StatefulWidget {
+  final String therapistId;
   final String parentId;
-
-  const ParentDashboardPage({super.key, required this.parentId});
+  const TherapistDashboardPage({
+    super.key,
+    required this.therapistId,
+    required this.parentId,
+  });
 
   @override
-  State<ParentDashboardPage> createState() => _ParentDashboardPageState();
+  State<TherapistDashboardPage> createState() => _TherapistDashboardPageState();
 }
 
 class TaskHistoryService {
@@ -32,6 +37,7 @@ class TaskHistoryService {
 
   Future<void> saveDailyTaskProgress({
     required String parentId,
+    required String therapistId,
     required String childId,
     required int done,
     required int notDone,
@@ -42,7 +48,8 @@ class TaskHistoryService {
       final dateKey =
           "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
-      final docRef = _db
+      // Save under parent's path (for parent app)
+      final parentDocRef = _db
           .collection('users')
           .doc(parentId)
           .collection('children')
@@ -50,15 +57,18 @@ class TaskHistoryService {
           .collection('history')
           .doc(dateKey);
 
-      await docRef.set({
+      await parentDocRef.set({
         'done': done,
         'notDone': notDone,
         'missed': missed,
-        'totalTasks': done + notDone, // ✅ missed is part of notDone
+        'totalTasks': done + notDone,
         'timestamp': FieldValue.serverTimestamp(),
+        'savedBy': 'parent',
       });
 
-      print("✅ Daily progress saved for $childId on $dateKey");
+      print(
+        "✅ Daily progress saved for $childId on $dateKey (both parent & therapist)",
+      );
     } catch (e) {
       print("❌ Failed to save daily task progress: $e");
     }
@@ -70,9 +80,9 @@ extension StringCasingExtension on String {
       isNotEmpty ? '${this[0].toUpperCase()}${substring(1)}' : '';
 }
 
-class _ParentDashboardPageState extends State<ParentDashboardPage> {
+class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
   final UserRepository _userRepo = UserRepository();
-  ParentUser? _parent;
+  TherapistUser? _therapist;
   bool _loading = true;
   final GlobalKey _childChartKey = GlobalKey();
   final GlobalKey _taskChartKey = GlobalKey();
@@ -125,34 +135,118 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     BuildContext context,
     String childId,
   ) async {
-    final parentId = widget.parentId;
+    print('Fetching task history for child: $childId');
 
-    // Fetch last 90 days
-    final snapshots = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentId)
-        .collection('children')
-        .doc(childId)
-        .collection('history')
-        .orderBy('timestamp', descending: true)
-        .limit(90)
-        .get();
+    try {
+      List<Map<String, dynamic>> historyData = [];
 
-    final historyData = snapshots.docs
-        .map(
-          (d) => {
-            'date': d.id,
-            'done': d['done'],
-            'notDone': d['notDone'],
-            'missed': d['missed'],
-          },
-        )
-        .toList();
+      // Try to fetch from therapist's collection first
+      try {
+        final therapistSnap = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(widget.therapistId)
+            .collection('children')
+            .doc(childId)
+            .collection('history')
+            .orderBy('timestamp', descending: true)
+            .limit(90)
+            .get();
 
-    // Initialize persistent state outside the StatefulBuilder
-    int currentIndex = 0; // most recent
-    String viewMode = 'Daily'; // 'Daily' or 'Weekly'
+        if (therapistSnap.docs.isNotEmpty) {
+          print('Found ${therapistSnap.docs.length} records in therapist path');
+          historyData = therapistSnap.docs
+              .map(
+                (d) => {
+                  'date': d.id,
+                  'done': d['done'] ?? 0,
+                  'notDone': d['notDone'] ?? 0,
+                  'missed': d['missed'] ?? 0,
+                  'source': 'therapist',
+                },
+              )
+              .toList();
+        }
+      } catch (e) {
+        print('Error fetching from therapist path: $e');
+      }
 
+      // If no data in therapist path, try parent path
+      if (historyData.isEmpty && widget.parentId.isNotEmpty) {
+        try {
+          final parentSnap = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.parentId)
+              .collection('children')
+              .doc(childId)
+              .collection('history')
+              .orderBy('timestamp', descending: true)
+              .limit(90)
+              .get();
+
+          if (parentSnap.docs.isNotEmpty) {
+            print('Found ${parentSnap.docs.length} records in parent path');
+            historyData = parentSnap.docs
+                .map(
+                  (d) => {
+                    'date': d.id,
+                    'done': d['done'] ?? 0,
+                    'notDone': d['notDone'] ?? 0,
+                    'missed': d['missed'] ?? 0,
+                    'source': 'parent',
+                  },
+                )
+                .toList();
+          }
+        } catch (e) {
+          print('Error fetching from parent path: $e');
+        }
+      }
+
+      if (historyData.isEmpty) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("No task history"),
+            content: const Text(
+              "Task history hasn't been saved yet. History is saved automatically at the end of each day.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      print('Total history records: ${historyData.length}');
+
+      // Show the modal with the fetched data
+      _showTaskHistoryModalWithData(context, historyData);
+    } catch (e) {
+      print('Error fetching task history: $e');
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Error"),
+          content: Text("Failed to load task history: $e"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _showTaskHistoryModalWithData(
+    BuildContext context,
+    List<Map<String, dynamic>> historyData,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -163,60 +257,89 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            final windowSize = viewMode == 'Daily' ? 1 : 7;
+            // Initialize state variables
+            int currentIndex = 0;
+            String viewMode = 'Daily';
 
-            List<Map<String, dynamic>> _getDisplayedData() {
+            // Helper function to get displayed data
+            List<Map<String, dynamic>> getDisplayedData() {
+              if (historyData.isEmpty) return [];
+
+              final windowSize = viewMode == 'Daily' ? 1 : 7;
               final start = currentIndex;
               final end = (currentIndex + windowSize).clamp(
                 0,
                 historyData.length,
               );
+
+              if (start >= end) return [];
+
               final slice = historyData.sublist(start, end);
 
-              int done = 0, notDone = 0, missed = 0;
-              for (var d in slice) {
-                done += d['done'] as int;
-                notDone += d['notDone'] as int;
-                missed += d['missed'] as int;
+              if (viewMode == 'Weekly') {
+                // Aggregate weekly data
+                int done = 0, notDone = 0, missed = 0;
+                for (var d in slice) {
+                  done += d['done'] as int;
+                  notDone += d['notDone'] as int;
+                  missed += d['missed'] as int;
+                }
+
+                final dateLabel = slice.isNotEmpty
+                    ? "${slice.first['date']} - ${slice.last['date']}"
+                    : "";
+
+                return [
+                  {
+                    'date': dateLabel,
+                    'done': done,
+                    'notDone': notDone,
+                    'missed': missed,
+                  },
+                ];
+              } else {
+                // Daily view - show individual days
+                return slice
+                    .map(
+                      (d) => ({
+                        'date': d['date'],
+                        'done': d['done'] as int,
+                        'notDone': d['notDone'] as int,
+                        'missed': d['missed'] as int,
+                      }),
+                    )
+                    .toList();
               }
-
-              final dateLabel = slice.length == 1
-                  ? slice.first['date']
-                  : '${slice.last['date']} → ${slice.first['date']}';
-
-              return [
-                {
-                  'date': dateLabel,
-                  'done': done,
-                  'notDone': notDone,
-                  'missed': missed,
-                },
-              ];
             }
 
-            final displayedData = _getDisplayedData();
+            final displayedData = getDisplayedData();
 
             // Determine if arrows should be disabled
+            final windowSize = viewMode == 'Daily' ? 1 : 7;
             final isPrevDisabled =
                 currentIndex + windowSize >= historyData.length;
-            final isNextDisabled = currentIndex == 0;
+            final isNextDisabled = currentIndex <= 0;
 
-            void _prev() {
-              setState(() {
-                currentIndex = (currentIndex + windowSize).clamp(
-                  0,
-                  historyData.length - 1,
-                );
-              });
+            void prev() {
+              if (!isPrevDisabled) {
+                setState(() {
+                  currentIndex = (currentIndex + windowSize).clamp(
+                    0,
+                    historyData.length - windowSize,
+                  );
+                });
+              }
             }
 
-            void _next() {
-              setState(() {
-                currentIndex = (currentIndex - windowSize).clamp(
-                  0,
-                  historyData.length - 1,
-                );
-              });
+            void next() {
+              if (!isNextDisabled) {
+                setState(() {
+                  currentIndex = (currentIndex - windowSize).clamp(
+                    0,
+                    historyData.length,
+                  );
+                });
+              }
             }
 
             return Padding(
@@ -225,13 +348,13 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
               ),
               child: Container(
                 padding: const EdgeInsets.all(16),
-                height: 400,
+                height: 500,
                 child: Column(
                   children: [
                     const Text(
                       "Task Progress History",
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -243,16 +366,21 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       children: ['Daily', 'Weekly'].map((mode) {
                         final selected = mode == viewMode;
                         return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: ChoiceChip(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: FilterChip(
                             label: Text(mode),
                             selected: selected,
                             onSelected: (_) {
                               setState(() {
                                 viewMode = mode;
-                                currentIndex = 0; // reset to most recent
+                                currentIndex = 0;
                               });
                             },
+                            selectedColor: Colors.deepPurpleAccent,
+                            checkmarkColor: Colors.white,
+                            labelStyle: TextStyle(
+                              color: selected ? Colors.white : Colors.black,
+                            ),
                           ),
                         );
                       }).toList(),
@@ -260,103 +388,229 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                     const SizedBox(height: 12),
 
                     // Chart with arrows
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back_ios),
-                          onPressed: isPrevDisabled ? null : _prev,
-                        ),
-                        Expanded(
-                          child: SizedBox(
-                            height: 200,
-                            child: BarChart(
-                              BarChartData(
-                                alignment: BarChartAlignment.spaceAround,
-                                titlesData: FlTitlesData(
-                                  leftTitles: AxisTitles(
-                                    sideTitles: SideTitles(showTitles: true),
-                                  ),
-                                  bottomTitles: AxisTitles(
-                                    sideTitles: SideTitles(
-                                      showTitles: true,
-                                      getTitlesWidget: (index, _) {
-                                        final date =
-                                            displayedData[index
-                                                .toInt()]['date'];
-                                        return Text(
-                                          date.toString().split(' ')[0],
-                                          style: const TextStyle(fontSize: 10),
-                                        );
-                                      },
+                    Expanded(
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back_ios),
+                            onPressed: isPrevDisabled ? null : prev,
+                            color: isPrevDisabled
+                                ? Colors.grey
+                                : Colors.deepPurpleAccent,
+                          ),
+                          Expanded(
+                            child: displayedData.isEmpty
+                                ? const Center(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.history,
+                                          size: 48,
+                                          color: Colors.grey,
+                                        ),
+                                        SizedBox(height: 8),
+                                        Text("No history data"),
+                                      ],
+                                    ),
+                                  )
+                                : SizedBox(
+                                    height: 250,
+                                    child: BarChart(
+                                      BarChartData(
+                                        alignment:
+                                            BarChartAlignment.spaceAround,
+                                        titlesData: FlTitlesData(
+                                          leftTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 40,
+                                              getTitlesWidget: (value, meta) {
+                                                return Text(
+                                                  value.toInt().toString(),
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                          bottomTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 30,
+                                              getTitlesWidget: (value, meta) {
+                                                if (value >= 0 &&
+                                                    value <
+                                                        displayedData.length) {
+                                                  final date =
+                                                      displayedData[value
+                                                              .toInt()]['date']
+                                                          .toString();
+                                                  // Format date for display
+                                                  String displayDate;
+                                                  if (viewMode == 'Weekly') {
+                                                    displayDate = 'Week';
+                                                  } else {
+                                                    // Try to parse date for better formatting
+                                                    try {
+                                                      final parts = date.split(
+                                                        '-',
+                                                      );
+                                                      if (parts.length >= 3) {
+                                                        displayDate =
+                                                            '${parts[1]}/${parts[2]}';
+                                                      } else {
+                                                        displayDate =
+                                                            date.length > 10
+                                                            ? '${date.substring(5, 10)}'
+                                                            : date;
+                                                      }
+                                                    } catch (e) {
+                                                      displayDate =
+                                                          date.length > 10
+                                                          ? '${date.substring(5, 10)}'
+                                                          : date;
+                                                    }
+                                                  }
+                                                  return Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 8.0,
+                                                        ),
+                                                    child: Text(
+                                                      displayDate,
+                                                      style: const TextStyle(
+                                                        fontSize: 10,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  );
+                                                }
+                                                return const Text('');
+                                              },
+                                            ),
+                                          ),
+                                          topTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: false,
+                                            ),
+                                          ),
+                                          rightTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: false,
+                                            ),
+                                          ),
+                                        ),
+                                        borderData: FlBorderData(show: false),
+                                        gridData: FlGridData(show: true),
+                                        barGroups: List.generate(
+                                          displayedData.length,
+                                          (i) {
+                                            final entry = displayedData[i];
+                                            return BarChartGroupData(
+                                              x: i,
+                                              barsSpace: 4,
+                                              barRods: [
+                                                BarChartRodData(
+                                                  toY: (entry['done'] as int)
+                                                      .toDouble(),
+                                                  color:
+                                                      Colors.deepPurpleAccent,
+                                                  width: viewMode == 'Daily'
+                                                      ? 8
+                                                      : 16,
+                                                ),
+                                                BarChartRodData(
+                                                  toY: (entry['notDone'] as int)
+                                                      .toDouble(),
+                                                  color: Colors.yellow,
+                                                  width: viewMode == 'Daily'
+                                                      ? 8
+                                                      : 16,
+                                                ),
+                                                BarChartRodData(
+                                                  toY: (entry['missed'] as int)
+                                                      .toDouble(),
+                                                  color: Colors.redAccent,
+                                                  width: viewMode == 'Daily'
+                                                      ? 8
+                                                      : 16,
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                borderData: FlBorderData(show: false),
-                                barGroups: List.generate(displayedData.length, (
-                                  i,
-                                ) {
-                                  final entry = displayedData[i];
-                                  return BarChartGroupData(
-                                    x: i,
-                                    barRods: [
-                                      BarChartRodData(
-                                        toY: (entry['done'] as int).toDouble(),
-                                        color: Colors.deepPurpleAccent,
-                                      ),
-                                      BarChartRodData(
-                                        toY: (entry['notDone'] as int)
-                                            .toDouble(),
-                                        color: Colors.yellow,
-                                      ),
-                                      BarChartRodData(
-                                        toY: (entry['missed'] as int)
-                                            .toDouble(),
-                                        color: Colors.redAccent,
-                                      ),
-                                    ],
-                                    barsSpace: 2,
-                                  );
-                                }),
-                              ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_forward_ios),
+                            onPressed: isNextDisabled ? null : next,
+                            color: isNextDisabled
+                                ? Colors.grey
+                                : Colors.deepPurpleAccent,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Legend with aggregated data
+                    if (displayedData.isNotEmpty) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _legendWithCounter(
+                            color: Colors.deepPurpleAccent,
+                            label: 'Done',
+                            count: displayedData.fold<int>(
+                              0,
+                              (sum, item) => sum + (item['done'] as int),
                             ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_forward_ios),
-                          onPressed: isNextDisabled ? null : _next,
-                        ),
-                      ],
-                    ),
+                          _legendWithCounter(
+                            color: Colors.yellow,
+                            label: 'Not Done',
+                            count: displayedData.fold<int>(
+                              0,
+                              (sum, item) => sum + (item['notDone'] as int),
+                            ),
+                          ),
+                          _legendWithCounter(
+                            color: Colors.redAccent,
+                            label: 'Missed',
+                            count: displayedData.fold<int>(
+                              0,
+                              (sum, item) => sum + (item['missed'] as int),
+                            ),
+                          ),
+                        ],
+                      ),
 
-                    const SizedBox(height: 12),
-                    // Legend
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _legendWithCounter(
-                          color: Colors.deepPurpleAccent,
-                          label: 'Done',
-                          count: displayedData.first['done'] as int,
+                      const SizedBox(height: 8),
+                      Text(
+                        displayedData.length == 1
+                            ? displayedData.first['date'].toString()
+                            : "${displayedData.length} ${viewMode == 'Daily' ? 'days' : 'weeks'} shown",
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
                         ),
-                        _legendWithCounter(
-                          color: Colors.yellow,
-                          label: 'Not Done',
-                          count: displayedData.first['notDone'] as int,
-                        ),
-                        _legendWithCounter(
-                          color: Colors.redAccent,
-                          label: 'Missed',
-                          count: displayedData.first['missed'] as int,
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
 
                     const SizedBox(height: 8),
-                    Text(
-                      displayedData.first['date'].toString(),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Close"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurpleAccent,
                       ),
                     ),
                   ],
@@ -691,7 +945,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadParentData();
+      _loadTherapistData();
 
       final selectedChildProv = Provider.of<SelectedChildProvider>(
         context,
@@ -704,6 +958,29 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         _updateCBTListenerForSelectedChild();
       });
     });
+  }
+
+  void _listenToJournalEntries() {
+    final journalProv = Provider.of<JournalProvider>(context, listen: false);
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    final child = selectedChildProv.selectedChild;
+
+    if (child == null) return;
+    if (child['cid'] == null || child['cid'].toString().isEmpty) return;
+
+    final therapistId = _therapist?.uid;
+    if (therapistId == null || therapistId.isEmpty) return;
+
+    final childId = child['cid'];
+
+    journalProv.loadEntries(
+      childId: childId,
+      parentId: '', // therapist context
+    );
   }
 
   @override
@@ -730,7 +1007,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final child = selectedChildProv.selectedChild;
     if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
 
-    final parentId = _parent?.uid ?? widget.parentId;
+    final therapistId = _therapist?.uid ?? widget.therapistId;
     final childId = child['cid'];
 
     // Initialize Hive if not yet
@@ -738,65 +1015,64 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     // Load and sync CBTs
     await cbtProv.loadLocalCBT(childId);
-    await cbtProv.loadRemoteCBT(parentId, childId);
+    await cbtProv.loadRemoteCBT(therapistId, childId);
 
     // Start listening for real-time Firestore updates
-    cbtProv.updateRealtimeListenerForChild(parentId, childId);
+    cbtProv.updateRealtimeListenerForChild(therapistId, childId);
   }
 
-  Future<void> _loadParentData() async {
+  Future<void> _loadTherapistData() async {
     setState(() => _loading = true);
 
-    _notifiedTaskIds.clear();
+    await Future.delayed(
+      Duration(milliseconds: 500),
+    ); // Small delay to ensure auth is ready
+
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final parentModel = auth.currentUserModel;
-    if (parentModel == null || parentModel is! ParentUser) {
+    final therapistModel = auth.currentUserModel;
+
+    if (therapistModel == null || therapistModel is! TherapistUser) {
+      // Try to get therapist from Firestore directly
+      try {
+        final therapistSnap = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(widget.therapistId)
+            .get();
+
+        if (therapistSnap.exists) {
+          final therapist = TherapistUser.fromMap(
+            therapistSnap.data()!,
+            therapistSnap.id,
+          );
+
+          // Force a rebuild with the new data
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _therapist = therapist;
+                _loading = false;
+              });
+            }
+          });
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error fetching therapist: $e');
+      }
+
       setState(() => _loading = false);
       return;
     }
 
-    final parent = await _userRepo.fetchParentAndCache(parentModel.uid);
-
-    setState(() {
-      _parent = parent as ParentUser?;
-      _loading = false;
+    // Force UI update with animation frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _therapist = therapistModel;
+          _loading = false;
+        });
+      }
     });
-
-    final selectedChildProv = Provider.of<SelectedChildProvider>(
-      context,
-      listen: false,
-    );
-
-    // Load CBTs for currently selected child
-    _updateCBTListenerForSelectedChild();
-
-    // Listen for child changes
-    selectedChildProv.addListener(() {
-      _updateCBTListenerForSelectedChild();
-      _listenToJournalEntries();
-    });
-
-    // Start listening to journals for current child
-    _listenToJournalEntries();
-  }
-
-  void _listenToJournalEntries() {
-    final journalProv = Provider.of<JournalProvider>(context, listen: false);
-    final selectedChildProv = Provider.of<SelectedChildProvider>(
-      context,
-      listen: false,
-    );
-
-    final child = selectedChildProv.selectedChild;
-    if (child == null || child['cid'] == null || child['cid'].isEmpty) return;
-
-    final parentId = _parent?.uid ?? widget.parentId;
-    final childId = child['cid'];
-
-    if (parentId.isEmpty || childId.isEmpty) return;
-
-    // 🔁 Attach Firestore listener for this child's journal entries
-    journalProv.loadEntries(parentId: parentId, childId: childId);
   }
 
   // ---------------- Task Completion Notification ----------------
@@ -831,6 +1107,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
   }
 
   Future<void> exportChildDataToPdfWithCharts(
+    String therapistId,
     String parentId,
     String childId,
     Map<String, dynamic> childData,
@@ -838,7 +1115,8 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final pdf = pw.Document();
     final name = childData['name'] ?? 'Unknown';
     final parentName = childData['parentName'] ?? '-';
-    final parentEmail = childData['parentEmail'] ?? '-';
+    final therapistName = childData['therapistName'] ?? '-';
+    final therapistEmail = childData['therapistEmail'] ?? '-';
     final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
     final now = DateTime.now();
     final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
@@ -975,7 +1253,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
             ),
             pw.SizedBox(height: 12),
             pw.Text(
-              "Parent: $parentName ($parentEmail)",
+              "Therapist: $therapistName ($therapistEmail)",
               style: const pw.TextStyle(fontSize: 12),
             ),
             pw.Divider(),
@@ -1096,7 +1374,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
             pw.SizedBox(height: 24),
             pw.Center(
               child: pw.Text(
-                "Generated by BrightBuds Parent Dashboard",
+                "Generated by BrightBuds Therapist Dashboard",
                 style: pw.TextStyle(fontSize: 10, color: PdfColors.grey),
               ),
             ),
@@ -1201,6 +1479,30 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     return sections;
   }
 
+  void _saveCurrentTaskProgress(
+    TaskProvider taskProv,
+    Map<String, dynamic> activeChild,
+  ) async {
+    final childId = activeChild['cid'];
+    if (childId == null || childId.isEmpty) return;
+
+    final childTasks = taskProv.tasks
+        .where((t) => t.childId == childId)
+        .toList();
+
+    final statusCounts = _countTaskStatuses(childTasks);
+
+    final taskHistoryService = TaskHistoryService();
+    await taskHistoryService.saveDailyTaskProgress(
+      parentId: widget.parentId,
+      therapistId: widget.therapistId,
+      childId: childId,
+      done: statusCounts['done']!,
+      notDone: statusCounts['notDone']!,
+      missed: statusCounts['missed']!,
+    );
+  }
+
   List<Widget> _buildChildCharts(
     JournalProvider journalProv,
     TaskProvider taskProv,
@@ -1210,7 +1512,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final childTasks = taskProv.tasks
         .where((t) => t.childId == activeChild['cid'])
         .toList();
-
+    // At the end of _buildChildCharts method, add:
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _saveCurrentTaskProgress(taskProv, activeChild);
+    });
     // ✅ Count done, not done, and missed using helper
     final statusCounts = _countTaskStatuses(childTasks);
     final done = statusCounts['done']!.toDouble();
@@ -1304,8 +1609,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
               };
 
               await exportChildDataToPdfWithCharts(
-                widget.parentId,
+                widget.therapistId,
                 childId,
+                activeChild['name'],
                 fullChildData,
               );
             },
@@ -1407,15 +1713,62 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        "This week's top mood is: $weeklyTopMood",
+                        "This week's top mood is: $weeklyTopMood, assign a Power Boost?",
                         style: const TextStyle(fontSize: 12),
                       ),
                       const SizedBox(height: 6),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          final therapistId = widget.therapistId;
+                          final childId = activeChild['cid'];
+
+                          if (childId == null || childId.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('No active child selected!'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => TherapistCBTPage(
+                                therapistId: therapistId,
+                                childId: childId,
+                                suggestedMood: weeklyTopMood,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(
+                          Icons.auto_awesome,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        label: const Text(
+                          "Assign Power Boost",
+                          style: TextStyle(fontSize: 12, color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFECE00),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          textStyle: const TextStyle(fontSize: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
+
             // ---------------- TASKS PROGRESS ----------------
             Expanded(
               child: GestureDetector(
@@ -1511,6 +1864,93 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     ];
   }
 
+  Widget _buildAnalyticsPage<T>({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<T> items,
+    required Widget Function(T) builder,
+  }) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 3,
+      margin: const EdgeInsets.all(8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: items.isEmpty
+                  ? Center(
+                      child: Text(
+                        "No data available",
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    )
+                  : ListView.builder(
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: builder(item),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required String value,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: color, size: 24),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
+  }
+
   Widget _legendWithCounter({
     required Color color,
     required String label,
@@ -1565,15 +2005,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     // Ensure selected child is not null
     final activeChild =
         selectedChildProv.selectedChild ??
-        {
-          "cid": "",
-          "name": "No Child",
-          "balance": 0,
-          "parentUid": widget.parentId,
-        };
+        {"cid": "", "name": "No Child", "therapistUid": widget.therapistId};
 
-    final parentName = _parent?.name ?? "Parent";
-    final parentEmail = _parent?.email ?? "";
+    final therapistName = _therapist?.name ?? "Therapist";
+    final therapistEmail = _therapist?.email ?? "";
 
     // Get assigned CBT exercises for the selected child
     final childId = activeChild['cid'] ?? '';
@@ -1587,15 +2022,15 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         backgroundColor: const Color(0xFF8657F3),
         elevation: 0,
         title: const Text(
-          'Parent Dashboard',
+          'Therapist Dashboard',
           style: TextStyle(color: Colors.white),
         ),
         automaticallyImplyLeading: true,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      drawer: ParentAccountSidebar(parentId: widget.parentId),
+      drawer: TherapistAccountSidebar(therapistId: widget.therapistId),
       body: RefreshIndicator(
-        onRefresh: _loadParentData,
+        onRefresh: _loadTherapistData,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -1609,7 +2044,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                     radius: 30,
                     backgroundColor: Colors.white,
                     child: Text(
-                      parentName.isNotEmpty ? parentName[0].toUpperCase() : 'P',
+                      therapistName.isNotEmpty
+                          ? therapistName[0].toUpperCase()
+                          : 'P',
                       style: const TextStyle(
                         color: Color(0xFF8657F3),
                         fontSize: 24,
@@ -1623,7 +2060,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Welcome Back, $parentName!",
+                          "Welcome Back, $therapistName!",
                           style: const TextStyle(
                             fontSize: 20,
                             color: Colors.white,
@@ -1632,7 +2069,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          parentEmail,
+                          therapistEmail,
                           style: const TextStyle(
                             fontSize: 14,
                             color: Colors.white70,

@@ -55,10 +55,7 @@ class JournalProvider extends ChangeNotifier {
           try {
             // Push all local entries for this child
             await _journalRepo.pushPendingLocalChanges(parentId, childId);
-            await _syncService.syncAllPendingChanges(
-              parentId: parentId,
-              childId: childId,
-            );
+            await _syncService.syncAllPendingChanges(childId: childId);
             debugPrint(
               "✅ Pending journals pushed for child $childId (parent: $parentId)",
             );
@@ -155,26 +152,47 @@ class JournalProvider extends ChangeNotifier {
     String childId,
     JournalEntry entry,
   ) async {
+    // Create a new entry with unique ID and correct childId
     final newEntry = entry.copyWith(
       jid: entry.jid.isNotEmpty ? entry.jid : const Uuid().v4(),
       cid: childId,
       createdAt: DateTime.now(),
     );
 
+    // Track parent for child
     _parentForChild[childId] = parentId;
 
     // Save locally
     await _journalRepo.saveEntryLocal(newEntry);
 
+    // Update in-memory map
     _entries.putIfAbsent(childId, () => []);
     _entries[childId]!.insert(0, newEntry);
-    _checkAchievements(childId as ChildUser);
+
+    // ✅ Check achievements by childId (no casting needed)
+    await _checkAchievementsById(childId);
+
+    // Notify listeners
     notifyListeners();
 
     // Push pending changes if online
     if (await NetworkHelper.isOnline()) {
       await pushPendingChanges(parentId, childId);
     }
+  }
+
+  // ---------------- ACHIEVEMENTS (childId version) ----------------
+  Future<void> _checkAchievementsById(String childId) async {
+    // Fetch child object from user repository if your AchievementManager needs it
+    ChildUser? child = await _userRepo.fetchChildAndCacheById(childId);
+    if (child == null) return;
+
+    final achievementManager = AchievementManager(
+      achievementNotifier: AchievementNotifier(),
+      currentChild: child,
+    );
+
+    achievementManager.checkAchievements();
   }
 
   Future<void> updateEntry(
@@ -214,6 +232,15 @@ class JournalProvider extends ChangeNotifier {
     }
   }
 
+  void clearEntries() {
+    _entries.clear();
+    _parentForChild.clear();
+    _journalSubscription?.cancel();
+    _journalSubscription = null;
+    _isLoading = false;
+    notifyListeners();
+  }
+
   List<JournalEntry> getEntries(String childId) => _entries[childId] ?? [];
 
   // ---------------- MANUAL FETCH ----------------
@@ -236,10 +263,7 @@ class JournalProvider extends ChangeNotifier {
   Future<void> pushPendingChanges(String parentId, String childId) async {
     try {
       await _journalRepo.pushPendingLocalChanges(parentId, childId);
-      await _syncService.syncAllPendingChanges(
-        parentId: parentId,
-        childId: childId,
-      );
+      await _syncService.syncAllPendingChanges(childId: childId);
       notifyListeners();
     } catch (e) {
       debugPrint("⚠️ Failed to push pending journal changes: $e");

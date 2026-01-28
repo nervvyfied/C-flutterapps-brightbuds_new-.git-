@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/models/parent_model.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
@@ -18,11 +19,12 @@ class ChildQuestsPage extends StatefulWidget {
   final String parentId;
   final String childId;
   final String childName;
-
+  final String therapistId;
   const ChildQuestsPage({
     required this.parentId,
     required this.childId,
     required this.childName,
+    required this.therapistId,
     super.key,
   });
 
@@ -63,7 +65,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   Future<void> _initialize() async {
   _settingsBox = await Hive.openBox('settings');
 
-  // 1️⃣ Load cached XP safely
+ // 1️⃣ Load cached XP safely
   final cachedXP = _settingsBox.get(
     'cached_xp_${widget.childId}',
     defaultValue: 0,
@@ -104,8 +106,9 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   _fetchXP();
 }
 
-void _listenToTasks() {
-  _taskSubscription?.cancel();
+  /// Real-time task listener — reloads provider tasks and checks for new tokens
+  void _listenToTasks() {
+    _taskSubscription?.cancel();
 
   final stream = FirebaseFirestore.instance
       .collection('users')
@@ -205,6 +208,7 @@ void _listenToXP() {
     debugPrint('🟢 XP synced Firestore → Hive: $newXP');
   }, onError: (e) => debugPrint('❌ XP stream error: $e'));
 }
+
 
 
   /// Fetch balance from Firestore (offline-first) and sync to Hive safely

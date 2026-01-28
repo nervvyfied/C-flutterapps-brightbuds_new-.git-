@@ -83,7 +83,8 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     cid: childMap['cid'],
                     name: childMap['name'],
                     parentUid: widget.parentId,
-                    xp: childMap['xp'] ?? 0, // IMPORTANT
+                    xp: childMap['xp'] ?? 0, 
+                    therapistUid: null, // IMPORTANT
                   );
 
                   taskProvider.currentChild = childModel;
@@ -168,7 +169,8 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
             cid: firstChild['cid'],
             name: firstChild['name'],
             parentUid: widget.parentId,
-            xp: firstChild['xp'] ?? 0,
+            xp: firstChild['xp'] ?? 0, 
+            therapistUid: null,
           );
 
           taskProvider.currentChild = childModel;
@@ -207,60 +209,50 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
     }
   }
 
-  Future<void> _switchChildDialog() async {
+   Future<void> _switchChildDialog() async {
     if (childrenList.isEmpty) return;
     await showDialog(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Switch Child"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: childrenList.map((childMap) {
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.blue[100],
-                  child: Text(
-                    childMap['name'][0],
-                    style: const TextStyle(color: Colors.black),
-                  ),
+      builder: (ctx) => AlertDialog(
+        title: const Text("Switch Child"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: childrenList.map((childMap) {
+            final childName = childMap['name'] ?? 'Child';
+            final accessCode = childMap['accessCode'] ?? 'N/A';
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.blue[100],
+                child: Text(
+                  childName[0],
+                  style: const TextStyle(color: Colors.black),
                 ),
-                title: Text(childMap['name']),
-                subtitle: Text("Access Code: ${childMap['accessCode']}"),
-                onTap: () async {
-                  final selectedChildProv = Provider.of<SelectedChildProvider>(
-                    context,
-                    listen: false,
-                  );
-                  selectedChildProv.setSelectedChild(childMap);
-                  final taskProvider = context.read<TaskProvider>();
-                  final progression = context.read<ProgressionProvider>();
-
-                  final childModel = ChildUser(
-                    cid: childMap['cid'],
-                    name: childMap['name'],
-                    parentUid: widget.parentId,
-                    xp: childMap['xp'] ?? 0, // IMPORTANT
-                  );
-
-                  taskProvider.currentChild = childModel;
-                  progression.setChild(childModel);
-
-                  taskProvider.onXPChanged = (newXP) {
-                    progression.updateXP(newXP);
-                  };
-                  await Provider.of<JournalProvider>(
-                    context,
-                    listen: false,
-                  ).getEntries(childMap['cid']);
-                  Navigator.pop(ctx);
-                  setState(() {});
-                },
-              );
-            }).toList(),
-          ),
-        );
-      },
+              ),
+              title: Text(
+                childName,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: Text("Access Code: $accessCode"),
+              onTap: () async {
+                final selectedChildProv = Provider.of<SelectedChildProvider>(
+                  context,
+                  listen: false,
+                );
+                selectedChildProv.setSelectedChild(childMap);
+                await Provider.of<JournalProvider>(
+                  context,
+                  listen: false,
+                ).getEntries(childMap['cid']);
+                Navigator.pop(ctx);
+                setState(() {});
+              },
+            );
+          }).toList(),
+        ),
+      ),
     );
   }
 

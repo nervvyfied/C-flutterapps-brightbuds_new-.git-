@@ -30,18 +30,21 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       longestStreak: fields[10] as int,
       totalDaysCompleted: fields[11] as int,
       lastCompletedDate: fields[12] as DateTime?,
-      parentId: fields[13] as String,
+      therapistId: fields[13] as String,
       childId: fields[14] as String,
+      parentId: fields[18] as String,
       lastUpdated: fields[15] as DateTime?,
       verified: fields[16] as bool,
       createdAt: fields[17] as DateTime,
+      creatorId: fields[19] as String,
+      creatorType: fields[20] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, TaskModel obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(21)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -69,7 +72,7 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       ..writeByte(12)
       ..write(obj.lastCompletedDate)
       ..writeByte(13)
-      ..write(obj.parentId)
+      ..write(obj.therapistId)
       ..writeByte(14)
       ..write(obj.childId)
       ..writeByte(15)
@@ -77,7 +80,13 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       ..writeByte(16)
       ..write(obj.verified)
       ..writeByte(17)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(18)
+      ..write(obj.parentId)
+      ..writeByte(19)
+      ..write(obj.creatorId)
+      ..writeByte(20)
+      ..write(obj.creatorType);
   }
 
   @override

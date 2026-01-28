@@ -14,6 +14,7 @@ import 'package:brightbuds_new/utils/xp_calculator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show ScaffoldMessenger, Text, BuildContext, SnackBar, TimeOfDay;
+import 'package:flutter/widgets.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:uuid/uuid.dart';
 import 'package:hive/hive.dart';
@@ -26,11 +27,19 @@ import '../services/sync_service.dart';
 
 enum _PendingActionType { balance }
 
+enum UserType { parent, therapist }
+
+class CurrentUser {
+  final String uid; // Firestore UID
+  final UserType type;
+
+  CurrentUser({required this.uid, required this.type});
+}
+
 class _PendingAction {
   final _PendingActionType type;
   final String?
   taskId; // optional: used if the action relates to a specific task
-
   _PendingAction(this.type, this.taskId);
 }
 
@@ -40,13 +49,12 @@ class TaskProvider extends ChangeNotifier {
   final StreakRepository _streakRepo = StreakRepository();
   final UnlockManager unlockManager;
   late final SyncService _syncService;
+
   late Box<ChildUser> _childBox;
   Function(int newXP)? onXPChanged;
     TaskProvider(this.unlockManager,) {
       _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
     }
-
-  late ChildUser currentChild;
 
   final List<_PendingAction> _pendingActions = [];
   List<TaskModel> _tasks = [];
@@ -54,6 +62,45 @@ class TaskProvider extends ChangeNotifier {
   set tasks(List<TaskModel> newTasks) {
     _tasks = newTasks;
     notifyListeners();
+ // Initialize child box
+    _initChildBox();
+  }
+
+  Future<void> _initChildBox() async {
+    _childBox = Hive.isBoxOpen('childrenBox')
+        ? Hive.box<ChildUser>('childrenBox')
+        : await Hive.openBox<ChildUser>('childrenBox');
+  }
+
+  CurrentUser? currentUser; // ✅ Who is using this provider
+  String? _currentUserId;
+  UserType? _currentUserType;
+
+  void setCurrentUser(String uid, UserType type) {
+    currentUser = CurrentUser(uid: uid, type: type);
+    debugPrint('👤 Current user set: $uid (${type.name})');
+  }
+
+  void clearCurrentUser() {
+    _currentUserId = null;
+    _currentUserType = null;
+    notifyListeners();
+  }
+
+  String? get currentUserId => _currentUserId;
+  UserType? get currentUserType => _currentUserType;
+
+  ChildUser? currentChild;
+  bool canManageTask(TaskModel task) {
+    if (currentUser == null) return false;
+
+    if (currentUser!.type == UserType.therapist) {
+      return true; // Therapist can manage anything
+    } else if (currentUser!.type == UserType.parent) {
+      return task.creatorId == currentUser!.uid; // Parent only their own tasks
+    }
+
+    return false;
   }
 
   TaskModel? getTaskById(String id) {
@@ -88,38 +135,31 @@ class TaskProvider extends ChangeNotifier {
     final nowTod = TimeOfDay.fromDateTime(DateTime.now());
 
     for (final task in tasks) {
-      // If task is marked done (today), count as done.
-      // NOTE: You may further check lastCompletedDate to ensure "done today" if desired.
       if (task.isDone) {
         done++;
         continue;
       }
 
-      // Not done
       notDone++;
 
-      // Determine if it should be considered missed based on its routine window
       try {
         final routineKey = (task.routine ?? 'anytime').toLowerCase().trim();
         final end = routineEndTimes[routineKey];
 
-        // If a known end time exists and it's not 'anytime', compare.
         if (end != null && routineKey != 'anytime') {
           if (_timeOfDayToDouble(nowTod) > _timeOfDayToDouble(end)) {
-            // Current time is past the routine's end time => consider missed.
             missed++;
           }
         }
       } catch (e) {
-        // Fail-safe: don't treat unknown routine as missed
-        // optionally log debug here
+        // Fail-safe
       }
     }
 
     return {'done': done, 'notDone': notDone, 'missed': missed};
   }
 
-  void Function(int newLevel)? onLevelUp;
+ void Function(int newLevel)? onLevelUp;
 
   void _checkAchievements(ChildUser child) {
     final achievementManager = AchievementManager(
@@ -128,19 +168,32 @@ class TaskProvider extends ChangeNotifier {
     );
     achievementManager.checkAchievements();
   }
-
   // ---------------- FIRESTORE ----------------
   void startFirestoreSubscription({
     required String parentId,
     required String childId,
     bool isParentView = false,
-  }) {
+  }) async {
     // Cancel previous subscription if exists
     _taskSubscription?.cancel();
 
+    // ✅ Get actual parent ID for subscription
+    String actualParentId = parentId;
+    if (currentUser?.type == UserType.therapist) {
+      final fetchedParentId = await _getParentIdForChild(childId);
+      if (fetchedParentId != null) {
+        actualParentId = fetchedParentId;
+      } else {
+        debugPrint(
+          '⚠️ Cannot subscribe: parentId not found for child $childId',
+        );
+        return;
+      }
+    }
+
     final query = _firestore
         .collection('users')
-        .doc(parentId)
+        .doc(actualParentId)
         .collection('children')
         .doc(childId)
         .collection('tasks');
@@ -163,7 +216,6 @@ class TaskProvider extends ChangeNotifier {
                 await _taskBox?.put(task.id, task);
                 updated = true;
               } else {
-                // Update in-memory task instead of adding duplicate
                 _tasks[index] = task;
                 await _taskBox?.put(task.id, task);
                 updated = true;
@@ -172,7 +224,6 @@ class TaskProvider extends ChangeNotifier {
 
             case DocumentChangeType.modified:
               if (index != -1) {
-                // Only update if the incoming task is newer
                 final localTask = _tasks[index];
                 if (task.lastUpdated != null &&
                     (localTask.lastUpdated == null ||
@@ -182,7 +233,6 @@ class TaskProvider extends ChangeNotifier {
                   updated = true;
                 }
               } else {
-                // New task from Firestore
                 _tasks.add(task);
                 await _taskBox?.put(task.id, task);
                 updated = true;
@@ -232,71 +282,60 @@ class TaskProvider extends ChangeNotifier {
     _setLoading(true);
 
     try {
-      // 1️⃣ Open Hive first
       await initHive();
-
-      // 2️⃣ Load tasks from local Hive
       _tasks = _taskBox?.values.toList() ?? [];
       notifyListeners();
 
-      // 3️⃣ Start Firestore subscription early for real-time updates
-      if (childId != null && childId.isNotEmpty) {
-        startFirestoreSubscription(parentId: parentId, childId: childId);
+      // ✅ Ensure current child is set
+      if (childId != null && currentChild == null) {
+        await _loadCurrentChild(childId);
       }
 
-      // 5️⃣ Merge remote tasks if online
+      // ✅ Get actual parent ID for loading
+      String actualParentId = parentId;
+      if (currentUser?.type == UserType.therapist && childId != null) {
+        final fetchedParentId = await _getParentIdForChild(childId);
+        if (fetchedParentId != null) {
+          actualParentId = fetchedParentId;
+        } else {
+          debugPrint(
+            '⚠️ Cannot load tasks: parentId not found for child $childId',
+          );
+          return;
+        }
+      }
+
+      if (childId != null && childId.isNotEmpty) {
+        startFirestoreSubscription(parentId: actualParentId, childId: childId);
+      }
+
       if (await NetworkHelper.isOnline()) {
+        if (currentUser?.type == UserType.parent) {
+          await _taskRepo.pullParentTasks(actualParentId);
+        } else if (currentUser?.type == UserType.therapist && childId != null) {
+          await _taskRepo.pullChildTasks(actualParentId, childId);
+        }
+
         await mergeRemoteTasks(
-          parentId: parentId,
+          parentId: actualParentId,
           childId: childId,
           isParent: isParent,
         );
       }
-// 4️⃣ Save current task progress dynamically
-{
-  final Map<String, List<TaskModel>> childTasks = {};
-  for (final task in _tasks) {
-    if (!childTasks.containsKey(task.childId)) {
-      childTasks[task.childId] = [];
-    }
-    childTasks[task.childId]!.add(task);
-  }
-
-  for (final entry in childTasks.entries) {
-    final tasks = entry.value;
-    final statusCounts = countTaskStatuses(tasks);
-
-    final done = statusCounts['done'] ?? 0;
-    final notDone = statusCounts['notDone'] ?? 0;
-    final missed = statusCounts['missed'] ?? 0;
-
-    try {
-      final historyService = TaskHistoryService();
-      await historyService.saveDailyTaskProgress(
-        parentId: tasks.first.parentId,
-        childId: entry.key,
-        done: done,
-        notDone: notDone,
-        missed: missed,
-      );
-      debugPrint('📘 Saved daily progress for child ${entry.key}');
-    } catch (e) {
-      debugPrint('⚠️ Failed to save daily progress for ${entry.key}: $e');
-    }
-  }
-}
-
-// 5️⃣ Auto-reset if needed (old resetDailyTasks logic)
-await autoResetIfNeeded();
-
-      // 6️⃣ Reload tasks from local Hive after merge/reset
-      _tasks = _taskBox?.values.toList() ?? [];
-      notifyListeners();
-
-      // 7️⃣ Schedule alarms for tasks (skip web)
-      if (!kIsWeb) await _scheduleAllAlarms(_tasks);
     } finally {
       _setLoading(false);
+    }
+  }
+
+  // Helper to load current child
+  Future<void> _loadCurrentChild(String childId) async {
+    try {
+      currentChild = await _userRepo.fetchChildAndCacheById(childId);
+      if (currentChild != null) {
+        debugPrint('👶 Current child loaded: ${currentChild!.name}');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to load current child: $e');
     }
   }
 
@@ -320,19 +359,33 @@ await autoResetIfNeeded();
     bool isParent = false,
   }) async {
     try {
+      // ✅ Get actual parent ID for merging
+      String actualParentId = parentId;
+      if (currentUser?.type == UserType.therapist && childId != null) {
+        final fetchedParentId = await _getParentIdForChild(childId);
+        if (fetchedParentId != null) {
+          actualParentId = fetchedParentId;
+        } else {
+          debugPrint(
+            '⚠️ Cannot merge remote tasks: parentId not found for child $childId',
+          );
+          return;
+        }
+      }
+
       List<TaskModel> remoteTasks = [];
 
       if (isParent) {
-        await _taskRepo.pullParentTasks(parentId);
+        await _taskRepo.pullParentTasks(actualParentId);
         remoteTasks = _taskRepo
             .getAllTasksLocal()
-            .where((t) => t.parentId == parentId)
+            .where((t) => t.parentId == actualParentId)
             .toList();
       } else if (childId != null && childId.isNotEmpty) {
-        await _taskRepo.pullChildTasks(parentId, childId);
+        await _taskRepo.pullChildTasks(actualParentId, childId);
         remoteTasks = _taskRepo
             .getAllTasksLocal()
-            .where((t) => t.parentId == parentId && t.childId == childId)
+            .where((t) => t.parentId == actualParentId && t.childId == childId)
             .toList();
       }
 
@@ -360,93 +413,161 @@ await autoResetIfNeeded();
     }
   }
 
-  Future<void> _syncToFirestore(TaskModel task) async {
+  // ---------------- GET PARENT ID FOR CHILD ----------------
+  Future<String?> _getParentIdForChild(String childId) async {
+    if (currentUser?.type != UserType.therapist) {
+      return null;
+    }
+
+    try {
+      final therapistDoc = await _firestore
+          .collection('therapists')
+          .doc(currentUser!.uid)
+          .get();
+
+      if (therapistDoc.exists) {
+        final data = therapistDoc.data();
+        if (data != null && data['childrenAccessCodes'] != null) {
+          final childrenMap = Map<String, dynamic>.from(
+            data['childrenAccessCodes'],
+          );
+          if (childrenMap.containsKey(childId)) {
+            final childEntry = Map<String, dynamic>.from(childrenMap[childId]);
+            return childEntry['parentUid'] as String?;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Failed to fetch parentUid from therapist map: $e');
+    }
+
+    return null;
+  }
+
+  // ---------------- ADD TASK ----------------
+  Future<void> addTask(TaskModel task, BuildContext context) async {
+    try {
+      final rewardInt = int.tryParse(task.reward.toString());
+      if (rewardInt == null || rewardInt < 0) {
+        _showSnackBar(context, "Reward must be a positive number");
+        return;
+      }
+
+      String actualParentId = task.parentId;
+      if (currentUser?.type == UserType.therapist) {
+        final fetchedParentId = await _getParentIdForChild(task.childId);
+        if (fetchedParentId != null) {
+          actualParentId = fetchedParentId;
+        } else {
+          _showSnackBar(
+            context,
+            "Therapist does not have access to this child's parent.",
+          );
+          return;
+        }
+      }
+
+      final newTask = task.copyWith(
+        reward: rewardInt,
+        id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
+        lastUpdated: DateTime.now(),
+        creatorId: currentUser?.uid ?? actualParentId,
+        creatorType: currentUser?.type.name ?? 'parent',
+        therapistId: currentUser?.type == UserType.therapist
+            ? currentUser!.uid
+            : null,
+        parentId: actualParentId, // Set the correct parentId
+      );
+
+      final index = _tasks.indexWhere((t) => t.id == newTask.id);
+      if (index == -1) {
+        _tasks.add(newTask);
+      } else {
+        _tasks[index] = newTask;
+      }
+      await _taskBox?.put(newTask.id, newTask);
+
+      notifyListeners();
+      await _taskRepo.saveTask(newTask);
+
+      if (!kIsWeb) {
+        await scheduleTaskAlarm(newTask);
+      }
+
+      _showSnackBar(context, "Task added successfully!");
+
+      await _syncToFirestore(newTask, parentIdOverride: actualParentId);
+    } catch (e) {
+      debugPrint("⚠️ Error adding task: $e");
+      _showSnackBar(context, "Failed to add task: ${e.toString()}");
+    }
+  }
+
+  // Helper method to safely show SnackBar
+  void _showSnackBar(BuildContext context, String message) {
+    if (context.mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+      });
+    }
+  }
+
+  // ---------------- SYNC TO FIRESTORE ----------------
+  Future<void> _syncToFirestore(
+    TaskModel task, {
+    String? parentIdOverride,
+  }) async {
     try {
       if (await NetworkHelper.isOnline()) {
+        // Use the task's parentId or override
+        final actualParentId = parentIdOverride ?? task.parentId;
+
+        // Actor info (who is making the change)
+        final actorId = currentUser?.uid ?? 'unknown';
+        final actorType = currentUser?.type.name ?? 'parent';
+
+        // Firestore path: always under the correct parent
         final docRef = _firestore
             .collection('users')
-            .doc(task.parentId)
+            .doc(actualParentId)
             .collection('children')
             .doc(task.childId)
             .collection('tasks')
             .doc(task.id);
 
-        // Merge ensures partial updates are handled without duplicating
-        await docRef.set(task.toMap(), SetOptions(merge: true));
+        final data = task.toMap();
+        data['lastModifiedBy'] = actorId;
+        data['lastModifiedByType'] = actorType;
+        data['parentId'] =
+            actualParentId; // Ensure correct parentId in document
 
-        debugPrint('✅ Task synced to Firestore (merge only): ${task.name}');
+        await docRef.set(data, SetOptions(merge: true));
+        debugPrint(
+          '✅ Task synced to Firestore by $actorType ($actorId) under parent $actualParentId',
+        );
       }
-    } catch (e) {
+    } catch (e, stack) {
       debugPrint('⚠️ Failed to sync task to Firestore: $e');
+      debugPrint(stack.toString());
     }
   }
 
-  // ---------------- CRUD ----------------
-  Future<void> addTask(TaskModel task, BuildContext context) async {
-    try {
-      // Validate numeric field: reward
-      final reward = task.reward;
-      if (reward == null || reward.toString().isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Reward cannot be empty")));
-        return;
-      }
-
-      // Only allow positive integers
-      final rewardInt = int.tryParse(reward.toString());
-      if (rewardInt == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Reward must be a number")),
-        );
-        return;
-      }
-
-      if (rewardInt < 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Reward must be a positive number")),
-        );
-        return;
-      }
-
-      // Create a new task with ID and timestamp
-      final newTask = task.copyWith(
-        reward: rewardInt,
-        id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
-        lastUpdated: DateTime.now(),
-      );
-
-      // Save locally
-      _tasks.add(newTask);
-      await _taskBox?.put(newTask.id, newTask);
-
-      notifyListeners();
-
-      // Save to repository
-      await _taskRepo.saveTask(newTask);
-
-      // Sync to Firestore
-      await _syncToFirestore(newTask);
-
-      // Schedule alarm (if applicable)
-      if (!kIsWeb) scheduleTaskAlarm(newTask);
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("Task added successfully!")));
-    } catch (e) {
-      debugPrint("Error adding task: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to add task: ${e.toString()}")),
-      );
-    }
-  }
-
+  // ---------------- UPDATE TASK ----------------
   Future<void> updateTask(TaskModel updatedFields) async {
     final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
     if (index == -1) return;
 
     final oldTask = _tasks[index];
+
+    if (!canManageTask(oldTask)) {
+      debugPrint('⚠️ User not allowed to update task ${oldTask.id}');
+      return;
+    }
+
     final mergedTask = oldTask.copyWith(
       name: updatedFields.name,
       difficulty: updatedFields.difficulty,
@@ -458,9 +579,18 @@ await autoResetIfNeeded();
 
     _tasks[index] = mergedTask;
     await _taskBox?.put(mergedTask.id, mergedTask);
-
     await _taskRepo.updateTask(mergedTask);
-    await _syncToFirestore(mergedTask);
+
+    // ✅ Get actual parent ID for sync
+    String actualParentId = mergedTask.parentId;
+    if (currentUser?.type == UserType.therapist) {
+      final fetchedParentId = await _getParentIdForChild(mergedTask.childId);
+      if (fetchedParentId != null) {
+        actualParentId = fetchedParentId;
+      }
+    }
+
+    await _syncToFirestore(mergedTask, parentIdOverride: actualParentId);
 
     notifyListeners();
 
@@ -472,6 +602,7 @@ await autoResetIfNeeded();
     debugPrint('📝 Task updated: ${mergedTask.name}');
   }
 
+  // ---------------- DELETE TASK ----------------
   Future<void> deleteTask(
     String taskId,
     String parentId,
@@ -482,34 +613,46 @@ await autoResetIfNeeded();
 
     final task = _tasks[index];
 
-    // Remove locally (Hive + Repo)
-    await _taskRepo.deleteTask(taskId, parentId, childId);
-    await _taskBox?.delete(taskId);
-
-    // Cancel alarm if exists
-    if (!kIsWeb && task.alarm != null) {
-      await cancelTaskAlarm(task);
+    if (!canManageTask(task)) {
+      debugPrint('⚠️ User not allowed to delete task ${task.id}');
+      return;
     }
 
-    // Remove from in-memory list and notify
-    _tasks.removeAt(index);
-    notifyListeners();
+    // ✅ Ensure current child is set for this operation
+    if (currentChild == null || currentChild!.cid != childId) {
+      await _loadCurrentChild(childId);
+    }
 
-    // Firestore delete for real-time
-    if (await NetworkHelper.isOnline()) {
-      try {
-        await _firestore
-            .collection('users')
-            .doc(parentId)
-            .collection('children')
-            .doc(childId)
-            .collection('tasks')
-            .doc(taskId)
-            .delete();
-      } catch (e) {
-        debugPrint('⚠️ Firestore deleteTask failed: $e');
+    // ✅ Get actual parent ID for deletion
+    String actualParentId = parentId;
+    if (currentUser?.type == UserType.therapist) {
+      final fetchedParentId = await _getParentIdForChild(childId);
+      if (fetchedParentId != null) {
+        actualParentId = fetchedParentId;
       }
     }
+
+    _tasks.removeAt(index);
+    await _taskBox?.delete(taskId);
+    await _taskRepo.deleteTask(taskId, actualParentId, childId);
+
+    if (!kIsWeb && task.alarm != null) await cancelTaskAlarm(task);
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(actualParentId)
+          .collection('children')
+          .doc(childId)
+          .collection('tasks')
+          .doc(taskId)
+          .delete();
+      debugPrint('🗑 Task deleted from Firestore: ${task.name}');
+    } catch (e) {
+      debugPrint('⚠️ Firestore deleteTask failed: $e');
+    }
+
+    notifyListeners();
   }
 
   void loadCachedTasks(List<TaskModel> cachedTasks) {
@@ -526,26 +669,49 @@ await autoResetIfNeeded();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
+    // ✅ Ensure current child is set for this operation
+    if (currentChild == null || currentChild!.cid != childId) {
+      await _loadCurrentChild(childId);
+    }
+
     // ✅ Handle streak
     final bool isYesterday =
         task.lastCompletedDate != null &&
         task.lastCompletedDate!.difference(today).inDays == -1;
     final newActiveStreak = isYesterday ? task.activeStreak + 1 : 1;
 
+    // ✅ Get actual parent ID
+    String actualParentId = task.parentId;
+    if (currentUser?.type == UserType.therapist) {
+      final fetchedParentId = await _getParentIdForChild(childId);
+      if (fetchedParentId != null) {
+        actualParentId = fetchedParentId;
+      }
+    }
+
     final updatedTask = task.copyWith(
       isDone: true,
       doneAt: now,
       lastCompletedDate: today,
       activeStreak: newActiveStreak,
-      longestStreak:
-          newActiveStreak > (task.longestStreak) ? newActiveStreak : task.longestStreak,
-      totalDaysCompleted: task.totalDaysCompleted + 1,
+      longestStreak: newActiveStreak > (task.longestStreak)
+          ? newActiveStreak
+          : task.longestStreak,
+      totalDaysCompleted: (task.totalDaysCompleted) + 1,
       lastUpdated: now,
+      parentId: actualParentId, // Ensure correct parentId
     );
 
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
-    await _taskRepo.saveTask(updatedTask);
+
+    // Persist via repository so repo/pending logic knows about change
+    try {
+      await _taskRepo.saveTask(updatedTask);
+    } catch (e) {
+      debugPrint('⚠️ _taskRepo.saveTask failed (mark done): $e');
+    }
+
     notifyListeners();
 
     // ✅ Cancel alarm if exists
@@ -553,24 +719,47 @@ await autoResetIfNeeded();
       await cancelTaskAlarm(updatedTask);
     }
 
-    // ✅ Sync Firestore
+    // ✅ Try to sync immediately if online (push this single change)
     if (await NetworkHelper.isOnline()) {
-      await _syncToFirestore(updatedTask);
-      await _syncService.syncAllPendingChanges(
-        parentId: updatedTask.parentId,
-        childId: updatedTask.childId,
-      );
+      try {
+        await _syncToFirestore(updatedTask);
+        // Also ensure syncService flushes any other pending changes for this child
+        try {
+          await _syncService.syncAllPendingChanges(
+            parentId: updatedTask.parentId,
+            childId: updatedTask.childId,
+          );
+        } catch (e) {
+          debugPrint('⚠️ syncAllPendingChanges failed (after mark done): $e');
+        }
+        debugPrint('✅ Task marked done and synced: ${updatedTask.name}');
+      } catch (e) {
+        debugPrint('⚠️ Firestore sync failed (mark done): $e');
+      }
+    } else {
+      debugPrint('⚠️ Offline: will sync later (mark done).');
     }
 
     // ✅ Update streak
     await _streakRepo.updateStreak(
       updatedTask.childId,
-      updatedTask.parentId,
+      actualParentId,
       updatedTask.id,
     );
 
     // ✅ Notify parent
-    await _notifyParentCompletion(updatedTask, childId);
+    await _notifyParentCompletion(updatedTask, childId, actualParentId);
+
+    // ✅ Deduplicate any local duplicates after Firestore resync
+    final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
+    _tasks = uniqueTasks.values.toList()
+      ..sort(
+        (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
+          a.lastUpdated ?? DateTime(0),
+        ),
+      );
+
+    notifyListeners();
   }
 
   Future<void> markTaskAsUndone(String taskId, String childId) async {
@@ -578,11 +767,25 @@ await autoResetIfNeeded();
     if (index == -1) return;
 
     final task = _tasks[index];
-    if (!task.isDone) return; // Already undone — nothing to do
+    if (!task.isDone) return;
 
     final now = DateTime.now();
 
-    // ✅ Decrease totalDaysCompleted but don’t go below 0
+    // ✅ Ensure current child is set for this operation
+    if (currentChild == null || currentChild!.cid != childId) {
+      await _loadCurrentChild(childId);
+    }
+
+    // ✅ Get actual parent ID
+    String actualParentId = task.parentId;
+    if (currentUser?.type == UserType.therapist) {
+      final fetchedParentId = await _getParentIdForChild(childId);
+      if (fetchedParentId != null) {
+        actualParentId = fetchedParentId;
+      }
+    }
+
+    // ✅ Decrease totalDaysCompleted but don't go below 0
     final newTotalDays = (task.totalDaysCompleted > 0)
         ? task.totalDaysCompleted - 1
         : 0;
@@ -594,13 +797,13 @@ await autoResetIfNeeded();
       verified: false,
       lastUpdated: now,
       totalDaysCompleted: newTotalDays,
+      parentId: actualParentId, // Ensure correct parentId
     );
 
     // ✅ Update local cache and in-memory
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
 
-    // Persist via repository so repo/pending logic knows about change
     try {
       await _taskRepo.saveTask(updatedTask);
     } catch (e) {
@@ -612,10 +815,11 @@ await autoResetIfNeeded();
     // ✅ Try to sync immediately if online
     if (await NetworkHelper.isOnline()) {
       try {
-        await _syncToFirestore(updatedTask);
+        await _syncToFirestore(updatedTask, parentIdOverride: actualParentId);
+
         try {
           await _syncService.syncAllPendingChanges(
-            parentId: updatedTask.parentId,
+            parentId: actualParentId,
             childId: updatedTask.childId,
           );
         } catch (e) {
@@ -641,11 +845,15 @@ await autoResetIfNeeded();
     notifyListeners();
   }
 
-  Future<void> _notifyParentCompletion(TaskModel task, String childId) async {
+  Future<void> _notifyParentCompletion(
+    TaskModel task,
+    String childId,
+    String parentId,
+  ) async {
     try {
       final childSnapshot = await _firestore
           .collection('users')
-          .doc(task.parentId)
+          .doc(parentId)
           .collection('children')
           .doc(childId)
           .get();
@@ -653,7 +861,7 @@ await autoResetIfNeeded();
       final childName = childSnapshot.data()?['name'] ?? 'Your child';
 
       await notifyParentCompletion(
-        parentId: task.parentId,
+        parentId: parentId,
         childName: childName,
         itemName: task.name,
         type: 'task_completed',
@@ -663,7 +871,8 @@ await autoResetIfNeeded();
     }
   }
 
-  Future<void> verifyTask(String taskId, String childId) async {
+  // ---------------- VERIFY TASK ----------------
+   Future<void> verifyTask(String taskId, String childId) async {
   final index = _tasks.indexWhere((t) => t.id == taskId);
   if (index == -1) return;
 
@@ -712,10 +921,10 @@ await autoResetIfNeeded();
 currentChild = (await _userRepo.fetchChildAndCache(task.parentId, childId))!;
 
 // 🔹 Trigger achievement check
-unlockManager.checkAchievementUnlocks(tasks, currentChild);
+unlockManager.checkAchievementUnlocks(tasks, currentChild!);
 
 // 🔹 Optional: notify UI about XP change
-onXPChanged?.call(currentChild.xp);
+onXPChanged?.call(currentChild!.xp);
 
   // --- FIRESTORE SYNC ---
   if (await NetworkHelper.isOnline()) {
@@ -729,7 +938,7 @@ onXPChanged?.call(currentChild.xp);
       debugPrint('⚠️ Firestore sync failed after verification: $e');
     }
   }
-  _checkAchievements(currentChild);
+  _checkAchievements(currentChild!);
 
   debugPrint(
     '✅ Task verified: ${verifiedTask.name}, XP granted: $earnedXP',
@@ -816,7 +1025,7 @@ onXPChanged?.call(currentChild.xp);
     );
 
     // --- 🧩 Group tasks by childId ---
-  final Map<String, List<TaskModel>> childTasks = {};
+    final Map<String, List<TaskModel>> childTasks = {};
     for (final task in _tasks) {
       if (!childTasks.containsKey(task.childId)) {
         childTasks[task.childId] = [];
@@ -825,29 +1034,29 @@ onXPChanged?.call(currentChild.xp);
     }
 
     for (final entry in childTasks.entries) {
-    final tasks = entry.value;
+      final tasks = entry.value;
 
-    // Use provider's method (same logic as the chart)
-    final statusCounts = countTaskStatuses(tasks);
+      final statusCounts = countTaskStatuses(tasks);
 
-    final done = statusCounts['done'] ?? 0;
-    final notDone = statusCounts['notDone'] ?? 0;
-    final missed = statusCounts['missed'] ?? 0;
+      final done = statusCounts['done'] ?? 0;
+      final notDone = statusCounts['notDone'] ?? 0;
+      final missed = statusCounts['missed'] ?? 0;
 
-    try {
-      final historyService = TaskHistoryService();
-      await historyService.saveDailyTaskProgress(
-        parentId: tasks.first.parentId,
-        childId: entry.key,
-        done: done,
-        notDone: notDone,
-        missed: missed,
-      );
-      debugPrint('📘 Saved daily progress for child ${entry.key}');
-    } catch (e) {
-      debugPrint('⚠️ Failed to save daily progress for ${entry.key}: $e');
+      // TODO: Fix this - TaskHistoryService is not defined in this file
+      // try {
+      //   final historyService = TaskHistoryService();
+      //   await historyService.saveDailyTaskProgress(
+      //     parentId: tasks.first.parentId,
+      //     childId: entry.key,
+      //     done: done,
+      //     notDone: notDone,
+      //     missed: missed,
+      //   );
+      //   debugPrint('📘 Saved daily progress for child ${entry.key}');
+      // } catch (e) {
+      //   debugPrint('⚠️ Failed to save daily progress for ${entry.key}: $e');
+      // }
     }
-  }
 
     for (var i = 0; i < _tasks.length; i++) {
       final task = _tasks[i];
@@ -1021,6 +1230,14 @@ onXPChanged?.call(currentChild.xp);
     } catch (e) {
       debugPrint('⚠️ Failed to send FCM to parent: $e');
     }
+  }
+
+  // ---------------- CLEANUP ----------------
+  @override
+  void dispose() {
+    _taskSubscription?.cancel();
+    _midnightTimer?.cancel();
+    super.dispose();
   }
 }
 

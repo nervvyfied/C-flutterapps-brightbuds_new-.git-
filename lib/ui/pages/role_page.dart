@@ -1,6 +1,6 @@
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '/data/providers/auth_provider.dart';
 
 class ChooseRolePage extends StatefulWidget {
   const ChooseRolePage({super.key});
@@ -15,21 +15,36 @@ class _ChooseRolePageState extends State<ChooseRolePage> {
   @override
   void initState() {
     super.initState();
-    _checkExistingSession();
+
+    // Defer everything until after first build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkExistingSession();
+    });
   }
 
   Future<void> _checkExistingSession() async {
-    final auth = context.read<AuthProvider>();
     await Future.delayed(const Duration(milliseconds: 300));
 
-    if (auth.isParent && auth.isLoggedIn) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacementNamed(context, '/parentHome');
-      });
-    } else if (auth.isChild && auth.isLoggedIn) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacementNamed(context, '/childHome');
-      });
+    if (!mounted) return;
+
+    final auth = context.read<AuthProvider>();
+
+    String? route;
+
+    if (auth.isLoggedIn) {
+      if (auth.isParent) {
+        route = '/parentHome';
+      } else if (auth.isChild) {
+        route = '/childHome';
+      } else if (auth.isTherapist) {
+        route = '/therapistHome';
+      }
+    }
+
+    if (!mounted) return;
+
+    if (route != null) {
+      Navigator.of(context).pushReplacementNamed(route);
     } else {
       setState(() => _checkingSession = false);
     }
@@ -38,9 +53,7 @@ class _ChooseRolePageState extends State<ChooseRolePage> {
   @override
   Widget build(BuildContext context) {
     if (_checkingSession) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -51,69 +64,61 @@ class _ChooseRolePageState extends State<ChooseRolePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-    // Move logo higher
-    Image.asset(
-      'assets/bb2.png',
-      width: 180,
-      height: 180,
-    ),
-    const SizedBox(height: 20),
-    
+                Image.asset('assets/bb2.png', width: 180, height: 180),
+                const SizedBox(height: 20),
 
-    // Parent Button
-    SizedBox(
-      width: 220,
-      height: 45,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFFECE00),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Fredoka',
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        onPressed: () {
-          Navigator.pushReplacementNamed(context, '/parentAuth');
-        },
-        child: const Text("Parent Login/Sign Up"),
-      ),
-    ),
-    const SizedBox(height: 20),
+                _roleButton(
+                  color: const Color(0xFFFECE00),
+                  label: 'Parent Login/Sign Up',
+                  route: '/parentAuth',
+                ),
+                const SizedBox(height: 20),
 
-    // Child Button
-    SizedBox(
-      width: 220,
-      height: 45,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF8657F3),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: const TextStyle(
-            fontFamily: 'Fredoka',
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        onPressed: () {
-          Navigator.pushReplacementNamed(context, '/childAuth');
-        },
-        child: const Text("Enter Access Code"),
-      ),
-    ),
+                _roleButton(
+                  color: const Color(0xFF8657F3),
+                  label: 'Enter Access Code',
+                  route: '/childAuth',
+                ),
+                const SizedBox(height: 20),
 
-    const SizedBox(height: 40), // extra bottom padding
-  ],
+                _roleButton(
+                  color: const Color(0xFF00BFA6),
+                  label: 'Therapist Login/Sign Up',
+                  route: '/therapistAuth',
+                ),
+              ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _roleButton({
+    required Color color,
+    required String label,
+    required String route,
+  }) {
+    return SizedBox(
+      width: 220,
+      height: 45,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          textStyle: const TextStyle(
+            fontFamily: 'Fredoka',
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        onPressed: () {
+          Navigator.pushReplacementNamed(context, route);
+        },
+        child: Text(label),
       ),
     );
   }
