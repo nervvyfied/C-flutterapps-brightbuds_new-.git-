@@ -182,30 +182,6 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Task details
-                  _buildDetailRow("Task Name", task.name),
-                  _buildDetailRow(
-                    "Time Completed",
-                    task.doneAt != null
-                        ? "${task.doneAt!.hour.toString().padLeft(2, '0')}:${task.doneAt!.minute.toString().padLeft(2, '0')}"
-                        : "N/A",
-                  ),
-                  _buildDetailRow("Difficulty", task.difficulty),
-                  _buildDetailRow("Reward", task.reward.toString()),
-                  _buildDetailRow(
-                    "Active Streak",
-                    task.activeStreak.toString(),
-                  ),
-                  _buildDetailRow(
-                    "Longest Streak",
-                    task.longestStreak.toString(),
-                  ),
-                  _buildDetailRow(
-                    "Days Completed",
-                    task.totalDaysCompleted.toString(),
-                  ),
-
                 // Task details
                 _buildDetailRow("Task Name", task.name),
                 _buildDetailRow(
@@ -243,12 +219,16 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                         horizontal: 24,
                         vertical: 12,
                       ),
-                      child: const Text(
-                        "Confirm Verification",
-                        style: TextStyle(fontSize: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
+                    child: const Text(
+                      "Confirm Verification",
+                      style: TextStyle(fontSize: 16),
+                    ),
                   ),
+                ),
                   const SizedBox(height: 16),
                 ],
               ),
@@ -898,7 +878,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                                     .toString(),
                             name: taskName,
                             difficulty: difficulty,
-                            reward: reward,
+                            reward: 0,
                             routine: routine,
                             parentId: widget.parentId,
                             childId: widget.childId,
@@ -920,7 +900,10 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               parentId: widget.parentId,
                               childId: widget.childId,
                               createdAt: DateTime.now(),
-                              alarm: alarmDateTime,
+                              alarm: alarmDateTime, 
+                              therapistId: widget.therapistId, 
+                              creatorId: widget.creatorId, 
+                              creatorType: widget.creatorType ,
                             );
                             taskProvider.addTask(newTask, context);
                           } else {
@@ -933,7 +916,10 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               parentId: widget.parentId,
                               childId: widget.childId,
                               createdAt: widget.task!.createdAt,
-                              alarm: alarmDateTime,
+                              alarm: alarmDateTime, 
+                              therapistId: widget.therapistId, 
+                              creatorId: widget.creatorId, 
+                              creatorType: widget.creatorType,
                             );
                             taskProvider.updateTask(updatedTask);
                           }
