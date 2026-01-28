@@ -36,6 +36,7 @@ class TaskHistoryService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   Future<void> saveDailyTaskProgress({
+    required String parentId,
     required String therapistId,
     required String childId,
     required int done,
@@ -47,23 +48,27 @@ class TaskHistoryService {
       final dateKey =
           "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
-      final docRef = _db
+      // Save under parent's path (for parent app)
+      final parentDocRef = _db
           .collection('users')
-          .doc(therapistId)
+          .doc(parentId)
           .collection('children')
           .doc(childId)
           .collection('history')
           .doc(dateKey);
 
-      await docRef.set({
+      await parentDocRef.set({
         'done': done,
         'notDone': notDone,
         'missed': missed,
-        'totalTasks': done + notDone, // ✅ missed is part of notDone
+        'totalTasks': done + notDone,
         'timestamp': FieldValue.serverTimestamp(),
+        'savedBy': 'parent',
       });
 
-      print("✅ Daily progress saved for $childId on $dateKey");
+      print(
+        "✅ Daily progress saved for $childId on $dateKey (both parent & therapist)",
+      );
     } catch (e) {
       print("❌ Failed to save daily task progress: $e");
     }
@@ -130,34 +135,118 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     BuildContext context,
     String childId,
   ) async {
-    final parentId = widget.parentId;
+    print('Fetching task history for child: $childId');
 
-    // Fetch last 90 days
-    final snapshots = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentId)
-        .collection('children')
-        .doc(childId)
-        .collection('history')
-        .orderBy('timestamp', descending: true)
-        .limit(90)
-        .get();
+    try {
+      List<Map<String, dynamic>> historyData = [];
 
-    final historyData = snapshots.docs
-        .map(
-          (d) => {
-            'date': d.id,
-            'done': d['done'],
-            'notDone': d['notDone'],
-            'missed': d['missed'],
-          },
-        )
-        .toList();
+      // Try to fetch from therapist's collection first
+      try {
+        final therapistSnap = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(widget.therapistId)
+            .collection('children')
+            .doc(childId)
+            .collection('history')
+            .orderBy('timestamp', descending: true)
+            .limit(90)
+            .get();
 
-    // Initialize persistent state outside the StatefulBuilder
-    int currentIndex = 0; // most recent
-    String viewMode = 'Daily'; // 'Daily' or 'Weekly'
+        if (therapistSnap.docs.isNotEmpty) {
+          print('Found ${therapistSnap.docs.length} records in therapist path');
+          historyData = therapistSnap.docs
+              .map(
+                (d) => {
+                  'date': d.id,
+                  'done': d['done'] ?? 0,
+                  'notDone': d['notDone'] ?? 0,
+                  'missed': d['missed'] ?? 0,
+                  'source': 'therapist',
+                },
+              )
+              .toList();
+        }
+      } catch (e) {
+        print('Error fetching from therapist path: $e');
+      }
 
+      // If no data in therapist path, try parent path
+      if (historyData.isEmpty && widget.parentId.isNotEmpty) {
+        try {
+          final parentSnap = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.parentId)
+              .collection('children')
+              .doc(childId)
+              .collection('history')
+              .orderBy('timestamp', descending: true)
+              .limit(90)
+              .get();
+
+          if (parentSnap.docs.isNotEmpty) {
+            print('Found ${parentSnap.docs.length} records in parent path');
+            historyData = parentSnap.docs
+                .map(
+                  (d) => {
+                    'date': d.id,
+                    'done': d['done'] ?? 0,
+                    'notDone': d['notDone'] ?? 0,
+                    'missed': d['missed'] ?? 0,
+                    'source': 'parent',
+                  },
+                )
+                .toList();
+          }
+        } catch (e) {
+          print('Error fetching from parent path: $e');
+        }
+      }
+
+      if (historyData.isEmpty) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("No task history"),
+            content: const Text(
+              "Task history hasn't been saved yet. History is saved automatically at the end of each day.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("OK"),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
+      print('Total history records: ${historyData.length}');
+
+      // Show the modal with the fetched data
+      _showTaskHistoryModalWithData(context, historyData);
+    } catch (e) {
+      print('Error fetching task history: $e');
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text("Error"),
+          content: Text("Failed to load task history: $e"),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  void _showTaskHistoryModalWithData(
+    BuildContext context,
+    List<Map<String, dynamic>> historyData,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -168,60 +257,89 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            final windowSize = viewMode == 'Daily' ? 1 : 7;
+            // Initialize state variables
+            int currentIndex = 0;
+            String viewMode = 'Daily';
 
-            List<Map<String, dynamic>> _getDisplayedData() {
+            // Helper function to get displayed data
+            List<Map<String, dynamic>> getDisplayedData() {
+              if (historyData.isEmpty) return [];
+
+              final windowSize = viewMode == 'Daily' ? 1 : 7;
               final start = currentIndex;
               final end = (currentIndex + windowSize).clamp(
                 0,
                 historyData.length,
               );
+
+              if (start >= end) return [];
+
               final slice = historyData.sublist(start, end);
 
-              int done = 0, notDone = 0, missed = 0;
-              for (var d in slice) {
-                done += d['done'] as int;
-                notDone += d['notDone'] as int;
-                missed += d['missed'] as int;
+              if (viewMode == 'Weekly') {
+                // Aggregate weekly data
+                int done = 0, notDone = 0, missed = 0;
+                for (var d in slice) {
+                  done += d['done'] as int;
+                  notDone += d['notDone'] as int;
+                  missed += d['missed'] as int;
+                }
+
+                final dateLabel = slice.isNotEmpty
+                    ? "${slice.first['date']} - ${slice.last['date']}"
+                    : "";
+
+                return [
+                  {
+                    'date': dateLabel,
+                    'done': done,
+                    'notDone': notDone,
+                    'missed': missed,
+                  },
+                ];
+              } else {
+                // Daily view - show individual days
+                return slice
+                    .map(
+                      (d) => ({
+                        'date': d['date'],
+                        'done': d['done'] as int,
+                        'notDone': d['notDone'] as int,
+                        'missed': d['missed'] as int,
+                      }),
+                    )
+                    .toList();
               }
-
-              final dateLabel = slice.length == 1
-                  ? slice.first['date']
-                  : '${slice.last['date']} → ${slice.first['date']}';
-
-              return [
-                {
-                  'date': dateLabel,
-                  'done': done,
-                  'notDone': notDone,
-                  'missed': missed,
-                },
-              ];
             }
 
-            final displayedData = _getDisplayedData();
+            final displayedData = getDisplayedData();
 
             // Determine if arrows should be disabled
+            final windowSize = viewMode == 'Daily' ? 1 : 7;
             final isPrevDisabled =
                 currentIndex + windowSize >= historyData.length;
-            final isNextDisabled = currentIndex == 0;
+            final isNextDisabled = currentIndex <= 0;
 
-            void _prev() {
-              setState(() {
-                currentIndex = (currentIndex + windowSize).clamp(
-                  0,
-                  historyData.length - 1,
-                );
-              });
+            void prev() {
+              if (!isPrevDisabled) {
+                setState(() {
+                  currentIndex = (currentIndex + windowSize).clamp(
+                    0,
+                    historyData.length - windowSize,
+                  );
+                });
+              }
             }
 
-            void _next() {
-              setState(() {
-                currentIndex = (currentIndex - windowSize).clamp(
-                  0,
-                  historyData.length - 1,
-                );
-              });
+            void next() {
+              if (!isNextDisabled) {
+                setState(() {
+                  currentIndex = (currentIndex - windowSize).clamp(
+                    0,
+                    historyData.length,
+                  );
+                });
+              }
             }
 
             return Padding(
@@ -230,13 +348,13 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               ),
               child: Container(
                 padding: const EdgeInsets.all(16),
-                height: 400,
+                height: 500,
                 child: Column(
                   children: [
                     const Text(
                       "Task Progress History",
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -248,16 +366,21 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       children: ['Daily', 'Weekly'].map((mode) {
                         final selected = mode == viewMode;
                         return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: ChoiceChip(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: FilterChip(
                             label: Text(mode),
                             selected: selected,
                             onSelected: (_) {
                               setState(() {
                                 viewMode = mode;
-                                currentIndex = 0; // reset to most recent
+                                currentIndex = 0;
                               });
                             },
+                            selectedColor: Colors.deepPurpleAccent,
+                            checkmarkColor: Colors.white,
+                            labelStyle: TextStyle(
+                              color: selected ? Colors.white : Colors.black,
+                            ),
                           ),
                         );
                       }).toList(),
@@ -265,103 +388,229 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     const SizedBox(height: 12),
 
                     // Chart with arrows
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back_ios),
-                          onPressed: isPrevDisabled ? null : _prev,
-                        ),
-                        Expanded(
-                          child: SizedBox(
-                            height: 200,
-                            child: BarChart(
-                              BarChartData(
-                                alignment: BarChartAlignment.spaceAround,
-                                titlesData: FlTitlesData(
-                                  leftTitles: AxisTitles(
-                                    sideTitles: SideTitles(showTitles: true),
-                                  ),
-                                  bottomTitles: AxisTitles(
-                                    sideTitles: SideTitles(
-                                      showTitles: true,
-                                      getTitlesWidget: (index, _) {
-                                        final date =
-                                            displayedData[index
-                                                .toInt()]['date'];
-                                        return Text(
-                                          date.toString().split(' ')[0],
-                                          style: const TextStyle(fontSize: 10),
-                                        );
-                                      },
+                    Expanded(
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back_ios),
+                            onPressed: isPrevDisabled ? null : prev,
+                            color: isPrevDisabled
+                                ? Colors.grey
+                                : Colors.deepPurpleAccent,
+                          ),
+                          Expanded(
+                            child: displayedData.isEmpty
+                                ? const Center(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.history,
+                                          size: 48,
+                                          color: Colors.grey,
+                                        ),
+                                        SizedBox(height: 8),
+                                        Text("No history data"),
+                                      ],
+                                    ),
+                                  )
+                                : SizedBox(
+                                    height: 250,
+                                    child: BarChart(
+                                      BarChartData(
+                                        alignment:
+                                            BarChartAlignment.spaceAround,
+                                        titlesData: FlTitlesData(
+                                          leftTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 40,
+                                              getTitlesWidget: (value, meta) {
+                                                return Text(
+                                                  value.toInt().toString(),
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                          bottomTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 30,
+                                              getTitlesWidget: (value, meta) {
+                                                if (value >= 0 &&
+                                                    value <
+                                                        displayedData.length) {
+                                                  final date =
+                                                      displayedData[value
+                                                              .toInt()]['date']
+                                                          .toString();
+                                                  // Format date for display
+                                                  String displayDate;
+                                                  if (viewMode == 'Weekly') {
+                                                    displayDate = 'Week';
+                                                  } else {
+                                                    // Try to parse date for better formatting
+                                                    try {
+                                                      final parts = date.split(
+                                                        '-',
+                                                      );
+                                                      if (parts.length >= 3) {
+                                                        displayDate =
+                                                            '${parts[1]}/${parts[2]}';
+                                                      } else {
+                                                        displayDate =
+                                                            date.length > 10
+                                                            ? '${date.substring(5, 10)}'
+                                                            : date;
+                                                      }
+                                                    } catch (e) {
+                                                      displayDate =
+                                                          date.length > 10
+                                                          ? '${date.substring(5, 10)}'
+                                                          : date;
+                                                    }
+                                                  }
+                                                  return Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          top: 8.0,
+                                                        ),
+                                                    child: Text(
+                                                      displayDate,
+                                                      style: const TextStyle(
+                                                        fontSize: 10,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  );
+                                                }
+                                                return const Text('');
+                                              },
+                                            ),
+                                          ),
+                                          topTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: false,
+                                            ),
+                                          ),
+                                          rightTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: false,
+                                            ),
+                                          ),
+                                        ),
+                                        borderData: FlBorderData(show: false),
+                                        gridData: FlGridData(show: true),
+                                        barGroups: List.generate(
+                                          displayedData.length,
+                                          (i) {
+                                            final entry = displayedData[i];
+                                            return BarChartGroupData(
+                                              x: i,
+                                              barsSpace: 4,
+                                              barRods: [
+                                                BarChartRodData(
+                                                  toY: (entry['done'] as int)
+                                                      .toDouble(),
+                                                  color:
+                                                      Colors.deepPurpleAccent,
+                                                  width: viewMode == 'Daily'
+                                                      ? 8
+                                                      : 16,
+                                                ),
+                                                BarChartRodData(
+                                                  toY: (entry['notDone'] as int)
+                                                      .toDouble(),
+                                                  color: Colors.yellow,
+                                                  width: viewMode == 'Daily'
+                                                      ? 8
+                                                      : 16,
+                                                ),
+                                                BarChartRodData(
+                                                  toY: (entry['missed'] as int)
+                                                      .toDouble(),
+                                                  color: Colors.redAccent,
+                                                  width: viewMode == 'Daily'
+                                                      ? 8
+                                                      : 16,
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                borderData: FlBorderData(show: false),
-                                barGroups: List.generate(displayedData.length, (
-                                  i,
-                                ) {
-                                  final entry = displayedData[i];
-                                  return BarChartGroupData(
-                                    x: i,
-                                    barRods: [
-                                      BarChartRodData(
-                                        toY: (entry['done'] as int).toDouble(),
-                                        color: Colors.deepPurpleAccent,
-                                      ),
-                                      BarChartRodData(
-                                        toY: (entry['notDone'] as int)
-                                            .toDouble(),
-                                        color: Colors.yellow,
-                                      ),
-                                      BarChartRodData(
-                                        toY: (entry['missed'] as int)
-                                            .toDouble(),
-                                        color: Colors.redAccent,
-                                      ),
-                                    ],
-                                    barsSpace: 2,
-                                  );
-                                }),
-                              ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.arrow_forward_ios),
+                            onPressed: isNextDisabled ? null : next,
+                            color: isNextDisabled
+                                ? Colors.grey
+                                : Colors.deepPurpleAccent,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Legend with aggregated data
+                    if (displayedData.isNotEmpty) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _legendWithCounter(
+                            color: Colors.deepPurpleAccent,
+                            label: 'Done',
+                            count: displayedData.fold<int>(
+                              0,
+                              (sum, item) => sum + (item['done'] as int),
                             ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_forward_ios),
-                          onPressed: isNextDisabled ? null : _next,
-                        ),
-                      ],
-                    ),
+                          _legendWithCounter(
+                            color: Colors.yellow,
+                            label: 'Not Done',
+                            count: displayedData.fold<int>(
+                              0,
+                              (sum, item) => sum + (item['notDone'] as int),
+                            ),
+                          ),
+                          _legendWithCounter(
+                            color: Colors.redAccent,
+                            label: 'Missed',
+                            count: displayedData.fold<int>(
+                              0,
+                              (sum, item) => sum + (item['missed'] as int),
+                            ),
+                          ),
+                        ],
+                      ),
 
-                    const SizedBox(height: 12),
-                    // Legend
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _legendWithCounter(
-                          color: Colors.deepPurpleAccent,
-                          label: 'Done',
-                          count: displayedData.first['done'] as int,
+                      const SizedBox(height: 8),
+                      Text(
+                        displayedData.length == 1
+                            ? displayedData.first['date'].toString()
+                            : "${displayedData.length} ${viewMode == 'Daily' ? 'days' : 'weeks'} shown",
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
                         ),
-                        _legendWithCounter(
-                          color: Colors.yellow,
-                          label: 'Not Done',
-                          count: displayedData.first['notDone'] as int,
-                        ),
-                        _legendWithCounter(
-                          color: Colors.redAccent,
-                          label: 'Missed',
-                          count: displayedData.first['missed'] as int,
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
 
                     const SizedBox(height: 8),
-                    Text(
-                      displayedData.first['date'].toString(),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Close"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurpleAccent,
                       ),
                     ),
                   ],
@@ -859,11 +1108,13 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
   Future<void> exportChildDataToPdfWithCharts(
     String therapistId,
+    String parentId,
     String childId,
     Map<String, dynamic> childData,
   ) async {
     final pdf = pw.Document();
     final name = childData['name'] ?? 'Unknown';
+    final parentName = childData['parentName'] ?? '-';
     final therapistName = childData['therapistName'] ?? '-';
     final therapistEmail = childData['therapistEmail'] ?? '-';
     final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
@@ -874,7 +1125,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // ---------------- Fetch weekly task progress history ----------------
     final historySnap = await FirebaseFirestore.instance
         .collection('users')
-        .doc(therapistId)
+        .doc(parentId)
         .collection('children')
         .doc(childId)
         .collection('history')
@@ -896,7 +1147,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // ---------------- Fetch weekly CBT assignments ----------------
     final cbtSnap = await FirebaseFirestore.instance
         .collection('users')
-        .doc(therapistId)
+        .doc(parentId)
         .collection('children')
         .doc(childId)
         .collection('CBT')
@@ -1228,6 +1479,30 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     return sections;
   }
 
+  void _saveCurrentTaskProgress(
+    TaskProvider taskProv,
+    Map<String, dynamic> activeChild,
+  ) async {
+    final childId = activeChild['cid'];
+    if (childId == null || childId.isEmpty) return;
+
+    final childTasks = taskProv.tasks
+        .where((t) => t.childId == childId)
+        .toList();
+
+    final statusCounts = _countTaskStatuses(childTasks);
+
+    final taskHistoryService = TaskHistoryService();
+    await taskHistoryService.saveDailyTaskProgress(
+      parentId: widget.parentId,
+      therapistId: widget.therapistId,
+      childId: childId,
+      done: statusCounts['done']!,
+      notDone: statusCounts['notDone']!,
+      missed: statusCounts['missed']!,
+    );
+  }
+
   List<Widget> _buildChildCharts(
     JournalProvider journalProv,
     TaskProvider taskProv,
@@ -1237,7 +1512,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final childTasks = taskProv.tasks
         .where((t) => t.childId == activeChild['cid'])
         .toList();
-
+    // At the end of _buildChildCharts method, add:
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _saveCurrentTaskProgress(taskProv, activeChild);
+    });
     // ✅ Count done, not done, and missed using helper
     final statusCounts = _countTaskStatuses(childTasks);
     final done = statusCounts['done']!.toDouble();
@@ -1333,6 +1611,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               await exportChildDataToPdfWithCharts(
                 widget.therapistId,
                 childId,
+                activeChild['name'],
                 fullChildData,
               );
             },
@@ -1585,6 +1864,93 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     ];
   }
 
+  Widget _buildAnalyticsPage<T>({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<T> items,
+    required Widget Function(T) builder,
+  }) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 3,
+      margin: const EdgeInsets.all(8),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: items.isEmpty
+                  ? Center(
+                      child: Text(
+                        "No data available",
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    )
+                  : ListView.builder(
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: builder(item),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required String value,
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: color, size: 24),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    );
+  }
+
   Widget _legendWithCounter({
     required Color color,
     required String label,
@@ -1639,12 +2005,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // Ensure selected child is not null
     final activeChild =
         selectedChildProv.selectedChild ??
-        {
-          "cid": "",
-          "name": "No Child",
-          "balance": 0,
-          "therapistUid": widget.therapistId,
-        };
+        {"cid": "", "name": "No Child", "therapistUid": widget.therapistId};
 
     final therapistName = _therapist?.name ?? "Therapist";
     final therapistEmail = _therapist?.email ?? "";

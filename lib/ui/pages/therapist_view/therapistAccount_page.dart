@@ -35,222 +35,148 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() async {
+
+    // Use post frame callback to safely access context
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       await fetchTherapistData();
-      // Only force select child if none selected
+
       final selectedChildProv = Provider.of<SelectedChildProvider>(
         context,
         listen: false,
       );
+
+      if (!mounted) return;
       if (childrenList.isNotEmpty && selectedChildProv.selectedChild == null) {
         await _forceSelectChild();
       }
     });
   }
 
-  Future<void> _forceSelectChild() async {
-    await Future.delayed(const Duration(milliseconds: 500));
+  Future<void> _showLinkChildDialog(
+    BuildContext context,
+    String therapistUid,
+  ) async {
+    final controller = TextEditingController();
+    final firestoreService = FirestoreService();
+
     if (!mounted) return;
 
-    final selectedChildProv = Provider.of<SelectedChildProvider>(
-      context,
-      listen: false,
-    );
-
-    if (selectedChildProv.selectedChild != null || childrenList.isEmpty) return;
-
-    await showDialog(
+    await showDialog<void>(
       context: context,
-      barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text("Select a Child"),
+        title: const Text('Link Child with Access Code'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: childrenList.map((childMap) {
-            final childName = childMap['name'] ?? 'Child';
-            final accessCode = childMap['accessCode'] ?? 'N/A';
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.blue[100],
-                child: Text(
-                  childName[0],
-                  style: const TextStyle(color: Colors.black),
-                ),
+          children: [
+            const Text('Enter the 6-digit access code provided by the parent'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Access Code',
+                hintText: 'ABC123',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.code),
               ),
-              title: Text(childName),
-              subtitle: Text("Access Code: $accessCode"),
-              onTap: () async {
-                selectedChildProv.setSelectedChild(childMap);
-                await Provider.of<JournalProvider>(
-                  context,
-                  listen: false,
-                ).getEntries(childMap['cid']);
-                Navigator.pop(ctx);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Switched to $childName")),
-                  );
-                  setState(() {});
-                }
-              },
-            );
-          }).toList(),
+              maxLength: 6,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 20,
+                letterSpacing: 2,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
         ),
-      ),
-    );
-  }
-
-  Future<void> fetchTherapistData() async {
-    setState(() => isLoading = true);
-
-    final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
-    final user = auth.currentUserModel;
-
-    if (user == null || user is! TherapistUser) {
-      debugPrint('❌ No logged-in therapist');
-      setState(() => isLoading = false);
-      return;
-    }
-
-    final therapistUid = user.uid;
-    debugPrint('🔍 Fetching therapist data for UID: $therapistUid');
-
-    try {
-      final therapistSnap = await FirebaseFirestore.instance
-          .collection('therapists')
-          .doc(therapistUid)
-          .get();
-
-      if (!therapistSnap.exists) {
-        debugPrint('❌ Therapist document not found');
-        setState(() {
-          therapistData = null;
-          childrenList = [];
-          isLoading = false;
-        });
-        return;
-      }
-
-      therapistData = therapistSnap.data()!;
-      final childrenField = therapistData!['childrenAccessCodes'];
-
-      List<Map<String, dynamic>> fetchedChildren = [];
-      if (childrenField is Map<String, dynamic>) {
-        childrenField.forEach((childId, childData) {
-          if (childData is Map<String, dynamic>) {
-            final parentUid = childData['parentUid'] ?? '';
-            final childName = childData['childName'] ?? 'Child';
-            final accessCode = childData['accessCode'] ?? 'N/A';
-            if (parentUid.isEmpty) return;
-            fetchedChildren.add({
-              'cid': childId,
-              'name': childName,
-              'balance': 0,
-              'parentUid': parentUid,
-              'accessCode': accessCode,
-            });
-          }
-        });
-      }
-
-      setState(() {
-        childrenList = fetchedChildren;
-        isLoading = false;
-      });
-    } catch (e, stack) {
-      debugPrint('❌ fetchTherapistData error: $e');
-      debugPrint(stack.toString());
-      setState(() {
-        therapistData = null;
-        childrenList = [];
-        isLoading = false;
-      });
-    }
-  }
-
-  Future<void> _switchChildDialog() async {
-    if (childrenList.isEmpty) return;
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Switch Child"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: childrenList.map((childMap) {
-            final childName = childMap['name'] ?? 'Child';
-            final accessCode = childMap['accessCode'] ?? 'N/A';
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.blue[100],
-                child: Text(
-                  childName[0],
-                  style: const TextStyle(color: Colors.black),
-                ),
-              ),
-              title: Text(
-                childName,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              subtitle: Text("Access Code: $accessCode"),
-              onTap: () async {
-                final selectedChildProv = Provider.of<SelectedChildProvider>(
-                  context,
-                  listen: false,
+        actions: [
+          TextButton(
+            onPressed: () {
+              if (!mounted) return;
+              Navigator.pop(ctx);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final code = controller.text.trim().toUpperCase();
+              if (code.length != 6) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enter a valid 6-digit code'),
+                  ),
                 );
-                selectedChildProv.setSelectedChild(childMap);
-                await Provider.of<JournalProvider>(
+                return;
+              }
+
+              if (!mounted) return;
+              Navigator.pop(ctx); // Close input dialog
+
+              if (!mounted) return;
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (context) =>
+                    const Center(child: CircularProgressIndicator()),
+              );
+
+              try {
+                await firestoreService.linkChildByAccessCode(
+                  accessCode: code,
+                  therapistUid: therapistUid,
+                );
+
+                if (!mounted) return;
+                Navigator.of(
                   context,
-                  listen: false,
-                ).getEntries(childMap['cid']);
-                Navigator.pop(ctx);
+                  rootNavigator: true,
+                ).pop(); // Close loading
+
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('✅ Child linked successfully!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+
+                if (!mounted) return;
+                await fetchTherapistData(); // Refresh children list
+                if (!mounted) return;
                 setState(() {});
-              },
-            );
-          }).toList(),
-        ),
+              } catch (e) {
+                if (!mounted) return;
+                Navigator.of(
+                  context,
+                  rootNavigator: true,
+                ).pop(); // Close loading
+
+                String errorMessage = 'Failed to link child';
+                if (e.toString().contains('already linked')) {
+                  errorMessage =
+                      'This child is already linked to another therapist.';
+                } else if (e.toString().contains('already linked to you')) {
+                  errorMessage = 'This child is already linked to you.';
+                } else if (e.toString().contains('not found')) {
+                  errorMessage =
+                      'Invalid access code. Please check with the parent.';
+                }
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(errorMessage),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('Link Child'),
+          ),
+        ],
       ),
     );
-  }
-
-  Future<void> _updateTherapistInfo() async {
-    if (!_editFormKey.currentState!.validate()) return;
-    _editFormKey.currentState!.save();
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-
-      if (_newEmail != null &&
-          _newEmail!.isNotEmpty &&
-          _newEmail != therapistData!['email']) {
-        await user?.updateEmail(_newEmail!);
-      }
-
-      if (_newPassword != null && _newPassword!.isNotEmpty) {
-        await user?.updatePassword(_newPassword!);
-      }
-
-      await FirebaseFirestore.instance
-          .collection('therapists')
-          .doc(widget.therapistId)
-          .update({'name': _newName, 'email': _newEmail});
-
-      setState(() {
-        therapistData!['name'] = _newName;
-        therapistData!['email'] = _newEmail;
-      });
-
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Therapist info updated successfully!")),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));
-    }
   }
 
   Future<void> _showTherapistSettingsDialog() async {
@@ -261,6 +187,8 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
     String? newPasswordConfirm;
     bool obscureNewPassword = true;
     bool obscureConfirmPassword = true;
+
+    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -361,13 +289,233 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
                 ),
                 minimumSize: const Size(100, 40),
               ),
-              onPressed: _updateTherapistInfo,
+              onPressed: () async {
+                if (!mounted) return;
+                await _updateTherapistInfo();
+              },
               child: const Text("Save"),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _forceSelectChild() async {
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
+    final selectedChildProv = Provider.of<SelectedChildProvider>(
+      context,
+      listen: false,
+    );
+
+    if (selectedChildProv.selectedChild != null || childrenList.isEmpty) return;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Select a Child"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: childrenList.map((childMap) {
+            final childName = childMap['name'] ?? 'Child';
+            final accessCode = childMap['accessCode'] ?? 'N/A';
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.blue[100],
+                child: Text(
+                  childName[0],
+                  style: const TextStyle(color: Colors.black),
+                ),
+              ),
+              title: Text(childName),
+              subtitle: Text("Access Code: $accessCode"),
+              onTap: () async {
+                selectedChildProv.setSelectedChild(childMap);
+                await Provider.of<JournalProvider>(
+                  context,
+                  listen: false,
+                ).getEntries(childMap['cid']);
+                if (!mounted) return;
+                Navigator.pop(ctx);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Switched to $childName")),
+                );
+                if (!mounted) return;
+                setState(() {});
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> fetchTherapistData() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+
+    final auth = Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final user = auth.currentUserModel;
+
+    if (user == null || user is! TherapistUser) {
+      debugPrint('❌ No logged-in therapist');
+      if (!mounted) return;
+      setState(() => isLoading = false);
+      return;
+    }
+
+    final therapistUid = user.uid;
+    debugPrint('🔍 Fetching therapist data for UID: $therapistUid');
+
+    try {
+      final therapistSnap = await FirebaseFirestore.instance
+          .collection('therapists')
+          .doc(therapistUid)
+          .get();
+
+      if (!therapistSnap.exists) {
+        debugPrint('❌ Therapist document not found');
+        if (!mounted) return;
+        setState(() {
+          therapistData = null;
+          childrenList = [];
+          isLoading = false;
+        });
+        return;
+      }
+
+      therapistData = therapistSnap.data()!;
+      final childrenField = therapistData!['childrenAccessCodes'];
+
+      List<Map<String, dynamic>> fetchedChildren = [];
+      if (childrenField is Map<String, dynamic>) {
+        childrenField.forEach((childId, childData) {
+          if (childData is Map<String, dynamic>) {
+            final parentUid = childData['parentUid'] ?? '';
+            final childName = childData['childName'] ?? 'Child';
+            final accessCode = childData['accessCode'] ?? 'N/A';
+            if (parentUid.isEmpty) return;
+            fetchedChildren.add({
+              'cid': childId,
+              'name': childName,
+              'balance': 0,
+              'parentUid': parentUid,
+              'accessCode': accessCode,
+            });
+          }
+        });
+      }
+
+      if (!mounted) return;
+      setState(() {
+        childrenList = fetchedChildren;
+        isLoading = false;
+      });
+    } catch (e, stack) {
+      debugPrint('❌ fetchTherapistData error: $e');
+      debugPrint(stack.toString());
+      if (!mounted) return;
+      setState(() {
+        therapistData = null;
+        childrenList = [];
+        isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _switchChildDialog() async {
+    if (childrenList.isEmpty) return;
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Switch Child"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: childrenList.map((childMap) {
+            final childName = childMap['name'] ?? 'Child';
+            final accessCode = childMap['accessCode'] ?? 'N/A';
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Colors.blue[100],
+                child: Text(
+                  childName[0],
+                  style: const TextStyle(color: Colors.black),
+                ),
+              ),
+              title: Text(
+                childName,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              subtitle: Text("Access Code: $accessCode"),
+              onTap: () async {
+                final selectedChildProv = Provider.of<SelectedChildProvider>(
+                  context,
+                  listen: false,
+                );
+                selectedChildProv.setSelectedChild(childMap);
+                await Provider.of<JournalProvider>(
+                  context,
+                  listen: false,
+                ).getEntries(childMap['cid']);
+                if (!mounted) return;
+                Navigator.pop(ctx);
+                if (!mounted) return;
+                setState(() {});
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updateTherapistInfo() async {
+    if (!_editFormKey.currentState!.validate()) return;
+    _editFormKey.currentState!.save();
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (_newEmail != null &&
+          _newEmail!.isNotEmpty &&
+          _newEmail != therapistData!['email']) {
+        await user?.updateEmail(_newEmail!);
+      }
+
+      if (_newPassword != null && _newPassword!.isNotEmpty) {
+        await user?.updatePassword(_newPassword!);
+      }
+
+      await FirebaseFirestore.instance
+          .collection('therapists')
+          .doc(widget.therapistId)
+          .update({'name': _newName, 'email': _newEmail});
+
+      if (!mounted) return;
+      setState(() {
+        therapistData!['name'] = _newName;
+        therapistData!['email'] = _newEmail;
+      });
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Therapist info updated successfully!")),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));
+    }
   }
 
   Future<void> _logout() async {
@@ -384,6 +532,8 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
 
       selectedChildProv.clearSelectedChild();
       journalProv.clearEntries();
+
+      if (!mounted) return;
       setState(() {
         therapistData = null;
         childrenList = [];
@@ -396,23 +546,24 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
 
       await Future.delayed(const Duration(milliseconds: 500));
 
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const ChooseRolePage()),
-          (route) => false,
-        );
-      }
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+        (route) => false,
+      );
     } catch (e) {
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const ChooseRolePage()),
-          (route) => false,
-        );
-      }
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const ChooseRolePage()),
+        (route) => false,
+      );
     }
   }
+
+  // Other dialogs (_showTherapistSettingsDialog, _showLinkChildDialog)
+  // remain the same but all setState() calls inside them are now preceded by if(!mounted) checks.
 
   @override
   Widget build(BuildContext context) {
@@ -476,7 +627,8 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
-                    onPressed: () => _switchChildDialog(),
+                    onPressed: () =>
+                        _showLinkChildDialog(context, widget.therapistId),
                     icon: const Icon(Icons.add),
                     label: const Text("Link Child"),
                     style: ElevatedButton.styleFrom(
