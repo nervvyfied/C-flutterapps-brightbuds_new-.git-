@@ -6,6 +6,7 @@ import 'package:brightbuds_new/aquarium/catalogs/decor_catalog.dart';
 import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
 import 'package:brightbuds_new/aquarium/manager/aquarium_level_composer.dart';
 import 'package:brightbuds_new/aquarium/manager/tutorial_manager.dart';
+import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
 import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
 import 'package:brightbuds_new/aquarium/pages/world_unlocks_modal.dart';
 import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
@@ -13,6 +14,7 @@ import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
 import 'package:brightbuds_new/aquarium/widgets/floating_xp.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
+import 'package:brightbuds_new/data/providers/journal_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/repositories/user_repository.dart';
@@ -57,6 +59,8 @@ class AquariumFish {
   double verticalOffset;
   double sineFrequency;
   bool neglected;
+
+  bool isFed = false;
 
   AquariumFish({
     required this.definition,
@@ -224,10 +228,10 @@ void didChangeDependencies() {
 
   if (!_initialized) {
     _initialized = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       _progression = context.read<ProgressionProvider>();
       _unlockManager = context.read<UnlockManager>();
-      _buildAquariumFromLevelIfNeeded();
+      final achievement = context.read<AchievementNotifier>();
     });
   }
 }
@@ -344,8 +348,6 @@ void didChangeDependencies() {
   final tasks = context.read<TaskProvider>().tasks
       .where((t) => t.childId == child.cid)
       .toList();
-
-  _unlockManager.checkAchievementUnlocks(tasks, child);
 }
 
   void _listenToXPRealtime() {
@@ -543,81 +545,69 @@ void didChangeDependencies() {
 
   // ----- Animate Fishes -----
   void _animateFishes() {
-    Future.delayed(const Duration(milliseconds: 16), () {
-      if (!mounted) return;
+  Future.delayed(const Duration(milliseconds: 16), () {
+    if (!mounted) return;
 
-      setState(() {
-        final screenWidth = MediaQuery.of(context).size.width;
-        final screenHeight = MediaQuery.of(context).size.height;
-        final double maxY = screenHeight * 0.6;
+    setState(() {
+      final screenWidth = MediaQuery.of(context).size.width;
+      final screenHeight = MediaQuery.of(context).size.height;
+      final double maxY = screenHeight * 0.6;
 
-        bool allFedNow = false;
+      bool allFedNow = fishes.isNotEmpty && fishes.every((f) => f.isFed);
 
-        for (var fish in fishes) {
-          // If there's food, move toward the closest pellet
-          if (foodPellets.isNotEmpty) {
-            FoodPellet closestPellet = foodPellets.reduce(
-              (a, b) =>
-                  (sqrt(pow(fish.x - a.x, 2) + pow(fish.y - a.y, 2)) <
-                          sqrt(pow(fish.x - b.x, 2) + pow(fish.y - b.y, 2)))
-                      ? a
-                      : b,
-            );
+      for (var fish in fishes) {
+        // Handle food if not already fed
+        if (!fish.isFed && foodPellets.isNotEmpty) {
+          // Find closest pellet
+          FoodPellet closestPellet = foodPellets.reduce(
+            (a, b) =>
+                (sqrt(pow(fish.x - a.x, 2) + pow(fish.y - a.y, 2)) <
+                        sqrt(pow(fish.x - b.x, 2) + pow(fish.y - b.y, 2)))
+                    ? a
+                    : b,
+          );
 
-            double dx = closestPellet.x - fish.x;
-            double dy = closestPellet.y - fish.y;
-            double distance = sqrt(dx * dx + dy * dy);
+          double dx = closestPellet.x - fish.x;
+          double dy = closestPellet.y - fish.y;
+          double distance = sqrt(dx * dx + dy * dy);
 
-            // Face the direction of movement
-            fish.movingRight = dx >= 0;
+          fish.movingRight = dx >= 0;
 
-            if (distance < 5) {
-              _fedFishIds.add(fish.definition.id);
-              foodPellets.remove(closestPellet);
-
-              // Reset health if all fish fed
-              if (_fedFishIds.length >= fishes.length) {
-                allFedNow = true;
-                if (!_xpGrantedThisFeeding) {
-                  _xpGrantedThisFeeding = true; // prevent multiple XP grants
-                  _resetFishesHealth(); // reset immediately
-                  _showXPGrandReward();
-                }
-              }
-            } else {
-              // Move toward the pellet
-              fish.x += dx / distance * fish.speed;
-              fish.y += dy / distance * fish.speed;
-            }
+          if (distance < 5) {
+            // Fish eats pellet
+            fish.isFed = true;
+            foodPellets.remove(closestPellet);
           } else {
-            // Normal swimming
-            double swimAmplitude = fish.neglected ? 0.2 : 0.5;
-            double swimSpeed = fish.neglected ? 0.5 : fish.speed;
-
-            fish.x += fish.movingRight ? swimSpeed : -swimSpeed;
-            if (fish.x < 0) fish.movingRight = true;
-            if (fish.x > screenWidth - 50) fish.movingRight = false;
-            fish.y += sin(fish.x * fish.sineFrequency) * swimAmplitude;
+            // Move toward pellet
+            fish.x += dx / distance * fish.speed;
+            fish.y += dy / distance * fish.speed;
           }
+        } else {
+          // Normal swimming
+          double swimAmplitude = fish.neglected ? 0.2 : 0.5;
+          double swimSpeed = fish.neglected ? 0.5 : fish.speed;
 
-          // Clamp vertical position
-          fish.y = min(fish.y, maxY);
-
-          if (allFedNow) {
-            _showXPGrandReward();
-          }
-          if (foodPellets.isEmpty) {
-            // reset flag so next feeding session works
-            _xpGrantedThisFeeding = false;
-            _fedFishIds.clear();
-          }
+          fish.x += fish.movingRight ? swimSpeed : -swimSpeed;
+          if (fish.x < 0) fish.movingRight = true;
+          if (fish.x > screenWidth - 50) fish.movingRight = false;
+          fish.y += sin(fish.x * fish.sineFrequency) * swimAmplitude;
         }
-      });
 
-      // Repeat animation
-      _animateFishes();
+        // Clamp vertical position
+        fish.y = min(fish.y, maxY);
+      }
+
+      // Check if all fish are fed and XP not yet granted
+      if (allFedNow && !_xpGrantedThisFeeding) {
+        _xpGrantedThisFeeding = true;
+        _showXPGrandReward();
+        _resetFishesHealth(); // reset fed & neglected flags
+      }
     });
-  }
+
+    _animateFishes();
+  });
+}
 
   void _showXPGrandReward() async {
   if (!mounted) return;
@@ -753,23 +743,21 @@ void didChangeDependencies() {
   }
 
   void _resetFishesHealth() async {
-  final previouslyNeglected = fishes.where((f) => f.neglected).toList();
-  if (previouslyNeglected.isEmpty) return;
-
   setState(() {
-    for (var fish in previouslyNeglected) {
+    for (var fish in fishes) {
       fish.neglected = false;
+      fish.isFed = false; // reset for next feeding
     }
   });
 
-  // Persist via UnlockManager
+  // Persist neglected state
   for (var fish in fishes) {
     _unlockManager.setFishNeglected(fish.definition.id, false);
   }
 
-  _fedFishIds.clear(); // ensure fed tracking resets immediately
-  _xpGrantedThisFeeding = false;
+  _xpGrantedThisFeeding = false; // allow next feeding session
 }
+
 
 
   void _stopFoodDragTimer() {
@@ -1299,6 +1287,7 @@ Widget _bottomRightUI() {
                   .tasks
                   .where((t) => t.childId == child.cid)
                   .toList();
+              final journals = context.read<JournalProvider>().getEntries(child.cid);
 
               Navigator.pushNamed(
                 context,
@@ -1306,6 +1295,7 @@ Widget _bottomRightUI() {
                 arguments: {
                   'child': child,
                   'tasks': tasks,
+                  'journals': journals,
                 },
               );
             } catch (e, st) {

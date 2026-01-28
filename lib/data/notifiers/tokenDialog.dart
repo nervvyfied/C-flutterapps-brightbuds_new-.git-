@@ -53,7 +53,7 @@ class XPDialog extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Level Up! 🎉',
+                'Great Job! 🎉',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,

@@ -256,6 +256,8 @@ class _MyAppState extends State<MyApp> {
       providers: [
         ChangeNotifierProvider(create: (_) => SelectedChildProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => UnlockNotifier()),
+        ChangeNotifierProvider(create: (_) => AchievementNotifier()),
         ChangeNotifierProvider(
           create: (_) => ProgressionProvider(
             child: ChildUser(
@@ -266,18 +268,24 @@ class _MyAppState extends State<MyApp> {
             ),
           ),
         ),
-        ChangeNotifierProvider(create: (_) => JournalProvider()),
-        ChangeNotifierProvider(create: (_) => UnlockNotifier()),
-        ChangeNotifierProvider(create: (_) => AchievementNotifier()),
+        ChangeNotifierProvider(
+          create: (context) => JournalProvider(
+            context.read<AchievementNotifier>(),
+          ),
+        ),
         ChangeNotifierProvider(create: (_) => CBTProvider()),
         ChangeNotifierProvider(
           create: (context) => UnlockManager(
             childProvider: context.read<SelectedChildProvider>(),
             unlockNotifier: context.read<UnlockNotifier>(),
+            achievementNotifier: context.read<AchievementNotifier>(),
           ),
         ),
         ChangeNotifierProvider(
-          create: (context) => TaskProvider(context.read<UnlockManager>()),
+          create: (context) => TaskProvider(
+            context.read<UnlockManager>(),
+            context.read<AchievementNotifier>(),
+          ),
         ),
       ],
       child: Consumer<AuthProvider>(
@@ -311,9 +319,10 @@ class _MyAppState extends State<MyApp> {
                     final args = settings.arguments as Map<String, dynamic>;
                     final child = args['child'] as ChildUser;
                     final tasks = args['tasks'] as List<TaskModel>;
+                    final journals = args['journals'] as List<JournalEntry>;
                     return MaterialPageRoute(
                       builder: (_) =>
-                          AchievementPage(child: child, tasks: tasks),
+                          AchievementPage(child: child, tasks: tasks, journals: journals),
                     );
                   default:
                     return null;

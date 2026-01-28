@@ -1,5 +1,5 @@
+import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
-import 'package:brightbuds_new/aquarium/progression/achievement_resolver.dart';
 import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
@@ -15,8 +15,9 @@ class UnlockManager extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
   final SelectedChildProvider childProvider;
   final UnlockNotifier unlockNotifier;
+   final AchievementNotifier achievementNotifier;
 
-  UnlockManager({required this.childProvider, required this.unlockNotifier});
+  UnlockManager({required this.childProvider, required this.unlockNotifier,required this.achievementNotifier,});
 
   /// Tracks the most recently unlocked fish or decor
   FishDefinition? _lastFishUnlocked;
@@ -92,31 +93,6 @@ class UnlockManager extends ChangeNotifier {
     _lastDecorUnlocked = null;
     notifyListeners();
   }
-
-  void checkAchievementUnlocks(List<TaskModel> tasks, ChildUser child) {
-  final childUser = childProvider.selectedChildAsUser;
-  if (childUser == null) return;
-
-  final resolver = AchievementResolver(child: childUser, tasks: tasks);
-  final newAchievements = resolver.unlockedAchievements;
-
-  if (newAchievements.isNotEmpty) {
-    // Deduplicate
-    final updatedAchievements = {
-      ...childUser.unlockedAchievements,
-      ...newAchievements.map((a) => a.id),
-    }.toList();
-
-    childProvider.updateSelectedChild({'unlockedAchievements': updatedAchievements});
-
-    // Enqueue achievements for dialogs one by one
-    for (var achievement in newAchievements) {
-      unlockNotifier.setUnlocked(achievement);
-      saveUnlockedAchievement(childUser, achievement.id);
-    }
-  }
-}
-
 
 Future<void> saveUnlockedAchievement(ChildUser child, String achievementId) async {
     if (!child.unlockedAchievements.contains(achievementId)) {
