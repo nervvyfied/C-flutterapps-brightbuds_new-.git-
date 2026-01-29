@@ -1696,21 +1696,30 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // Create carousel items
     final List<Widget> carouselItems = [
       // CARD 1: TASKS PROGRESS
-      GestureDetector(
-        onTap: () async {
-          await _showTaskHistoryModal(context, activeChild['cid']);
-        },
-        child: Card(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 3,
-          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Padding(
-            padding: const EdgeInsets.all(12.0),
+      // Update the carousel items array - modify each card to have horizontal layout:
+
+// CARD 1: TASKS PROGRESS (horizontal layout)
+GestureDetector(
+  onTap: () async {
+    await _showTaskHistoryModal(context, activeChild['cid']);
+  },
+  child: Card(
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    ),
+    elevation: 3,
+    margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+    child: Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Left side: Pie chart
+          Expanded(
+            flex: 2,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
               children: [
+                // Title stays at top
                 const Text(
                   "Tasks Progress",
                   style: TextStyle(
@@ -1720,8 +1729,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                SizedBox(
-                  height: 180,
+                // Center the pie chart vertically
+                Expanded(
                   child: Center(
                     child: PieChart(
                       PieChartData(
@@ -1752,128 +1761,221 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _legendWithCounter(
-                      color: Colors.deepPurpleAccent,
-                      label: 'Done',
-                      count: done.toInt(),
-                    ),
-                    _legendWithCounter(
-                      color: Colors.yellow,
-                      label: 'Not Done',
-                      count: notDoneWithoutMissed.toInt(),
-                    ),
-                    _legendWithCounter(
-                      color: Colors.redAccent,
-                      label: 'Missed',
-                      count: missed.toInt(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Tap to view history →",
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.grey[600],
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
               ],
             ),
           ),
-        ),
-      ),
-
-      // CARD 2: WEEKLY TASK ANALYSIS
-      Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        elevation: 3,
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+          
+          // Right side: Legend and info
+          Expanded(
+            flex: 3,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: Column(
                 children: [
-                  Icon(
-                    Icons.analytics,
-                    color: Colors.deepPurpleAccent,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    "Weekly Task Analysis",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF8657F3),
+                  // Spacer to align with title
+                  const SizedBox(height: 28), // Adjust based on title height
+                  
+                  // Center the legend
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 12,
+                            runSpacing: 8,
+                            children: [
+                              _legendWithCounter(
+                                color: Colors.deepPurpleAccent,
+                                label: 'Done',
+                                count: done.toInt(),
+                              ),
+                              _legendWithCounter(
+                                color: Colors.yellow,
+                                label: 'Not Done',
+                                count: notDoneWithoutMissed.toInt(),
+                              ),
+                              _legendWithCounter(
+                                color: Colors.redAccent,
+                                label: 'Missed',
+                                count: missed.toInt(),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              const Text(
+                                "Task Completion Overview",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                "Track completed, pending, and missed tasks",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                              const Text(
+                                "for better progress monitoring.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  IconButton(
-                    icon: Icon(Icons.refresh, size: 16),
-                    color: Colors.deepPurpleAccent,
-                    padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(),
-                    onPressed: () {
-                      setState(() {});
-                    },
+                  
+                  // Bottom CTA stays at bottom
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurpleAccent.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          "Tap to view task history →",
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.deepPurpleAccent,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          Icons.arrow_forward,
+                          size: 16,
+                          color: Colors.deepPurpleAccent,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              FutureBuilder<Map<String, dynamic>>(
-                future: _getWeeklyTaskAnalysis(activeChild['cid']),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(16.0),
-                        child: CircularProgressIndicator(),
-                      ),
-                    );
-                  }
+            ),
+          ),
+        ],
+      ),
+    ),
+  ),
+),
 
-                  if (snapshot.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Text(
-                        "Error loading analysis: ${snapshot.error}",
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    );
-                  }
+// CARD 2: WEEKLY TASK ANALYSIS (already has horizontal layout but keep as is)
+// Your existing card 2 code stays the same
 
-                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Text(
-                        "No task analysis available for this week.",
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    );
-                  }
+      // CARD 2: WEEKLY TASK ANALYSIS
+      // CARD 2: WEEKLY TASK ANALYSIS
+Card(
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+  elevation: 3,
+  margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+  child: ConstrainedBox(
+    constraints: BoxConstraints(
+      minHeight: 380, // Minimum height
+      maxHeight: 450, // Maximum height for carousel
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, // IMPORTANT: Takes only needed space
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.analytics,
+                color: Colors.deepPurpleAccent,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  "Weekly Task Analysis",
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF8657F3),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 16),
+                color: Colors.deepPurpleAccent,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded( // ADD THIS: Makes the FutureBuilder scrollable within available space
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _getWeeklyTaskAnalysis(activeChild['cid']),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
 
-                  final analysis = snapshot.data!;
-                  final totalTasks = analysis['totalTasks'] as int;
-                  final totalCompleted = analysis['totalCompleted'] as int;
-                  final completionRate = analysis['completionRate'] as double;
-                  final activeStreak = analysis['activeStreak'] as int;
-                  final bestPerformingTask =
-                      analysis['bestPerformingTask'] as String;
-                  final bestTaskDaysCompleted =
-                      analysis['bestTaskDaysCompleted'] as int;
-                  final topTasks =
-                      analysis['topTasks'] as List<Map<String, dynamic>>;
-                  final consistencyScore =
-                      analysis['consistencyScore'] as double;
-                  final weeklyTrend = analysis['weeklyTrend'] as List<int>;
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(
+                      "Error loading analysis: ${snapshot.error}",
+                      style: TextStyle(color: Colors.red),
+                    ),
+                  );
+                }
 
-                  return Column(
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: Text(
+                      "No task analysis available for this week.",
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  );
+                }
+
+                final analysis = snapshot.data!;
+                final totalTasks = analysis['totalTasks'] as int;
+                final totalCompleted = analysis['totalCompleted'] as int;
+                final completionRate = analysis['completionRate'] as double;
+                final activeStreak = analysis['activeStreak'] as int;
+                final bestPerformingTask =
+                    analysis['bestPerformingTask'] as String;
+                final bestTaskDaysCompleted =
+                    analysis['bestTaskDaysCompleted'] as int;
+                final topTasks =
+                    analysis['topTasks'] as List<Map<String, dynamic>>;
+
+                return SingleChildScrollView(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Streak & Consistency Section
@@ -2050,31 +2152,32 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
                                 color: Colors.amber.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(20),
                               ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.trending_up,
-                                    size: 14,
-                                    color: Colors.amber[800],
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    "#1",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.trending_up,
+                                      size: 14,
                                       color: Colors.amber[800],
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "#1",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.amber[800],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
@@ -2095,130 +2198,137 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            ...topTasks.asMap().entries.map((entry) {
-                              final index = entry.key;
-                              final task = entry.value;
-                              final taskName = task['name'] as String;
-                              final daysCompleted =
-                                  task['totalDaysCompleted'] as int;
-                              final completionPercentage =
-                                  (daysCompleted / 7) * 100;
 
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[50],
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: Colors.grey[200]!,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      // Rank Badge
-                                      Container(
-                                        width: 28,
-                                        height: 28,
+                            // Reduced height for the tasks list
+                            SizedBox(
+                              height: 180, // REDUCED from 280 to 180
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  children: topTasks.asMap().entries.map((entry) {
+                                    final index = entry.key;
+                                    final task = entry.value;
+                                    final taskName = task['name'] as String;
+                                    final daysCompleted =
+                                        task['totalDaysCompleted'] as int;
+                                    final completionPercentage =
+                                        (daysCompleted / 7) * 100;
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(10),
                                         decoration: BoxDecoration(
-                                          color: _getRankColor(index),
-                                          borderRadius: BorderRadius.circular(
-                                            6,
-                                          ),
+                                          color: Colors.grey[50],
+                                          borderRadius: BorderRadius.circular(10),
+                                          border: Border.all(color: Colors.grey[200]!),
                                         ),
-                                        child: Center(
-                                          child: Text(
-                                            '${index + 1}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      // Task Info
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                        child: Row(
                                           children: [
-                                            Text(
-                                              taskName,
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w500,
+                                            // Rank Badge
+                                            Container(
+                                              width: 28,
+                                              height: 28,
+                                              decoration: BoxDecoration(
+                                                color: _getRankColor(index),
+                                                borderRadius: BorderRadius.circular(6),
                                               ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
+                                              child: Center(
+                                                child: Text(
+                                                  '${index + 1}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
                                             ),
-                                            Text(
-                                              "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed",
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey,
+                                            const SizedBox(width: 12),
+
+                                            // Task Info
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    taskName,
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight: FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed",
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.grey,
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
+                                            ),
+
+                                            // Progress
+                                            Column(
+                                              children: [
+                                                Container(
+                                                  width: 60,
+                                                  height: 6,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.grey[200],
+                                                    borderRadius: BorderRadius.circular(3),
+                                                  ),
+                                                  child: Align(
+                                                    alignment: Alignment.centerLeft,
+                                                    child: Container(
+                                                      width: completionPercentage * 0.6,
+                                                      height: 6,
+                                                      decoration: BoxDecoration(
+                                                        color: _getConsistencyColor(
+                                                          completionPercentage,
+                                                        ),
+                                                        borderRadius: BorderRadius.circular(3),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  "${completionPercentage.toInt()}%",
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: _getConsistencyColor(
+                                                      completionPercentage,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ],
                                         ),
                                       ),
-                                      // Progress Bar
-                                      Column(
-                                        children: [
-                                          Container(
-                                            width: 60,
-                                            height: 6,
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[200],
-                                              borderRadius:
-                                                  BorderRadius.circular(3),
-                                            ),
-                                            child: Align(
-                                              alignment: Alignment.centerLeft,
-                                              child: Container(
-                                                width:
-                                                    completionPercentage * 0.6,
-                                                height: 6,
-                                                decoration: BoxDecoration(
-                                                  color: _getConsistencyColor(
-                                                    completionPercentage,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(3),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            "${completionPercentage.toInt()}%",
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.bold,
-                                              color: _getConsistencyColor(
-                                                completionPercentage,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
+                                    );
+                                  }).toList(),
                                 ),
-                              );
-                            }).toList(),
+                              ),
+                            ),
                           ],
                         ),
+                      const SizedBox(height: 8),
                     ],
-                  );
-                },
-              ),
-            ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
+        ],
       ),
+    ),
+  ),
+),
     ];
 
     return [
@@ -2361,252 +2471,296 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       // MAIN CHARTS ROW
       IntrinsicHeight(
+        child: // Replace the MAIN CHARTS ROW section with this:
+
+// MAIN CHARTS COLUMN (stacked vertically)
+Column(
+  crossAxisAlignment: CrossAxisAlignment.stretch,
+  children: [
+    // CARD 1: WEEKLY MOOD TREND CARD (horizontal layout)
+    Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      elevation: 3,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // WEEKLY MOOD TREND CARD (unchanged)
+            // Left side: Mood chart
             Expanded(
-              child: Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 3,
-                margin: const EdgeInsets.only(right: 6),
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      const Text(
-                        "Weekly Mood Trend",
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF8657F3),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      SizedBox(
-                        height: 100,
-                        child: OverflowBox(
-                          maxHeight: 200,
-                          alignment: Alignment.topCenter,
-                          child: RepaintBoundary(
-                            key: _childChartKey,
-                            child: SizedBox(
-                              height: 200,
-                              child: GestureDetector(
-                                onTap: () => _showMoodHistoryModal(
-                                  context,
+              flex: 2,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Weekly Mood Trend",
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF8657F3),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: 100,
+                    child: OverflowBox(
+                      maxHeight: 200,
+                      alignment: Alignment.topCenter,
+                      child: RepaintBoundary(
+                        key: _childChartKey,
+                        child: SizedBox(
+                          height: 200,
+                          child: GestureDetector(
+                            onTap: () => _showMoodHistoryModal(
+                              context,
+                              activeChild['cid'],
+                            ),
+                            child: PieChart(
+                              PieChartData(
+                                startDegreeOffset: 180,
+                                sectionsSpace: 2,
+                                centerSpaceRadius: 20,
+                                sections: _buildGaugeSections(
+                                  journalProv,
                                   activeChild['cid'],
                                 ),
-                                child: PieChart(
-                                  PieChartData(
-                                    startDegreeOffset: 180,
-                                    sectionsSpace: 2,
-                                    centerSpaceRadius: 20,
-                                    sections: _buildGaugeSections(
-                                      journalProv,
-                                      activeChild['cid'],
-                                    ),
-                                  ),
-                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: _moodOrder.map((mood) {
-                          final count =
-                              _moodCountsThisWeek(
-                                journalProv,
-                                activeChild['cid'],
-                              )[mood] ??
-                              0;
-                          return Column(
-                            children: [
-                              Text(
-                                _moodEmojis[mood] ?? '•',
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                              Container(
-                                width: 12,
-                                height: 5,
-                                decoration: BoxDecoration(
-                                  color: _moodColors[mood],
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '$count',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        "This week's top mood is: $weeklyTopMood, assign a Power Boost?",
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      const SizedBox(height: 6),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          final therapistId = widget.therapistId;
-                          final childId = activeChild['cid'];
-
-                          if (childId == null || childId.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('No active child selected!'),
-                              ),
-                            );
-                            return;
-                          }
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => TherapistCBTPage(
-                                therapistId: therapistId,
-                                parentId: widget.parentId,
-                                childId: childId,
-                                suggestedMood: weeklyTopMood,
-                              ),
-                            ),
-                          );
-                        },
-                        icon: const Icon(
-                          Icons.auto_awesome,
-                          size: 16,
-                          color: Colors.white,
-                        ),
-                        label: const Text(
-                          "Assign Power Boost",
-                          style: TextStyle(fontSize: 12, color: Colors.white),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFECE00),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          textStyle: const TextStyle(fontSize: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // UPDATED: CAROUSEL FOR TASK PROGRESS & ANALYSIS USING PageView
-            Expanded(
-              child: Column(
-                children: [
-                  // PageView Carousel
-                  SizedBox(
-                    height: 400,
-                    child: PageView.builder(
-                      controller: _pageController,
-                      itemCount: carouselItems.length,
-                      onPageChanged: (index) {
-                        setState(() {
-                          _currentCarouselIndex = index;
-                        });
-                      },
-                      itemBuilder: (context, index) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                          child: carouselItems[index],
-                        );
-                      },
                     ),
                   ),
-                  const SizedBox(height: 8),
-
-                  // Carousel indicators
+                  const SizedBox(height: 4),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: carouselItems.asMap().entries.map((entry) {
-                      return GestureDetector(
-                        onTap: () {
-                          _pageController.animateToPage(
-                            entry.key,
-                            duration: Duration(milliseconds: 300),
-                            curve: Curves.easeInOut,
-                          );
-                        },
-                        child: Container(
-                          width: 8.0,
-                          height: 8.0,
-                          margin: const EdgeInsets.symmetric(horizontal: 4.0),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: _currentCarouselIndex == entry.key
-                                ? Colors.deepPurpleAccent
-                                : Colors.grey[300],
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: _moodOrder.map((mood) {
+                      final count =
+                          _moodCountsThisWeek(
+                            journalProv,
+                            activeChild['cid'],
+                          )[mood] ??
+                              0;
+                      return Column(
+                        children: [
+                          Text(
+                            _moodEmojis[mood] ?? '•',
+                            style: const TextStyle(fontSize: 14),
                           ),
-                        ),
+                          Container(
+                            width: 12,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: _moodColors[mood],
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$count',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ],
                       );
                     }).toList(),
-                  ),
-
-                  // Navigation buttons
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.arrow_back_ios, size: 16),
-                          onPressed: _currentCarouselIndex > 0
-                              ? () {
-                                  _pageController.previousPage(
-                                    duration: Duration(milliseconds: 300),
-                                    curve: Curves.easeInOut,
-                                  );
-                                }
-                              : null,
-                        ),
-                        Text(
-                          "${_currentCarouselIndex + 1}/${carouselItems.length}",
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.arrow_forward_ios, size: 16),
-                          onPressed:
-                              _currentCarouselIndex < carouselItems.length - 1
-                              ? () {
-                                  _pageController.nextPage(
-                                    duration: Duration(milliseconds: 300),
-                                    curve: Curves.easeInOut,
-                                  );
-                                }
-                              : null,
-                        ),
-                      ],
-                    ),
                   ),
                 ],
               ),
             ),
+            
+            // Right side: Description and button
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "This week's top mood is: $weeklyTopMood",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "Assign a Power Boost to help improve their emotional well-being and build coping skills.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        final therapistId = widget.therapistId;
+                        final childId = activeChild['cid'];
+
+                        if (childId == null || childId.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('No active child selected!'),
+                            ),
+                          );
+                          return;
+                        }
+
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => TherapistCBTPage(
+                              therapistId: therapistId,
+                              parentId: widget.parentId,
+                              childId: childId,
+                              suggestedMood: weeklyTopMood,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.auto_awesome,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        "Assign Power Boost",
+                        style: TextStyle(fontSize: 12, color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFECE00),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        textStyle: const TextStyle(fontSize: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        "Tap chart to view mood history →",
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
+      ),
+    ),
+
+    // CARD 2: CAROUSEL FOR TASKS PROGRESS & ANALYSIS
+    Column(
+      children: [
+        // PageView Carousel
+        SizedBox(
+  height: 460, // Increased from 400 to 460 to accommodate content
+  child: PageView.builder(
+    controller: _pageController,
+    itemCount: carouselItems.length,
+    onPageChanged: (index) {
+      setState(() {
+        _currentCarouselIndex = index;
+      });
+    },
+    itemBuilder: (context, index) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 0),
+        child: carouselItems[index],
+      );
+    },
+  ),
+),
+        const SizedBox(height: 8),
+
+        // Carousel indicators
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: carouselItems.asMap().entries.map((entry) {
+            return GestureDetector(
+              onTap: () {
+                _pageController.animateToPage(
+                  entry.key,
+                  duration: Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                );
+              },
+              child: Container(
+                width: 8.0,
+                height: 8.0,
+                margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _currentCarouselIndex == entry.key
+                      ? Colors.deepPurpleAccent
+                      : Colors.grey[300],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+
+        // Navigation buttons
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: Icon(Icons.arrow_back_ios, size: 16),
+                onPressed: _currentCarouselIndex > 0
+                    ? () {
+                        _pageController.previousPage(
+                          duration: Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    : null,
+              ),
+              Text(
+                "${_currentCarouselIndex + 1}/${carouselItems.length}",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.arrow_forward_ios, size: 16),
+                onPressed:
+                    _currentCarouselIndex < carouselItems.length - 1
+                    ? () {
+                        _pageController.nextPage(
+                          duration: Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      }
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  ],
+),
       ),
     ];
   }
