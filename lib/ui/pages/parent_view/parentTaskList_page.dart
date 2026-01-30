@@ -779,8 +779,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                 ),
                 const SizedBox(height: 16),
 
-                const SizedBox(height: 16),
-
                 // Routine row
                 Text("Routine", style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),

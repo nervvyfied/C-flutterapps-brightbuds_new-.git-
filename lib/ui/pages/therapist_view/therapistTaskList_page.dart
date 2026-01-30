@@ -38,6 +38,19 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   late SelectedChildProvider _selectedChildProv;
   late TaskProvider _taskProvider;
 
+  int _getXPForDifficulty(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return 5;
+      case 'medium':
+        return 10;
+      case 'hard':
+        return 20;
+      default:
+        return 0;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -365,13 +378,18 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                           const SizedBox(width: 8),
                           Row(
                             children: [
-                              Image.asset(
-                                'assets/coin.png',
-                                width: 16,
-                                height: 16,
+                              const Icon(
+                                Icons.flash_on,
+                                size: 16,
+                                color: Colors.orange,
                               ),
                               const SizedBox(width: 4),
-                              Text('${task.reward}'),
+                              Text(
+                                '+${_getXPForDifficulty(task.difficulty)} XP',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -771,7 +789,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                     _buildDifficultyButton('Hard', const Color(0xFFFD5C68)),
                   ],
                 ),
-                const SizedBox(height: 16),
 
                 const SizedBox(height: 16),
 
