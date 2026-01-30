@@ -38,6 +38,19 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   late SelectedChildProvider _selectedChildProv;
   late TaskProvider _taskProvider;
 
+  int _getXPForDifficulty(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return 5;
+      case 'medium':
+        return 10;
+      case 'hard':
+        return 20;
+      default:
+        return 0;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -366,13 +379,18 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                           const SizedBox(width: 8),
                           Row(
                             children: [
-                              Image.asset(
-                                'assets/coin.png',
-                                width: 16,
-                                height: 16,
+                              const Icon(
+                                Icons.flash_on,
+                                size: 16,
+                                color: Colors.orange,
                               ),
                               const SizedBox(width: 4),
-                              Text('${task.reward}'),
+                              Text(
+                                '+${_getXPForDifficulty(task.difficulty)} XP',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -756,53 +774,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                     _buildDifficultyButton('Easy', const Color(0xFFA6C26F)),
                     _buildDifficultyButton('Medium', const Color(0xFFFECE00)),
                     _buildDifficultyButton('Hard', const Color(0xFFFD5C68)),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Reward container
-                Text(
-                  "Reward (tokens)",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset('assets/coin.png', width: 24, height: 24),
-                    const SizedBox(width: 8),
-
-                    // Inside _TaskFormModalState, replace the reward TextFormField:
-                    SizedBox(
-                      width: 80,
-                      child: TextFormField(
-                        controller: _rewardController,
-                        textAlign: TextAlign.center,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter
-                              .digitsOnly, // Only allows numbers
-                        ],
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.isEmpty) {
-                            return "Enter a reward";
-                          }
-                          final parsed = int.tryParse(val);
-                          if (parsed == null) return "Invalid number";
-                          if (parsed <= 0) return "Reward must be positive";
-                          return null;
-                        },
-                        onSaved: (val) {
-                          reward = int.tryParse(val ?? '0') ?? 0;
-                        },
-                      ),
-                    ),
                   ],
                 ),
 
