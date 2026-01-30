@@ -402,7 +402,6 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
             fetchedChildren.add({
               'cid': childId,
               'name': childName,
-              'balance': 0,
               'parentUid': parentUid,
               'accessCode': accessCode,
             });
@@ -562,9 +561,6 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
     }
   }
 
-  // Other dialogs (_showTherapistSettingsDialog, _showLinkChildDialog)
-  // remain the same but all setState() calls inside them are now preceded by if(!mounted) checks.
-
   @override
   Widget build(BuildContext context) {
     if (isLoading) return const Center(child: CircularProgressIndicator());
@@ -572,9 +568,8 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
       return const Center(child: Text("Therapist data not found."));
     }
 
-    final activeChild = Provider.of<SelectedChildProvider>(
-      context,
-    ).selectedChild;
+    final selectedChildProv = Provider.of<SelectedChildProvider>(context);
+    final activeChild = selectedChildProv.selectedChild;
 
     return Drawer(
       child: Column(
@@ -613,7 +608,7 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
                               ),
                             ),
                             Text(
-                              "${childrenList.length} children",
+                              "${childrenList.length} ${childrenList.length == 1 ? 'child' : 'children'}",
                               style: TextStyle(color: Colors.grey[600]),
                             ),
                           ],
@@ -641,6 +636,8 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Display selected child with access code
                   if (childrenList.isNotEmpty && activeChild != null)
                     Card(
                       shape: RoundedRectangleBorder(
@@ -649,24 +646,41 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
                       elevation: 3,
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.blue[100],
+                          backgroundColor: const Color(
+                            0xFF8657F3,
+                          ).withOpacity(0.2),
                           child: Text(
                             activeChild['name'][0],
-                            style: const TextStyle(color: Colors.black),
+                            style: const TextStyle(
+                              color: Color(0xFF8657F3),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         title: Text(
                           activeChild['name'],
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF070211),
+                          ),
                         ),
-                        subtitle: Text("Balance: ${activeChild['balance']}"),
+                        subtitle: Text(
+                          "Access Code: ${activeChild['accessCode'] ?? 'N/A'}",
+                          style: TextStyle(
+                            color: const Color(0xFF070211).withOpacity(0.8),
+                          ),
+                        ),
                         trailing: IconButton(
                           onPressed: _switchChildDialog,
-                          icon: const Icon(Icons.swap_horiz),
+                          icon: const Icon(
+                            Icons.swap_horiz,
+                            color: Color(0xFF070211),
+                          ),
                           tooltip: "Switch Child",
                         ),
                       ),
                     ),
+
                   if (childrenList.isEmpty)
                     Card(
                       elevation: 2,

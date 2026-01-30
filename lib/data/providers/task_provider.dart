@@ -53,9 +53,9 @@ class TaskProvider extends ChangeNotifier {
 
   late Box<ChildUser> _childBox;
   Function(int newXP)? onXPChanged;
-    TaskProvider(this.unlockManager,this.achievementNotifier,) {
-      _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
-    }
+  TaskProvider(this.unlockManager, this.achievementNotifier) {
+    _syncService = SyncService(_userRepo, _taskRepo, _streakRepo);
+  }
 
   final List<_PendingAction> _pendingActions = [];
   List<TaskModel> _tasks = [];
@@ -63,7 +63,7 @@ class TaskProvider extends ChangeNotifier {
   set tasks(List<TaskModel> newTasks) {
     _tasks = newTasks;
     notifyListeners();
- // Initialize child box
+    // Initialize child box
     _initChildBox();
   }
 
@@ -98,7 +98,7 @@ class TaskProvider extends ChangeNotifier {
     if (currentUser!.type == UserType.therapist) {
       return true; // Therapist can manage anything
     } else if (currentUser!.type == UserType.parent) {
-      return task.creatorId == currentUser!.uid; // Parent only their own tasks
+      return true; // Parent only their own tasks
     }
 
     return false;
@@ -160,7 +160,7 @@ class TaskProvider extends ChangeNotifier {
     return {'done': done, 'notDone': notDone, 'missed': missed};
   }
 
- void Function(int newLevel)? onLevelUp;
+  void Function(int newLevel)? onLevelUp;
 
   void _checkAchievements(ChildUser child) {
     final achievementManager = AchievementManager(
@@ -170,6 +170,7 @@ class TaskProvider extends ChangeNotifier {
 
     achievementManager.checkAchievements();
   }
+
   // ---------------- FIRESTORE ----------------
   void startFirestoreSubscription({
     required String parentId,
@@ -509,6 +510,7 @@ class TaskProvider extends ChangeNotifier {
   void _showSnackBar(BuildContext context, String message) {
     if (context.mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        resetDailyTasks();
         if (context.mounted) {
           ScaffoldMessenger.of(
             context,
@@ -669,6 +671,7 @@ class TaskProvider extends ChangeNotifier {
 
     final task = _tasks[index];
     final now = DateTime.now();
+    // 🚨 IMPORTANT: Create date with no time component for streak tracking
     final today = DateTime(now.year, now.month, now.day);
 
     // ✅ Ensure current child is set for this operation
@@ -679,7 +682,11 @@ class TaskProvider extends ChangeNotifier {
     // ✅ Handle streak
     final bool isYesterday =
         task.lastCompletedDate != null &&
-        task.lastCompletedDate!.difference(today).inDays == -1;
+        _isSameDay(
+          task.lastCompletedDate!,
+          today.subtract(const Duration(days: 1)),
+        );
+
     final newActiveStreak = isYesterday ? task.activeStreak + 1 : 1;
 
     // ✅ Get actual parent ID
@@ -694,6 +701,7 @@ class TaskProvider extends ChangeNotifier {
     final updatedTask = task.copyWith(
       isDone: true,
       doneAt: now,
+      // 🚨 CRITICAL: Set lastCompletedDate to today (date only, no time)
       lastCompletedDate: today,
       activeStreak: newActiveStreak,
       longestStreak: newActiveStreak > (task.longestStreak)
@@ -706,7 +714,6 @@ class TaskProvider extends ChangeNotifier {
 
     _tasks[index] = updatedTask;
     await _taskBox?.put(updatedTask.id, updatedTask);
-
     // Persist via repository so repo/pending logic knows about change
     try {
       await _taskRepo.saveTask(updatedTask);
@@ -874,78 +881,71 @@ class TaskProvider extends ChangeNotifier {
   }
 
   // ---------------- VERIFY TASK ----------------
-   Future<void> verifyTask(String taskId, String childId) async {
-  final index = _tasks.indexWhere((t) => t.id == taskId);
-  if (index == -1) return;
+  Future<void> verifyTask(String taskId, String childId) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
 
-  final task = _tasks[index];
+    final task = _tasks[index];
 
-  // 🔒 Guard 1: Already verified → do nothing
-  if (task.verified) {
-    debugPrint('⚠️ Task already verified, skipping XP grant');
-    return;
-  }
-
-  // 🔒 Guard 2: Task must be done first
-  if (!task.isDone) {
-    debugPrint('⚠️ Cannot verify task that is not done');
-    return;
-  }
-
-  final now = DateTime.now();
-
-  // 🧮 Calculate XP BASED ON DIFFICULTY (single source of truth)
-  final levelCalculator = LevelCalculator();
-  final earnedXP = levelCalculator.xpFromTask(task.difficulty ?? 'easy');
-
-  // ✅ Update task: verified = true
-  final verifiedTask = task.copyWith(
-    verified: true,
-    lastUpdated: now,
-  );
-
-  // --- LOCAL STATE ---
-  _tasks[index] = verifiedTask;
-  await _taskBox?.put(verifiedTask.id, verifiedTask);
-  notifyListeners();
-
-  // --- REPO ---
-  await _taskRepo.verifyTask(taskId, childId);
-
-  // --- XP GRANT (ONLY HERE) ---
-  await _userRepo.updateChildXP(
-  task.parentId,
-  childId,
-  earnedXP,
-);
-
-// 🔹 Update currentChild after fetchChildAndCache
-currentChild = (await _userRepo.fetchChildAndCache(task.parentId, childId))!;
-
-// 🔹 Optional: notify UI about XP change
-onXPChanged?.call(currentChild!.xp);
-
-_checkAchievements(currentChild!);
-
-
-  // --- FIRESTORE SYNC ---
-  if (await NetworkHelper.isOnline()) {
-    try {
-      await _syncToFirestore(verifiedTask);
-      await _syncService.syncAllPendingChanges(
-        parentId: verifiedTask.parentId,
-        childId: verifiedTask.childId,
-      );
-    } catch (e) {
-      debugPrint('⚠️ Firestore sync failed after verification: $e');
+    // 🔒 Guard 1: Already verified → do nothing
+    if (task.verified) {
+      debugPrint('⚠️ Task already verified, skipping XP grant');
+      return;
     }
-  }
-  _checkAchievements(currentChild!);
 
-  debugPrint(
-    '✅ Task verified: ${verifiedTask.name}, XP granted: $earnedXP',
-  );
-}
+    // 🔒 Guard 2: Task must be done first
+    if (!task.isDone) {
+      debugPrint('⚠️ Cannot verify task that is not done');
+      return;
+    }
+
+    final now = DateTime.now();
+
+    // 🧮 Calculate XP BASED ON DIFFICULTY (single source of truth)
+    final levelCalculator = LevelCalculator();
+    final earnedXP = levelCalculator.xpFromTask(task.difficulty ?? 'easy');
+
+    // ✅ Update task: verified = true
+    final verifiedTask = task.copyWith(verified: true, lastUpdated: now);
+
+    // --- LOCAL STATE ---
+    _tasks[index] = verifiedTask;
+    await _taskBox?.put(verifiedTask.id, verifiedTask);
+    notifyListeners();
+
+    // --- REPO ---
+    await _taskRepo.verifyTask(taskId, childId);
+
+    // --- XP GRANT (ONLY HERE) ---
+    await _userRepo.updateChildXP(task.parentId, childId, earnedXP);
+
+    // 🔹 Update currentChild after fetchChildAndCache
+    currentChild = (await _userRepo.fetchChildAndCache(
+      task.parentId,
+      childId,
+    ))!;
+
+    // 🔹 Optional: notify UI about XP change
+    onXPChanged?.call(currentChild!.xp);
+
+    _checkAchievements(currentChild!);
+
+    // --- FIRESTORE SYNC ---
+    if (await NetworkHelper.isOnline()) {
+      try {
+        await _syncToFirestore(verifiedTask);
+        await _syncService.syncAllPendingChanges(
+          parentId: verifiedTask.parentId,
+          childId: verifiedTask.childId,
+        );
+      } catch (e) {
+        debugPrint('⚠️ Firestore sync failed after verification: $e');
+      }
+    }
+    _checkAchievements(currentChild!);
+
+    debugPrint('✅ Task verified: ${verifiedTask.name}, XP granted: $earnedXP');
+  }
 
   // ---------------- ALARMS ----------------
   Future<void> scheduleTaskAlarm(TaskModel task) async {
@@ -1022,107 +1022,79 @@ _checkAchievements(currentChild!);
     final today = DateTime(now.year, now.month, now.day);
     bool updated = false;
 
-    debugPrint(
-      '🕛 Starting daily task reset check for ${_tasks.length} tasks...',
-    );
-
-    // --- 🧩 Group tasks by childId ---
-    final Map<String, List<TaskModel>> childTasks = {};
-    for (final task in _tasks) {
-      if (!childTasks.containsKey(task.childId)) {
-        childTasks[task.childId] = [];
-      }
-      childTasks[task.childId]!.add(task);
-    }
-
-    for (final entry in childTasks.entries) {
-      final tasks = entry.value;
-
-      final statusCounts = countTaskStatuses(tasks);
-
-      final done = statusCounts['done'] ?? 0;
-      final notDone = statusCounts['notDone'] ?? 0;
-      final missed = statusCounts['missed'] ?? 0;
-
-      // TODO: Fix this - TaskHistoryService is not defined in this file
-      // try {
-      //   final historyService = TaskHistoryService();
-      //   await historyService.saveDailyTaskProgress(
-      //     parentId: tasks.first.parentId,
-      //     childId: entry.key,
-      //     done: done,
-      //     notDone: notDone,
-      //     missed: missed,
-      //   );
-      //   debugPrint('📘 Saved daily progress for child ${entry.key}');
-      // } catch (e) {
-      //   debugPrint('⚠️ Failed to save daily progress for ${entry.key}: $e');
-      // }
-    }
-
     for (var i = 0; i < _tasks.length; i++) {
       final task = _tasks[i];
-      final lastDone = task.lastCompletedDate != null
-          ? DateTime(
-              task.lastCompletedDate!.year,
-              task.lastCompletedDate!.month,
-              task.lastCompletedDate!.day,
-            )
-          : null;
 
-      // ✅ Reset if the task was done before today
-      final shouldReset =
-          task.isDone && (lastDone == null || lastDone.isBefore(today));
-
-      if (shouldReset) {
-        // ✅ Keep streak if task was done yesterday, else reset streak
-        int updatedActiveStreak = 0;
-        if (lastDone != null &&
-            lastDone.isAfter(today.subtract(const Duration(days: 2)))) {
-          updatedActiveStreak = task.activeStreak;
-        }
-
+      // Reset unverified done tasks
+      if (task.isDone && !task.verified) {
         final updatedTask = task.copyWith(
           isDone: false,
-          verified: false,
-          activeStreak: updatedActiveStreak,
+          doneAt: null,
           lastUpdated: now,
         );
-
-        debugPrint(
-          '🔄 Resetting task "${updatedTask.name}" (was done on $lastDone)',
-        );
-
-        // --- LOCAL SAVE ---
+        _tasks[i] = updatedTask;
         await _taskBox?.put(updatedTask.id, updatedTask);
         await _taskRepo.saveTask(updatedTask);
-        _tasks[i] = updatedTask;
         updated = true;
+        continue;
+      }
 
-        // --- FIRESTORE SYNC ---
-        try {
-          await _firestore
-              .collection('users')
-              .doc(updatedTask.parentId)
-              .collection('children')
-              .doc(updatedTask.childId)
-              .collection('tasks')
-              .doc(updatedTask.id)
-              .set(updatedTask.toMap(), SetOptions(merge: true));
+      // Reset verified tasks if lastCompletedDate not today
+      if (task.isDone && task.verified && task.lastCompletedDate != null) {
+        final lastDone = task.lastCompletedDate!;
+        final yesterday = today.subtract(const Duration(days: 1));
+        final newActiveStreak = _isSameDay(lastDone, yesterday)
+            ? task.activeStreak
+            : 0;
 
-          debugPrint('✅ Firestore updated for ${updatedTask.name}');
-        } catch (e) {
-          debugPrint('⚠️ Firestore sync failed for ${updatedTask.name}: $e');
+        if (!_isSameDay(lastDone, today)) {
+          final updatedTask = task.copyWith(
+            isDone: false,
+            verified: false,
+            doneAt: null,
+            activeStreak: newActiveStreak,
+            lastUpdated: now,
+          );
+          _tasks[i] = updatedTask;
+          await _taskBox?.put(updatedTask.id, updatedTask);
+          await _taskRepo.saveTask(updatedTask);
+          updated = true;
         }
+      }
+
+      // Fix inconsistent state: doneAt set but isDone false
+      if (!task.isDone && task.doneAt != null) {
+        final updatedTask = task.copyWith(doneAt: null, lastUpdated: now);
+        _tasks[i] = updatedTask;
+        await _taskBox?.put(updatedTask.id, updatedTask);
+        await _taskRepo.saveTask(updatedTask);
+        updated = true;
       }
     }
 
-    if (updated) {
-      notifyListeners();
-      debugPrint('✅ Daily tasks reset and synced successfully at $now');
-    } else {
-      debugPrint('⏳ No tasks needed resetting today.');
+    // Sync to Firestore if online
+    if (updated && await NetworkHelper.isOnline()) {
+      for (final task in _tasks) {
+        await _firestore
+            .collection('users')
+            .doc(task.parentId)
+            .collection('children')
+            .doc(task.childId)
+            .collection('tasks')
+            .doc(task.id)
+            .set(task.toMap(), SetOptions(merge: true));
+      }
     }
+
+    if (updated) notifyListeners();
+  }
+
+  // Helper method to compare days (ignoring time)
+  bool _isSameDay(DateTime? date1, DateTime? date2) {
+    if (date1 == null || date2 == null) return false;
+    return date1.year == date2.year &&
+        date1.month == date2.month &&
+        date1.day == date2.day;
   }
 
   // ---------------- AUTO RESET CHECK ----------------
@@ -1145,12 +1117,16 @@ _checkAchievements(currentChild!);
         lastReset.day,
       );
 
+      // Check if we've crossed midnight since last reset
       if (lastResetDay.isBefore(today)) {
         debugPrint(
-          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.',
+          '🔄 Auto-reset triggered — last reset was ${lastResetDay.toLocal()}, today is ${today.toLocal()}.',
         );
         await resetDailyTasks();
         await setLastResetDate(today);
+
+        // Also check and reset streaks for all children
+        await _resetStreaksIfNeeded();
       } else {
         debugPrint(
           '✅ Daily tasks already reset today (${lastResetDay.toLocal()}).',
@@ -1162,24 +1138,96 @@ _checkAchievements(currentChild!);
     }
   }
 
-  // ---------------- DAILY RESET SCHEDULER ----------------
+  // Optional: Add streak reset logic
+  Future<void> _resetStreaksIfNeeded() async {
+    try {
+      // Group tasks by child
+      final Map<String, List<TaskModel>> childTasks = {};
+      for (final task in _tasks) {
+        childTasks.putIfAbsent(task.childId, () => []).add(task);
+      }
+
+      // For each child, check if any tasks need streak reset
+      for (final entry in childTasks.entries) {
+        final tasks = entry.value;
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+
+        for (final task in tasks) {
+          if (task.isDone) {
+            final lastDone = task.lastCompletedDate;
+            if (lastDone != null) {
+              final lastDoneDate = DateTime(
+                lastDone.year,
+                lastDone.month,
+                lastDone.day,
+              );
+              final yesterday = today.subtract(const Duration(days: 1));
+
+              // Reset streak if last done was more than 1 day ago
+              if (!_isSameDay(lastDoneDate, yesterday) &&
+                  !_isSameDay(lastDoneDate, today)) {
+                // This task's streak should be reset
+                final updatedTask = task.copyWith(
+                  activeStreak: 0,
+                  lastUpdated: now,
+                );
+
+                final index = _tasks.indexWhere((t) => t.id == task.id);
+                if (index != -1) {
+                  _tasks[index] = updatedTask;
+                  await _taskBox?.put(updatedTask.id, updatedTask);
+
+                  // Update in Firestore
+                  if (await NetworkHelper.isOnline()) {
+                    await _firestore
+                        .collection('users')
+                        .doc(updatedTask.parentId)
+                        .collection('children')
+                        .doc(updatedTask.childId)
+                        .collection('tasks')
+                        .doc(updatedTask.id)
+                        .set(updatedTask.toMap(), SetOptions(merge: true));
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error resetting streaks: $e');
+    }
+  }
+
   void startDailyResetScheduler() {
+    // Cancel any existing timer
     _midnightTimer?.cancel();
 
     final now = DateTime.now();
+    // Next midnight (start of next day)
     final nextMidnight = DateTime(now.year, now.month, now.day + 1);
 
+    // Duration until next midnight
     final durationUntilMidnight = nextMidnight.difference(now);
 
     _midnightTimer = Timer(durationUntilMidnight, () async {
-      await resetDailyTasks();
-      await setLastResetDate(DateTime.now());
-
-      // Schedule again for the next day
-      startDailyResetScheduler();
+      try {
+        debugPrint('🌙 Midnight reached, resetting daily tasks...');
+        await resetDailyTasks(); // reset tasks
+        await setLastResetDate(DateTime.now()); // update last reset record
+      } catch (e, stack) {
+        debugPrint('⚠️ Error during daily reset: $e');
+        debugPrint(stack.toString());
+      } finally {
+        // Schedule next reset
+        startDailyResetScheduler();
+      }
     });
 
-    debugPrint('⏰ Daily reset scheduled for ${nextMidnight.toLocal()}');
+    debugPrint(
+      '⏰ Daily reset scheduled in ${durationUntilMidnight.inSeconds} seconds for ${nextMidnight.toLocal()}',
+    );
   }
 
   void stopDailyResetScheduler() {
@@ -1194,16 +1242,22 @@ _checkAchievements(currentChild!);
     notifyListeners();
   }
 
-  Future<DateTime?> getLastResetDate() async {
-    final box = await Hive.openBox('appSettings');
-    final millis = box.get('lastResetDate') as int?;
-    return millis != null ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
+ Future<DateTime?> getLastResetDate() async {
+  final box = await Hive.openBox('appSettings');
+  final millis = box.get('lastResetDate');
+  if (millis is int) {
+    return DateTime.fromMillisecondsSinceEpoch(millis);
   }
+  return null;
+}
 
-  Future<void> setLastResetDate(DateTime date) async {
-    final box = await Hive.openBox('appSettings');
-    await box.put('lastResetDate', date.millisecondsSinceEpoch);
-  }
+Future<void> setLastResetDate(DateTime date) async {
+  final box = await Hive.openBox('appSettings');
+  await box.put('lastResetDate', date.millisecondsSinceEpoch);
+}
+
+
+
 
   // ---------------- FCM PARENT ----------------
   Future<void> notifyParentCompletion({

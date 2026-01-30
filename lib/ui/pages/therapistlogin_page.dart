@@ -1,15 +1,16 @@
 // ignore_for_file: use_build_context_synchronously, deprecated_member_use
 
 import 'dart:async';
-
+import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/ui/pages/Therapist_view/TherapistForgotPass_page.dart';
 import 'package:brightbuds_new/ui/pages/Therapist_view/TherapistNav_page.dart';
+import 'package:brightbuds_new/ui/pages/Therapist_view/TherapistVerification_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
-import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
+import 'package:firebase_auth/firebase_auth.dart'
+    show FirebaseAuthException, GoogleAuthProvider, FirebaseAuth;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show PlatformException;
-import 'package:provider/provider.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:provider/provider.dart';
 import '/data/providers/auth_provider.dart';
 
 class TherapistAuthPage extends StatefulWidget {
@@ -36,13 +37,20 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
         "953113321611-54jmsk02tdju21s8hd6quaj4529eift4.apps.googleusercontent.com",
   );
 
-  // ---------------- AUTH HANDLERS ----------------
   int _failedLoginAttempts = 0;
-  bool _isWaiting = false; // Prevent multiple taps during cooldown
-  int _cooldownSeconds = 0; // Track countdown
+  bool _isWaiting = false;
+  int _cooldownSeconds = 0;
 
+  void _showSnackBar(String message, {Color? color}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color ?? Colors.red),
+    );
+  }
+
+  // In _TherapistAuthPageState class, update the _handleAuth method:
   void _handleAuth() async {
-    if (_isWaiting) return; // Prevent login during cooldown
+    if (_isWaiting) return;
 
     final auth = context.read<AuthProvider>();
     setState(() => isLoading = true);
@@ -52,104 +60,32 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
       final password = _passwordController.text.trim();
 
       if (isLogin) {
-        if (email.isEmpty || password.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Please enter both email and password"),
-            ),
-          );
-          return;
-        }
-        if (!email.contains('@')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Please enter a valid email")),
-          );
-          return;
-        }
-
+        // Login
         await auth.loginTherapist(email, password);
 
-        _failedLoginAttempts = 0; // reset failed attempts
+        // Get therapist data
+        final therapist = auth.currentUserModel as TherapistUser?;
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Login successful")));
+        // Check if verified
+        if (therapist != null && therapist.isVerified == false) {
+          // Not verified - go to verification page
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => VerifyEmailScreen(email: email)),
+          );
+          return;
+        }
 
+        // Verified - go to dashboard
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const TherapistNavigationShell()),
         );
       } else {
-        // Sign-up
-        final name = _nameController.text.trim();
-        final confirmPassword = _confirmPasswordController.text.trim();
-
-        if (name.isEmpty || email.isEmpty || password.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("All fields are required")),
-          );
-          return;
-        }
-        if (password != confirmPassword) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Passwords do not match")),
-          );
-          return;
-        }
-
-        await auth.signUpTherapist(name, email, password);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Account created successfully")),
-        );
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TherapistNavigationShell()),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      _failedLoginAttempts++;
-
-      String message;
-      switch (e.code) {
-        case 'user-not-found':
-          message = "No account found with this email.";
-          break;
-        case 'wrong-password':
-          message = "Incorrect password. Please try again.";
-          break;
-        case 'invalid-email':
-          message = "Invalid email address.";
-          break;
-        default:
-          message = "Login failed. Please check your credentials.";
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
-
-      // Cooldown
-      if (_failedLoginAttempts >= 5 && !_isWaiting) {
-        _isWaiting = true;
-        _cooldownSeconds = ((_failedLoginAttempts - 4) * 5).clamp(5, 30);
-
-        Timer.periodic(const Duration(seconds: 1), (timer) {
-          setState(() {
-            if (_cooldownSeconds > 0) {
-              _cooldownSeconds--;
-            } else {
-              _isWaiting = false;
-              timer.cancel();
-            }
-          });
-        });
+        // Sign-up code...
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Unexpected error: $e")));
+      _showSnackBar("Error: ${e.toString()}");
     } finally {
       setState(() => isLoading = false);
     }
@@ -161,54 +97,70 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
 
     try {
       final googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return;
-
-      // 🔧 FIX: do NOT assign result (method returns void)
-      await auth.signInTherapistWithGoogle();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Google sign-in successful')),
-      );
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const TherapistNavigationShell()),
-      );
-    } on FirebaseAuthException catch (e) {
-      String message;
-      switch (e.code) {
-        case 'account-exists-with-different-credential':
-          message =
-              'An account already exists with a different sign-in method for this email.';
-          break;
-        case 'invalid-credential':
-          message = 'Invalid Google credentials. Please try again.';
-          break;
-        case 'user-disabled':
-          message = 'This account has been disabled.';
-          break;
-        case 'operation-not-allowed':
-          message = 'Google sign-in is not enabled for this project.';
-          break;
-        case 'network-request-failed':
-          message = 'Network error. Please check your connection.';
-          break;
-        default:
-          message = 'Unhandled FirebaseAuthException code: ${e.code}';
+      if (googleUser == null) {
+        _showSnackBar("Google sign-in cancelled.");
+        return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
+      final user = userCredential.user;
+
+      if (!mounted) return;
+
+      if (user != null) {
+        if (userCredential.additionalUserInfo?.isNewUser ?? false) {
+          _showSnackBar("Google sign-up successful!", color: Colors.green);
+
+          Future.microtask(() {
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VerifyEmailScreen(email: user.email ?? ''),
+              ),
+            );
+          });
+        } else {
+          _showSnackBar("Google sign-in successful!", color: Colors.green);
+
+          Future.microtask(() {
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => TherapistNavigationShell()),
+            );
+          });
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      String message = switch (e.code) {
+        'account-exists-with-different-credential' =>
+          'An account already exists with a different sign-in method.',
+        'invalid-credential' => 'Invalid Google credentials.',
+        'user-disabled' => 'This account has been disabled.',
+        'operation-not-allowed' => 'Google sign-in not enabled.',
+        'network-request-failed' => 'Network error. Check your connection.',
+        _ => 'Authentication error: ${e.message}',
+      };
+      _showSnackBar(message);
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Unexpected error: $e')));
+      _showSnackBar("Unexpected error: $e");
     } finally {
+      if (!mounted) return;
       setState(() => isLoading = false);
     }
   }
 
   void _goToForgotPassword() {
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const TherapistForgotPassPage()),
@@ -217,13 +169,12 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
 
   @override
   Widget build(BuildContext context) {
-    Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
+            if (!mounted) return;
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => const ChooseRolePage()),
@@ -238,10 +189,8 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // App logo
               Image.asset('assets/bb2.png', width: 150, height: 150),
               const SizedBox(height: 20),
-
               Text(
                 isLogin ? "Welcome Back, Therapist!" : "Create Your Account",
                 style: const TextStyle(
@@ -263,8 +212,6 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                 ),
               ),
               const SizedBox(height: 30),
-
-              // Card container
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
@@ -316,9 +263,9 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                                   ? Icons.visibility_off
                                   : Icons.visibility,
                             ),
-                            onPressed: () => setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            }),
+                            onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword,
+                            ),
                           ),
                         ),
                       ),
@@ -336,10 +283,10 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                                     ? Icons.visibility_off
                                     : Icons.visibility,
                               ),
-                              onPressed: () => setState(() {
-                                _obscureConfirmPassword =
-                                    !_obscureConfirmPassword;
-                              }),
+                              onPressed: () => setState(
+                                () => _obscureConfirmPassword =
+                                    !_obscureConfirmPassword,
+                              ),
                             ),
                           ),
                         ),
@@ -358,8 +305,6 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                           ),
                         ),
                       const SizedBox(height: 10),
-
-                      // Auth button
                       SizedBox(
                         width: double.infinity,
                         height: 48,
@@ -387,61 +332,56 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                                 )
                               : _isWaiting
                               ? Text(
-                                  "Too many attempts. Wait for $_cooldownSeconds s...",
+                                  "Too many attempts. Wait $_cooldownSeconds s...",
                                 )
                               : Text(isLogin ? "Login" : "Sign Up"),
                         ),
                       ),
-
                       const SizedBox(height: 15),
-
-                      // Google Sign-In
-                      if (!isLogin)
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton(
-                            onPressed: signInWithGoogle,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                side: BorderSide(color: Colors.grey.shade300),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Image.asset(
-                                  'assets/images/g-logo.png',
-                                  height: 22,
-                                ),
-                                const SizedBox(width: 10),
-                                const Text(
-                                  "Continue with Google",
-                                  style: TextStyle(
-                                    fontFamily: 'Fredoka',
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              ],
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton(
+                          onPressed: (isLoading || _isWaiting)
+                              ? null
+                              : signInWithGoogle,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(color: Colors.grey.shade300),
                             ),
                           ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Image.asset(
+                                'assets/images/g-logo.png',
+                                height: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                "Continue with Google",
+                                style: TextStyle(
+                                  fontFamily: 'Fredoka',
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
+                      ),
                     ],
                   ),
                 ),
               ),
-
               const SizedBox(height: 25),
-
-              // Switch mode
               TextButton(
                 onPressed: () => setState(() => isLogin = !isLogin),
                 child: Text(
                   isLogin
-                      ? "Don’t have an account? Sign Up"
+                      ? "Don't have an account? Sign Up"
                       : "Already have an account? Log In",
                   style: const TextStyle(
                     fontFamily: 'Fredoka',

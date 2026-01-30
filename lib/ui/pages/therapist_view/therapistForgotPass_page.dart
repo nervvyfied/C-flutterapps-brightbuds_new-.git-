@@ -1,4 +1,4 @@
-import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
+import 'package:brightbuds_new/ui/pages/Therapistlogin_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -85,7 +85,7 @@ class _TherapistForgotPassPageState extends State<TherapistForgotPassPage> {
                               Navigator.pushAndRemoveUntil(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => const ParentAuthPage(),
+                                  builder: (_) => const TherapistAuthPage(),
                                 ),
                                 (route) => false,
                               );

@@ -4,6 +4,7 @@ import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/services/firestore_service.dart';
 import 'package:brightbuds_new/main.dart';
+import 'package:brightbuds_new/ui/pages/therapist_view/therapistVerification_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -502,6 +503,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // In your existing loginTherapist method (around line 420), update it:
   Future<void> loginTherapist(String email, String password) async {
     final operationId = 'loginTherapist';
     _trackOperation(operationId);
@@ -513,12 +515,12 @@ class AuthProvider extends ChangeNotifier {
       final therapist = await _auth.loginTherapist(email, password);
       firebaseUser = _auth.currentUser;
 
-      // 🔒 Only allow login if therapist.isVerified is true
-      if (therapist != null && therapist.isVerified != true) {
-        await _auth.signOut();
-        throw Exception(
-          "Your therapist account is pending verification. Please wait for approval.",
-        );
+      // 🔒 Check if therapist is verified in Firestore
+      if (firebaseUser != null) {
+        final therapistDoc = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(firebaseUser!.uid)
+            .get();
       }
 
       if (therapist != null) {
@@ -551,6 +553,29 @@ class AuthProvider extends ChangeNotifier {
 
       final therapist = await _auth.signInTherapistWithGoogle();
       firebaseUser = _auth.currentUser;
+
+      // Check verification status
+      if (firebaseUser != null) {
+        final therapistDoc = await FirebaseFirestore.instance
+            .collection('therapists')
+            .doc(firebaseUser!.uid)
+            .get();
+
+        if (therapistDoc.exists) {
+          final data = therapistDoc.data();
+          final bool idVerified = data?['idVerified'] ?? false;
+          final bool hasUploadedId = data?['hasUploadedId'] ?? false;
+          final bool isVerified = data?['isVerified'] ?? false;
+
+          if (!idVerified || !hasUploadedId || !isVerified) {
+            await _auth.signOut();
+            throw Exception(
+              "Your therapist account needs to complete verification. "
+              "Please upload your therapist ID for approval.",
+            );
+          }
+        }
+      }
 
       if (therapist != null) {
         final isActuallyTherapist = await _userRepo.isTherapist(

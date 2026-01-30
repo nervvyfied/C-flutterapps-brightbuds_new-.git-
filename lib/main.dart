@@ -18,11 +18,9 @@ import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
+import 'package:brightbuds_new/ui/pages/Therapistlogin_page.dart';
 import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
 import 'package:brightbuds_new/ui/pages/childlogin_page.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistHome_page.dart';
-import 'package:brightbuds_new/ui/pages/therapistlogin_page.dart';
 import 'package:brightbuds_new/ui/widgets/splash_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -106,6 +104,7 @@ void main() async {
 
   // ✅ Initialize Firebase first
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Initialize PathService early
 
   // ✅ Initialize local notifications (for both alarm + FCM compatibility)
   await _initFlutterLocalNotifications();
@@ -269,9 +268,8 @@ class _MyAppState extends State<MyApp> {
           ),
         ),
         ChangeNotifierProvider(
-          create: (context) => JournalProvider(
-            context.read<AchievementNotifier>(),
-          ),
+          create: (context) =>
+              JournalProvider(context.read<AchievementNotifier>()),
         ),
         ChangeNotifierProvider(create: (_) => CBTProvider()),
         ChangeNotifierProvider(
@@ -321,8 +319,11 @@ class _MyAppState extends State<MyApp> {
                     final tasks = args['tasks'] as List<TaskModel>;
                     final journals = args['journals'] as List<JournalEntry>;
                     return MaterialPageRoute(
-                      builder: (_) =>
-                          AchievementPage(child: child, tasks: tasks, journals: journals),
+                      builder: (_) => AchievementPage(
+                        child: child,
+                        tasks: tasks,
+                        journals: journals,
+                      ),
                     );
                   default:
                     return null;

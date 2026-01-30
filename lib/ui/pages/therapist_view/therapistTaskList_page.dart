@@ -179,7 +179,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         : "N/A",
                   ),
                   _buildDetailRow("Difficulty", task.difficulty),
-                  _buildDetailRow("Reward", task.reward.toString()),
                   _buildDetailRow(
                     "Active Streak",
                     task.activeStreak.toString(),
@@ -440,7 +439,10 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
         });
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 6,
+        ), // Smaller padding
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF8657F3) : Colors.grey[300],
           borderRadius: BorderRadius.circular(8),
@@ -450,6 +452,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
           style: TextStyle(
             color: selected ? Colors.white : Colors.black87,
             fontWeight: FontWeight.bold,
+            fontSize: 14, // Smaller font size
           ),
         ),
       ),
@@ -474,31 +477,41 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
           Column(
             children: [
               const SizedBox(height: 40),
+              // Title Section
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
+                child: Text(
+                  'Quests for $childName',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Filter Buttons Section
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     _buildFilterButton("All", TaskFilter.all),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     _buildFilterButton("Not Done", TaskFilter.notDone),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     _buildFilterButton("Done", TaskFilter.done),
-                    Text(
-                      'Quests for $childName',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -759,52 +772,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   ],
                 ),
                 const SizedBox(height: 16),
-
-                // Reward container
-                Text(
-                  "Reward (tokens)",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset('assets/coin.png', width: 24, height: 24),
-                    const SizedBox(width: 8),
-
-                    // Inside _TaskFormModalState, replace the reward TextFormField:
-                    SizedBox(
-                      width: 80,
-                      child: TextFormField(
-                        controller: _rewardController,
-                        textAlign: TextAlign.center,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter
-                              .digitsOnly, // Only allows numbers
-                        ],
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.isEmpty) {
-                            return "Enter a reward";
-                          }
-                          final parsed = int.tryParse(val);
-                          if (parsed == null) return "Invalid number";
-                          if (parsed <= 0) return "Reward must be positive";
-                          return null;
-                        },
-                        onSaved: (val) {
-                          reward = int.tryParse(val ?? '0') ?? 0;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
 
                 const SizedBox(height: 16),
 
