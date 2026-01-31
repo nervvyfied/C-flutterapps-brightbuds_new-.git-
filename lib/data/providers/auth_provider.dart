@@ -257,9 +257,9 @@ class AuthProvider extends ChangeNotifier {
       // Clear sensitive data
       firebaseUser = user;
       currentUserModel = null;
-WidgetsBinding.instance.addPostFrameCallback((_) {
-  _syncTaskProvider(navigatorKey.currentContext!);
-});
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncTaskProvider(navigatorKey.currentContext!);
+      });
 
       // Clear all caches when auth state changes (new user or logout)
       await _clearAllCaches();
@@ -464,9 +464,8 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
 
     _untrackOperation(operationId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-  _syncTaskProvider(navigatorKey.currentContext!);
-});
-
+      _syncTaskProvider(navigatorKey.currentContext!);
+    });
   }
 
   // ---------------- THERAPIST METHODS ----------------
@@ -510,19 +509,20 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
     try {
       debugPrint('=== Logging in therapist: $email ===');
 
+      // Login via AuthService
       final therapist = await _auth.loginTherapist(email, password);
       firebaseUser = _auth.currentUser;
 
-      await firebaseUser?.reload();
-      firebaseUser = _auth.currentUser;
-
-      if (firebaseUser != null && !firebaseUser!.emailVerified) {
+      // 🔒 Only allow login if therapist.isVerified is true
+      if (therapist != null && therapist.isVerified != true) {
         await _auth.signOut();
-        throw Exception("Please verify your email before logging in.");
+        throw Exception(
+          "Your therapist account is pending verification. Please wait for approval.",
+        );
       }
 
       if (therapist != null) {
-        // ✅ Role check
+        // Role check
         final isActuallyTherapist = await _userRepo.isTherapist(
           firebaseUser!.uid,
         );
@@ -609,9 +609,8 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
     } finally {
       _untrackOperation(operationId);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-  _syncTaskProvider(navigatorKey.currentContext!);
-});
-
+        _syncTaskProvider(navigatorKey.currentContext!);
+      });
     }
   }
 
@@ -640,7 +639,7 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
         xp: 0,
         level: 1,
         currentWorld: 1,
-    );
+      );
 
       final createdChild = await _userRepo.createChild(parent.uid, child, code);
       if (createdChild != null) {
@@ -715,13 +714,12 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       // 2. Clear ALL local caches before Firebase operations
       await _clearAllCaches();
       debugPrint('✅ Local caches cleared');
-try {
-  final context = navigatorKey.currentContext;
-  if (context != null) {
-    Provider.of<TaskProvider>(context, listen: false)
-        .clearCurrentUser();
-  }
-} catch (_) {}
+      try {
+        final context = navigatorKey.currentContext;
+        if (context != null) {
+          Provider.of<TaskProvider>(context, listen: false).clearCurrentUser();
+        }
+      } catch (_) {}
 
       // 3. Clear SharedPreferences
       try {
@@ -761,30 +759,20 @@ try {
       _isSigningOut = false;
     }
   }
-void _syncTaskProvider(BuildContext context) {
-  if (_isDisposed) return;
-  
-final taskProvider = Provider.of<TaskProvider>(
-  context,
-  listen: false,
-);
 
+  void _syncTaskProvider(BuildContext context) {
+    if (_isDisposed) return;
 
-  if (currentUserModel is ParentUser) {
-    final parent = currentUserModel as ParentUser;
-    taskProvider.setCurrentUser(
-      parent.uid,
-      UserType.parent,
-    );
-  } else if (currentUserModel is TherapistUser) {
-    final therapist = currentUserModel as TherapistUser;
-    taskProvider.setCurrentUser(
-      therapist.uid,
-      UserType.therapist,
-    );
-  } else {
+    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+
+    if (currentUserModel is ParentUser) {
+      final parent = currentUserModel as ParentUser;
+      taskProvider.setCurrentUser(parent.uid, UserType.parent);
+    } else if (currentUserModel is TherapistUser) {
+      final therapist = currentUserModel as TherapistUser;
+      taskProvider.setCurrentUser(therapist.uid, UserType.therapist);
+    } else {}
   }
-}
 
   Future<void> _safeRemoveFcmToken([dynamic user]) async {
     final currentUser = user ?? currentUserModel;
