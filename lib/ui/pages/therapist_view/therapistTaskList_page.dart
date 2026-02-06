@@ -182,7 +182,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
                   // Task details
                   _buildDetailRow("Task Name", task.name),
                   _buildDetailRow(
@@ -192,6 +191,10 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         : "N/A",
                   ),
                   _buildDetailRow("Difficulty", task.difficulty),
+                  _buildDetailRow(
+                    "XP Gained",
+                    "${_getXPForDifficulty(task.difficulty)} XP",
+                  ),
                   _buildDetailRow(
                     "Active Streak",
                     task.activeStreak.toString(),
@@ -635,29 +638,20 @@ class _TaskFormModalState extends State<TaskFormModal> {
 
   late String taskName;
   late String difficulty;
-  late int reward;
   late String routine;
   DateTime? alarmDateTime;
-
-  late final TextEditingController _rewardController = TextEditingController();
-
-  final Map<String, int> defaultTokens = {'Easy': 3, 'Medium': 5, 'Hard': 25};
 
   @override
   void initState() {
     super.initState();
     taskName = widget.task?.name ?? '';
     difficulty = widget.task?.difficulty ?? 'Easy';
-    reward = widget.task?.reward ?? defaultTokens[difficulty]!;
     routine = widget.task?.routine ?? 'Anytime';
     alarmDateTime = widget.task?.alarm;
-
-    _rewardController.text = reward.toString();
   }
 
   @override
   void dispose() {
-    _rewardController.dispose();
     super.dispose();
   }
 
@@ -668,8 +662,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
         if (!mounted) return;
         setState(() {
           difficulty = value;
-          reward = defaultTokens[difficulty]!; // auto-set tokens
-          _rewardController.text = reward.toString(); // update field
         });
       },
       child: Container(
@@ -789,7 +781,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                     _buildDifficultyButton('Hard', const Color(0xFFFD5C68)),
                   ],
                 ),
-
                 const SizedBox(height: 16),
 
                 // Routine row
@@ -910,7 +901,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                                     .toString(),
                             name: taskName,
                             difficulty: difficulty,
-                            reward: reward,
+                            reward: 0,
                             routine: routine,
                             parentId: widget.parentId,
                             childId: widget.childId,
@@ -922,9 +913,38 @@ class _TaskFormModalState extends State<TaskFormModal> {
                           );
 
                           if (widget.task == null) {
-                            taskProvider.addTask(task, context);
+                            final newTask = TaskModel(
+                              id: DateTime.now().millisecondsSinceEpoch
+                                  .toString(),
+                              name: taskName,
+                              difficulty: difficulty,
+                              reward: 0,
+                              routine: routine,
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                              createdAt: DateTime.now(),
+                              alarm: alarmDateTime,
+                              therapistId: '',
+                              creatorId: '',
+                              creatorType: '',
+                            );
+                            taskProvider.addTask(newTask, context);
                           } else {
-                            taskProvider.updateTask(task);
+                            final updatedTask = TaskModel(
+                              id: widget.task!.id,
+                              name: taskName,
+                              difficulty: difficulty,
+                              reward: 0,
+                              routine: routine,
+                              parentId: widget.parentId,
+                              childId: widget.childId,
+                              createdAt: widget.task!.createdAt,
+                              alarm: alarmDateTime,
+                              therapistId: '',
+                              creatorId: '',
+                              creatorType: '',
+                            );
+                            taskProvider.updateTask(updatedTask);
                           }
 
                           Navigator.pop(context);

@@ -396,11 +396,6 @@ class AuthProvider extends ChangeNotifier {
       await firebaseUser?.reload();
       firebaseUser = _auth.currentUser;
 
-      if (firebaseUser != null && !firebaseUser!.emailVerified) {
-        await _auth.signOut();
-        throw Exception("Please verify your email before logging in.");
-      }
-
       if (parent != null) {
         // ✅ Role check
         final isActuallyParent = await _userRepo.isParent(firebaseUser!.uid);

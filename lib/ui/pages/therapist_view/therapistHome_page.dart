@@ -83,7 +83,9 @@ extension StringCasingExtension on String {
 
 class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
   final UserRepository _userRepo = UserRepository();
-
+  String _analysisTimeframe = 'Weekly'; // 'Weekly' or 'Monthly'
+  int _currentWeekOffset = 0; // 0 = current week, 1 = previous week, etc.
+  int _currentMonthOffset = 0; // 0 = current month, 1 = previous month, etc.
   // UPDATED: Using PageController instead of CarouselController
   final PageController _pageController = PageController();
   int _currentCarouselIndex = 0;
@@ -164,59 +166,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         return;
       }
 
-      print('Fetching history from parent: $parentId');
-
-      // Fetch last 90 days
-      final snapshots = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(parentId)
-          .collection('children')
-          .doc(childId)
-          .collection('history')
-          .orderBy('timestamp', descending: true)
-          .limit(90)
-          .get();
-
-      print('Found ${snapshots.docs.length} history records');
-
-      if (snapshots.docs.isEmpty) {
-        if (!mounted) return;
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("No Task History"),
-            content: const Text(
-              "No task history found for this child. History is saved automatically at the end of each day.",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("OK"),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-
-      final historyData = snapshots.docs
-          .map(
-            (d) => {
-              'date': d.id,
-              'done': d['done'] ?? 0,
-              'notDone': d['notDone'] ?? 0,
-              'missed': d['missed'] ?? 0,
-            },
-          )
-          .toList();
-
-      print('First date: ${historyData.first['date']}');
-      print('Last date: ${historyData.last['date']}');
-
-      // Initialize persistent state outside the StatefulBuilder
-      int currentIndex = 0; // most recent
-      String viewMode = 'Daily'; // 'Daily' or 'Weekly'
-
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -225,71 +174,30 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
         ),
         builder: (context) {
-          return StatefulBuilder(
-            builder: (context, setState) {
-              final windowSize = viewMode == 'Daily' ? 1 : 7;
-
-              List<Map<String, dynamic>> _getDisplayedData() {
-                final start = currentIndex;
-                final end = (currentIndex + windowSize).clamp(
-                  0,
-                  historyData.length,
-                );
-                final slice = historyData.sublist(start, end);
-
-                int done = 0, notDone = 0, missed = 0;
-                for (var d in slice) {
-                  done += d['done'] as int;
-                  notDone += d['notDone'] as int;
-                  missed += d['missed'] as int;
-                }
-
-                final dateLabel = slice.length == 1
-                    ? slice.first['date']
-                    : '${slice.last['date']} → ${slice.first['date']}';
-
-                return [
-                  {
-                    'date': dateLabel,
-                    'done': done,
-                    'notDone': notDone,
-                    'missed': missed,
-                  },
-                ];
-              }
-
-              final displayedData = _getDisplayedData();
-
-              // Determine if arrows should be disabled
-              final isPrevDisabled =
-                  currentIndex + windowSize >= historyData.length;
-              final isNextDisabled = currentIndex == 0;
-
-              void _prev() {
-                setState(() {
-                  currentIndex = (currentIndex + windowSize).clamp(
-                    0,
-                    historyData.length - 1,
-                  );
-                });
-              }
-
-              void _next() {
-                setState(() {
-                  currentIndex = (currentIndex - windowSize).clamp(
-                    0,
-                    historyData.length - 1,
-                  );
-                });
-              }
-
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
-                ),
-                child: Container(
+          // Use StreamBuilder for real-time updates
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(parentId)
+                .collection('children')
+                .doc(childId)
+                .collection('history')
+                .orderBy('timestamp', descending: true)
+                .limit(90)
+                .snapshots(),
+            builder: (context, historySnapshot) {
+              if (historySnapshot.connectionState == ConnectionState.waiting) {
+                return Container(
                   padding: const EdgeInsets.all(16),
-                  height: 400,
+                  height: 420,
+                  child: const Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              if (historySnapshot.hasError) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  height: 420,
                   child: Column(
                     children: [
                       const Text(
@@ -299,137 +207,430 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 20),
+                      Icon(Icons.error, size: 48, color: Colors.redAccent),
                       const SizedBox(height: 12),
-
-                      // Toggle Daily / Weekly
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: ['Daily', 'Weekly'].map((mode) {
-                          final selected = mode == viewMode;
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                            child: ChoiceChip(
-                              label: Text(mode),
-                              selected: selected,
-                              onSelected: (_) {
-                                setState(() {
-                                  viewMode = mode;
-                                  currentIndex = 0; // reset to most recent
-                                });
-                              },
-                            ),
-                          );
-                        }).toList(),
+                      Text(
+                        "Error loading history",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.red),
                       ),
-                      const SizedBox(height: 12),
+                    ],
+                  ),
+                );
+              }
 
-                      // Chart with arrows
-                      Row(
+              if (!historySnapshot.hasData ||
+                  historySnapshot.data!.docs.isEmpty) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  height: 420,
+                  child: Column(
+                    children: [
+                      const Text(
+                        "Task Progress History",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        "No task history found yet.",
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        "History is saved automatically at the end of each day.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final historyDocs = historySnapshot.data!.docs;
+              print('Found ${historyDocs.length} history records');
+
+              // Process history data
+              final Map<String, Map<String, dynamic>> allHistoryData = {};
+              for (var doc in historyDocs) {
+                final data = doc.data();
+                allHistoryData[doc.id] = {
+                  'date': doc.id,
+                  'done': data['done'] ?? 0,
+                  'notDone': data['notDone'] ?? 0,
+                  'missed': data['missed'] ?? 0,
+                  'timestamp': (data['timestamp'] as Timestamp?)?.toDate(),
+                  'totalTasks': data['totalTasks'] ?? 0,
+                };
+              }
+
+              // Get today's date and calculate calendar weeks
+              final now = DateTime.now();
+              final today = DateTime(now.year, now.month, now.day);
+
+              // Calculate start of current week (Monday)
+              int daysSinceMonday = today.weekday - 1;
+              final startOfCurrentWeek = today.subtract(
+                Duration(days: daysSinceMonday),
+              );
+
+              // Create weekly groups (Monday to Sunday)
+              final List<Map<String, dynamic>> weeklyGroups = [];
+
+              // Group by calendar weeks (starting Monday)
+              DateTime currentWeekStart = startOfCurrentWeek;
+              for (int week = 0; week < 12; week++) {
+                // Show last 12 weeks
+                final List<Map<String, dynamic>> weekDays = [];
+                int weekDone = 0, weekNotDone = 0, weekMissed = 0;
+
+                // Add each day of the week (Monday to Sunday)
+                for (int i = 0; i < 7; i++) {
+                  final currentDate = currentWeekStart.add(Duration(days: i));
+                  final dateKey = DateFormat('yyyy-MM-dd').format(currentDate);
+
+                  final dayHistory = allHistoryData[dateKey];
+                  if (dayHistory != null) {
+                    weekDays.add(dayHistory);
+                    weekDone += dayHistory['done'] as int;
+                    weekNotDone += dayHistory['notDone'] as int;
+                    weekMissed += dayHistory['missed'] as int;
+                  } else {
+                    // Add empty data for missing days
+                    weekDays.add({
+                      'date': dateKey,
+                      'done': 0,
+                      'notDone': 0,
+                      'missed': 0,
+                      'totalTasks': 0,
+                      'timestamp': currentDate,
+                    });
+                  }
+                }
+
+                weeklyGroups.add({
+                  'weekStart': currentWeekStart,
+                  'weekEnd': currentWeekStart.add(const Duration(days: 6)),
+                  'done': weekDone,
+                  'notDone': weekNotDone,
+                  'missed': weekMissed,
+                  'totalTasks': weekDone + weekNotDone + weekMissed,
+                  'displayLabel':
+                      '${DateFormat('MMM dd').format(currentWeekStart)} - ${DateFormat('MMM dd').format(currentWeekStart.add(const Duration(days: 6)))}',
+                  'days': weekDays,
+                });
+
+                // Move to previous week
+                currentWeekStart = currentWeekStart.subtract(
+                  const Duration(days: 7),
+                );
+              }
+
+              // Initialize state variables inside the StatefulBuilder
+              int currentWeekIndex = 0;
+              String viewMode = 'Weekly';
+
+              return StatefulBuilder(
+                builder: (context, setState) {
+                  List<Map<String, dynamic>> _getDisplayedData() {
+                    if (viewMode == 'Weekly') {
+                      if (weeklyGroups.isEmpty) return [];
+                      final weekData = weeklyGroups[currentWeekIndex];
+                      return [weekData];
+                    } else {
+                      // Daily view - show all days sorted by date
+                      final allDays = allHistoryData.values.toList()
+                        ..sort((a, b) => b['date'].compareTo(a['date']));
+
+                      final start = currentWeekIndex * 7;
+                      final end = (start + 7).clamp(0, allDays.length);
+                      final slice = allDays.sublist(start, end);
+
+                      if (slice.isEmpty) return [];
+
+                      int done = 0, notDone = 0, missed = 0;
+                      for (var d in slice) {
+                        done += d['done'] as int;
+                        notDone += d['notDone'] as int;
+                        missed += d['missed'] as int;
+                      }
+
+                      return [
+                        {
+                          'date': slice.length == 1
+                              ? slice.first['date']
+                              : '${slice.last['date']} → ${slice.first['date']}',
+                          'done': done,
+                          'notDone': notDone,
+                          'missed': missed,
+                          'totalTasks': done + notDone + missed,
+                        },
+                      ];
+                    }
+                  }
+
+                  final displayedData = _getDisplayedData();
+
+                  // Determine if arrows should be disabled
+                  final isPrevDisabled = viewMode == 'Weekly'
+                      ? currentWeekIndex >= weeklyGroups.length - 1
+                      : (currentWeekIndex + 1) * 7 >= allHistoryData.length;
+
+                  final isNextDisabled = currentWeekIndex == 0;
+
+                  void _prev() {
+                    setState(() {
+                      currentWeekIndex = (currentWeekIndex + 1).clamp(
+                        0,
+                        viewMode == 'Weekly'
+                            ? weeklyGroups.length - 1
+                            : (allHistoryData.length / 7).ceil() - 1,
+                      );
+                    });
+                  }
+
+                  void _next() {
+                    setState(() {
+                      currentWeekIndex = (currentWeekIndex - 1).clamp(0, 999);
+                    });
+                  }
+
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(context).viewInsets.bottom,
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      height: 420,
+                      child: Column(
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back_ios),
-                            onPressed: isPrevDisabled ? null : _prev,
+                          const Text(
+                            "Task Progress History",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          Expanded(
-                            child: SizedBox(
-                              height: 200,
-                              child: BarChart(
-                                BarChartData(
-                                  alignment: BarChartAlignment.spaceAround,
-                                  titlesData: FlTitlesData(
-                                    leftTitles: AxisTitles(
-                                      sideTitles: SideTitles(showTitles: true),
-                                    ),
-                                    bottomTitles: AxisTitles(
-                                      sideTitles: SideTitles(
-                                        showTitles: true,
-                                        getTitlesWidget: (index, _) {
-                                          final date =
-                                              displayedData[index
-                                                  .toInt()]['date'];
-                                          return Text(
-                                            date.toString().split(' ')[0],
-                                            style: const TextStyle(
-                                              fontSize: 10,
-                                            ),
+                          const SizedBox(height: 12),
+
+                          // Toggle Daily / Weekly
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: ['Daily', 'Weekly'].map((mode) {
+                              final selected = mode == viewMode;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: ChoiceChip(
+                                  label: Text(mode),
+                                  selected: selected,
+                                  onSelected: (_) {
+                                    setState(() {
+                                      viewMode = mode;
+                                      currentWeekIndex = 0;
+                                    });
+                                  },
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Week label
+                          if (viewMode == 'Weekly' && displayedData.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'Week ${weeklyGroups.length - currentWeekIndex} (${displayedData.first['displayLabel']})',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.deepPurpleAccent,
+                                ),
+                              ),
+                            ),
+
+                          // Chart with arrows
+                          Row(
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.arrow_back_ios),
+                                onPressed: isPrevDisabled ? null : _prev,
+                              ),
+                              Expanded(
+                                child: SizedBox(
+                                  height: 200,
+                                  child: BarChart(
+                                    BarChartData(
+                                      alignment: BarChartAlignment.spaceAround,
+                                      titlesData: FlTitlesData(
+                                        leftTitles: AxisTitles(
+                                          sideTitles: SideTitles(
+                                            showTitles: true,
+                                          ),
+                                        ),
+                                        bottomTitles: AxisTitles(
+                                          sideTitles: SideTitles(
+                                            showTitles: true,
+                                            getTitlesWidget: (value, meta) {
+                                              if (viewMode == 'Weekly') {
+                                                // Show weekday names for weekly view
+                                                final weekdays = [
+                                                  'M',
+                                                  'T',
+                                                  'W',
+                                                  'T',
+                                                  'F',
+                                                  'S',
+                                                  'S',
+                                                ];
+                                                if (value >= 0 &&
+                                                    value < weekdays.length) {
+                                                  return Text(
+                                                    weekdays[value.toInt()],
+                                                    style: const TextStyle(
+                                                      fontSize: 10,
+                                                    ),
+                                                  );
+                                                }
+                                              }
+                                              return const Text('');
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      borderData: FlBorderData(show: false),
+                                      barGroups: List.generate(
+                                        viewMode == 'Weekly'
+                                            ? 7
+                                            : displayedData.length,
+                                        (i) {
+                                          if (viewMode == 'Weekly' &&
+                                              displayedData.isNotEmpty) {
+                                            final weekData =
+                                                displayedData.first['days']
+                                                    as List<
+                                                      Map<String, dynamic>
+                                                    >;
+                                            final dayData = weekData[i];
+                                            return BarChartGroupData(
+                                              x: i,
+                                              barRods: [
+                                                BarChartRodData(
+                                                  toY: (dayData['done'] as int)
+                                                      .toDouble(),
+                                                  color:
+                                                      Colors.deepPurpleAccent,
+                                                  width: 8,
+                                                ),
+                                                BarChartRodData(
+                                                  toY:
+                                                      (dayData['notDone']
+                                                              as int)
+                                                          .toDouble(),
+                                                  color: Colors.yellow,
+                                                  width: 8,
+                                                ),
+                                                BarChartRodData(
+                                                  toY:
+                                                      (dayData['missed'] as int)
+                                                          .toDouble(),
+                                                  color: Colors.redAccent,
+                                                  width: 8,
+                                                ),
+                                              ],
+                                              barsSpace: 2,
+                                            );
+                                          } else if (displayedData.isNotEmpty) {
+                                            // Daily view
+                                            final entry = displayedData[i];
+                                            return BarChartGroupData(
+                                              x: i,
+                                              barRods: [
+                                                BarChartRodData(
+                                                  toY: (entry['done'] as int)
+                                                      .toDouble(),
+                                                  color:
+                                                      Colors.deepPurpleAccent,
+                                                ),
+                                                BarChartRodData(
+                                                  toY: (entry['notDone'] as int)
+                                                      .toDouble(),
+                                                  color: Colors.yellow,
+                                                ),
+                                                BarChartRodData(
+                                                  toY: (entry['missed'] as int)
+                                                      .toDouble(),
+                                                  color: Colors.redAccent,
+                                                ),
+                                              ],
+                                              barsSpace: 2,
+                                            );
+                                          }
+                                          return BarChartGroupData(
+                                            x: i,
+                                            barRods: [],
                                           );
                                         },
                                       ),
                                     ),
                                   ),
-                                  borderData: FlBorderData(show: false),
-                                  barGroups: List.generate(
-                                    displayedData.length,
-                                    (i) {
-                                      final entry = displayedData[i];
-                                      return BarChartGroupData(
-                                        x: i,
-                                        barRods: [
-                                          BarChartRodData(
-                                            toY: (entry['done'] as int)
-                                                .toDouble(),
-                                            color: Colors.deepPurpleAccent,
-                                          ),
-                                          BarChartRodData(
-                                            toY: (entry['notDone'] as int)
-                                                .toDouble(),
-                                            color: Colors.yellow,
-                                          ),
-                                          BarChartRodData(
-                                            toY: (entry['missed'] as int)
-                                                .toDouble(),
-                                            color: Colors.redAccent,
-                                          ),
-                                        ],
-                                        barsSpace: 2,
-                                      );
-                                    },
-                                  ),
                                 ),
                               ),
+                              IconButton(
+                                icon: const Icon(Icons.arrow_forward_ios),
+                                onPressed: isNextDisabled ? null : _next,
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 12),
+                          // Legend with totals
+                          if (displayedData.isNotEmpty)
+                            Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _legendWithCounter(
+                                      color: Colors.deepPurpleAccent,
+                                      label: 'Done',
+                                      count: displayedData.first['done'] as int,
+                                    ),
+                                    _legendWithCounter(
+                                      color: Colors.yellow,
+                                      label: 'Not Done',
+                                      count:
+                                          displayedData.first['notDone'] as int,
+                                    ),
+                                    _legendWithCounter(
+                                      color: Colors.redAccent,
+                                      label: 'Missed',
+                                      count:
+                                          displayedData.first['missed'] as int,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Total Tasks: ${displayedData.first['totalTasks']}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.arrow_forward_ios),
-                            onPressed: isNextDisabled ? null : _next,
-                          ),
                         ],
                       ),
-
-                      const SizedBox(height: 12),
-                      // Legend
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _legendWithCounter(
-                            color: Colors.deepPurpleAccent,
-                            label: 'Done',
-                            count: displayedData.first['done'] as int,
-                          ),
-                          _legendWithCounter(
-                            color: Colors.yellow,
-                            label: 'Not Done',
-                            count: displayedData.first['notDone'] as int,
-                          ),
-                          _legendWithCounter(
-                            color: Colors.redAccent,
-                            label: 'Missed',
-                            count: displayedData.first['missed'] as int,
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 8),
-                      Text(
-                        displayedData.first['date'].toString(),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.black54,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                  );
+                },
               );
             },
           );
@@ -577,6 +778,40 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           final sortedMoods = counts.entries.where((e) => e.value > 0).toList()
             ..sort((a, b) => b.value.compareTo(a.value));
 
+          // Monthly = grouped by week of month (like weekly)
+          List<BarChartGroupData> monthlyWeekBarGroups = [];
+
+          if (isMonthly && entriesToDisplay.isNotEmpty) {
+            final monthStart = monthStarts[currentMonthIndex];
+
+            // Determine week number in month (1–5)
+            Map<int, int> weekCounts = {};
+
+            for (var entry in entriesToDisplay) {
+              final weekOfMonth = ((entry.createdAt.day - 1) / 7).floor() + 1;
+
+              weekCounts[weekOfMonth] = (weekCounts[weekOfMonth] ?? 0) + 1;
+            }
+
+            final maxWeeks = weekCounts.keys.reduce((a, b) => a > b ? a : b);
+
+            monthlyWeekBarGroups = List.generate(maxWeeks, (i) {
+              final week = i + 1;
+              final count = weekCounts[week] ?? 0;
+
+              return BarChartGroupData(
+                x: i,
+                barRods: [
+                  BarChartRodData(
+                    toY: count.toDouble(),
+                    color: Colors.blueAccent,
+                    width: 16,
+                  ),
+                ],
+              );
+            });
+          }
+
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -643,7 +878,35 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                   ),
                 const SizedBox(height: 16),
-                if (!isMonthly)
+
+                // FIX: Show appropriate chart based on view mode
+                if (isMonthly && entriesToDisplay.isNotEmpty)
+                  Expanded(
+                    child: BarChart(
+                      BarChartData(
+                        titlesData: FlTitlesData(
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: true),
+                          ),
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (value, _) {
+                                return Text(
+                                  'Week ${value.toInt() + 1}',
+                                  style: const TextStyle(fontSize: 10),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        barGroups: monthlyWeekBarGroups,
+                        borderData: FlBorderData(show: false),
+                        gridData: FlGridData(show: true),
+                      ),
+                    ),
+                  )
+                else if (!isMonthly && entriesToDisplay.isNotEmpty)
                   Expanded(
                     child: BarChart(
                       BarChartData(
@@ -665,7 +928,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                                   'Sun',
                                 ];
                                 if (value >= 0 && value < weekdays.length) {
-                                  return Text(weekdays[value.toInt()]);
+                                  return Text(
+                                    weekdays[value.toInt()],
+                                    style: const TextStyle(fontSize: 10),
+                                  );
                                 }
                                 return const Text('');
                               },
@@ -702,9 +968,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                             ],
                           );
                         }),
+                        borderData: FlBorderData(show: false),
                       ),
                     ),
                   ),
+
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 12,
@@ -1085,7 +1353,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     required String taskId,
     required String taskName,
   }) {
+    // Check if we've already shown this notification
     if (_notifiedTaskIds.contains(taskId)) return;
+
+    // Mark this task as notified before showing snackbar
+    _notifiedTaskIds.add(taskId);
 
     final snackBar = SnackBar(
       content: Text('$childName has completed "$taskName" ✅'),
@@ -1096,14 +1368,24 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         label: 'Dismiss',
         textColor: Colors.white,
         onPressed: () {
-          _notifiedTaskIds.add(taskId);
+          // Just dismiss the snackbar - it's already marked as notified
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
         },
       ),
+      // Optional: Add onVisible callback if you want to mark as notified only when shown
+      onVisible: () {
+        print('Task completion snackbar shown for $taskId');
+      },
     );
 
     ScaffoldMessenger.of(context).showSnackBar(snackBar);
-    _notifiedTaskIds.add(taskId);
+
+    // Also set up automatic removal from the set after snackbar disappears
+    // This prevents memory leak if you have many tasks
+    Future.delayed(const Duration(seconds: 4), () {
+      _notifiedTaskIds.remove(taskId);
+      print('Task $taskId removed from notification set');
+    });
   }
 
   Future<void> exportChildDataToPdfWithCharts(
@@ -2118,6 +2400,854 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     return counts;
   }
 
+  Future<DateTime> _getCurrentDateForAnalysis() async {
+    final now = DateTime.now();
+    if (_analysisTimeframe == 'Weekly') {
+      return now.subtract(Duration(days: 7 * _currentWeekOffset));
+    } else {
+      // Monthly offset
+      return DateTime(now.year, now.month - _currentMonthOffset, now.day);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getTaskDataWithDetails({
+    required String parentId,
+    required String childId,
+    required String timeFrame, // 'weekly' or 'monthly'
+    required int offset,
+  }) async {
+    final tasks = <Map<String, dynamic>>[];
+
+    try {
+      // Get all tasks
+      final tasksSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('tasks')
+          .get();
+
+      final now = DateTime.now();
+      DateTime startDate;
+      DateTime endDate;
+
+      if (timeFrame == 'weekly') {
+        // Calculate week boundaries with offset
+        final targetDate = now.subtract(Duration(days: 7 * offset));
+        startDate = targetDate.subtract(Duration(days: targetDate.weekday - 1));
+        startDate = DateTime(startDate.year, startDate.month, startDate.day);
+        endDate = startDate.add(const Duration(days: 6));
+      } else {
+        // Monthly boundaries
+        final targetDate = DateTime(now.year, now.month - offset, now.day);
+        startDate = DateTime(targetDate.year, targetDate.month, 1);
+        endDate = DateTime(targetDate.year, targetDate.month + 1, 0);
+      }
+
+      print('📊 Fetching task details for period:');
+      print('   Start: ${DateFormat('yyyy-MM-dd').format(startDate)}');
+      print('   End: ${DateFormat('yyyy-MM-dd').format(endDate)}');
+
+      for (var doc in tasksSnap.docs) {
+        final data = doc.data();
+        final taskId = doc.id;
+        final taskName = data['name'] ?? 'Unnamed Task';
+
+        // Get completion history for this task in the timeframe
+        final daysCompleted = await _getTaskCompletionsInTimeframe(
+          parentId: parentId,
+          childId: childId,
+          taskId: taskId,
+          startDate: startDate,
+          endDate: endDate,
+        );
+
+        // Get active streak from task data
+        final activeStreak = (data['activeStreak'] as int?) ?? 0;
+
+        tasks.add({
+          'id': taskId,
+          'name': taskName,
+          'isDone': data['isDone'] ?? false,
+          'daysCompleted': daysCompleted,
+          'activeStreak': activeStreak,
+          'lastCompletedDate': data['lastCompletedDate'] is Timestamp
+              ? (data['lastCompletedDate'] as Timestamp).toDate()
+              : null,
+          'routine': data['routine'] ?? 'anytime',
+          'difficulty': data['difficulty'] ?? 'Medium',
+          'reward': (data['reward'] as int?) ?? 0,
+        });
+      }
+
+      return tasks;
+    } catch (e) {
+      print('❌ Error fetching task details: $e');
+      return [];
+    }
+  }
+
+  Future<Map<String, int>> _getTaskCompletionFromHistory({
+    required String parentId,
+    required String childId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      // Convert dates to string format for Firestore query
+      final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
+
+      // Fetch history documents within the date range
+      final historySnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('history')
+          .where(FieldPath.documentId, isGreaterThanOrEqualTo: startDateStr)
+          .where(FieldPath.documentId, isLessThanOrEqualTo: endDateStr)
+          .get();
+
+      // Initialize counters
+      int totalDaysWithTasks = 0;
+      int totalDone = 0;
+      int totalNotDone = 0;
+      int totalMissed = 0;
+      int totalTaskCompletions = 0;
+
+      // Process each day's history
+      for (var doc in historySnap.docs) {
+        final data = doc.data();
+        final done = (data['done'] as int?) ?? 0;
+        final notDone = (data['notDone'] as int?) ?? 0;
+        final missed = (data['missed'] as int?) ?? 0;
+
+        if (done + notDone + missed > 0) {
+          totalDaysWithTasks++;
+          totalDone += done;
+          totalNotDone += notDone;
+          totalMissed += missed;
+          totalTaskCompletions += done; // Each done task counts as a completion
+        }
+      }
+
+      return {
+        'totalDaysWithTasks': totalDaysWithTasks,
+        'totalDone': totalDone,
+        'totalNotDone': totalNotDone,
+        'totalMissed': totalMissed,
+        'totalTaskCompletions': totalTaskCompletions,
+        'totalTasksAssigned': totalDone + totalNotDone + totalMissed,
+      };
+    } catch (e) {
+      print('❌ Error getting task completion from history: $e');
+      return {
+        'totalDaysWithTasks': 0,
+        'totalDone': 0,
+        'totalNotDone': 0,
+        'totalMissed': 0,
+        'totalTaskCompletions': 0,
+        'totalTasksAssigned': 0,
+      };
+    }
+  }
+
+  Future<int> _getTaskCompletionsInTimeframe({
+    required String parentId,
+    required String childId,
+    required String taskId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      // First, try to get the task document to see if it has completionDates
+      final taskDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('tasks')
+          .doc(taskId)
+          .get();
+
+      if (taskDoc.exists) {
+        final data = taskDoc.data();
+        if (data != null) {
+          // Check if there's a completionDates array
+          if (data['completionDates'] != null &&
+              data['completionDates'] is List) {
+            final completionDates = data['completionDates'] as List;
+            int count = 0;
+            for (var date in completionDates) {
+              if (date is Timestamp) {
+                final completionDate = date.toDate();
+                if (completionDate.isAfter(
+                      startDate.subtract(const Duration(days: 1)),
+                    ) &&
+                    completionDate.isBefore(
+                      endDate.add(const Duration(days: 1)),
+                    )) {
+                  count++;
+                }
+              }
+            }
+            return count;
+          }
+
+          // Check lastCompletedDate
+          if (data['lastCompletedDate'] != null &&
+              data['lastCompletedDate'] is Timestamp) {
+            final lastCompletedDate = (data['lastCompletedDate'] as Timestamp)
+                .toDate();
+            if (lastCompletedDate.isAfter(
+                  startDate.subtract(const Duration(days: 1)),
+                ) &&
+                lastCompletedDate.isBefore(
+                  endDate.add(const Duration(days: 1)),
+                )) {
+              return 1;
+            }
+          }
+
+          // Check doneAt
+          if (data['doneAt'] != null && data['doneAt'] is Timestamp) {
+            final doneAt = (data['doneAt'] as Timestamp).toDate();
+            if (doneAt.isAfter(startDate.subtract(const Duration(days: 1))) &&
+                doneAt.isBefore(endDate.add(const Duration(days: 1)))) {
+              return 1;
+            }
+          }
+        }
+      }
+
+      // If we don't have completionDates, then we cannot determine completions in timeframe.
+      return 0;
+    } catch (e) {
+      print('❌ Error getting task completions in timeframe: $e');
+      return 0;
+    }
+  }
+
+  Future<Map<String, dynamic>> _analyzeTasksWithHistory({
+    required String childId,
+    required bool isWeekly,
+    required int offset,
+  }) async {
+    try {
+      final parentId = await _getParentIdFromChild(childId);
+      if (parentId == null || parentId.isEmpty) {
+        print('⚠️ Parent not found for child: $childId');
+        return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
+      }
+
+      // Calculate date range based on calendar
+      final now = DateTime.now();
+      DateTime startDate, endDate;
+      int daysInTimeframe;
+
+      if (isWeekly) {
+        // Calculate Monday to Sunday week
+        final targetDate = now.subtract(Duration(days: 7 * offset));
+        int daysSinceMonday = targetDate.weekday - 1;
+        startDate = targetDate.subtract(Duration(days: daysSinceMonday));
+        startDate = DateTime(startDate.year, startDate.month, startDate.day);
+        endDate = startDate.add(const Duration(days: 6));
+        daysInTimeframe = 7;
+      } else {
+        // Calculate month boundaries
+        final targetDate = DateTime(now.year, now.month - offset, now.day);
+        startDate = DateTime(targetDate.year, targetDate.month, 1);
+        endDate = DateTime(targetDate.year, targetDate.month + 1, 0);
+        daysInTimeframe = endDate.day;
+      }
+
+      print(
+        '📊 Analyzing tasks with history for ${isWeekly ? 'Week' : 'Month'}:',
+      );
+      print('   Start: ${DateFormat('yyyy-MM-dd').format(startDate)}');
+      print('   End: ${DateFormat('yyyy-MM-dd').format(endDate)}');
+      print('   Days: $daysInTimeframe');
+
+      // 1. Fetch all tasks
+      final tasksSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('tasks')
+          .get();
+
+      if (tasksSnap.docs.isEmpty) {
+        print('⚠️ No tasks found for child: $childId');
+        return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
+      }
+
+      final List<Map<String, dynamic>> tasks = [];
+      for (var doc in tasksSnap.docs) {
+        final data = doc.data();
+        tasks.add({
+          'id': doc.id,
+          'name': data['name'] ?? 'Unknown Task',
+          'difficulty': data['difficulty'] ?? 'Medium',
+          'routine': data['routine'] ?? 'anytime',
+          'reward': data['reward'] ?? 0,
+          'estimatedCompletions': 0, // Will be calculated
+          'daysActive': 0, // Will be calculated
+          'completionPercentage': 0.0, // Will be calculated
+          'daysCompleted': 0, // For compatibility
+        });
+      }
+
+      // Helper function to safely extract integers
+      int safeExtractInt(dynamic value) {
+        if (value == null) return 0;
+        if (value is int) return value;
+        if (value is double) return value.round();
+        if (value is String) {
+          try {
+            return int.parse(value);
+          } catch (e) {
+            return 0;
+          }
+        }
+        return 0;
+      }
+
+      // 2. Fetch history for the date range
+      final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
+
+      final historySnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('history')
+          .where(FieldPath.documentId, isGreaterThanOrEqualTo: startDateStr)
+          .where(FieldPath.documentId, isLessThanOrEqualTo: endDateStr)
+          .get();
+
+      // 3. Calculate totals from history
+      int totalDaysWithHistory = 0;
+      int totalDone = 0;
+      int totalNotDone = 0;
+      int totalMissed = 0;
+
+      for (var doc in historySnap.docs) {
+        final data = doc.data();
+
+        // Safely extract values with defaults
+        final done = safeExtractInt(data['done']);
+        final notDone = safeExtractInt(data['notDone']);
+        final missed = safeExtractInt(data['missed']);
+
+        if (done + notDone + missed > 0) {
+          totalDaysWithHistory++;
+          totalDone += done;
+          totalNotDone += notDone;
+          totalMissed += missed;
+        }
+      }
+
+      // 4. Calculate performance metrics
+      final totalTasksAssigned = totalDone + totalNotDone + totalMissed;
+      final completionRate = totalTasksAssigned > 0
+          ? totalDone / totalTasksAssigned
+          : 0;
+
+      // 5. For each task, estimate completion based on history distribution
+      final List<Map<String, dynamic>> taskPerformance = [];
+
+      if (tasks.isNotEmpty && totalDone > 0) {
+        // Distribute completions across tasks (simplified)
+        final avgCompletionsPerTask = totalDone / tasks.length;
+
+        for (var task in tasks) {
+          // Add some variation based on task difficulty
+          double difficultyFactor = 1.0;
+          switch ((task['difficulty'] as String).toLowerCase()) {
+            case 'easy':
+              difficultyFactor = 1.2;
+              break;
+            case 'hard':
+              difficultyFactor = 0.8;
+              break;
+            default:
+              difficultyFactor = 1.0;
+          }
+
+          final estimatedCompletions =
+              (avgCompletionsPerTask * difficultyFactor).round();
+          final daysActive = totalDaysWithHistory;
+          final completionPercentage = daysActive > 0
+              ? (estimatedCompletions / daysActive) * 100
+              : 0;
+
+          taskPerformance.add({
+            ...task,
+            'estimatedCompletions': estimatedCompletions.clamp(0, daysActive),
+            'daysActive': daysActive,
+            'completionPercentage': completionPercentage,
+            'daysCompleted': estimatedCompletions, // For compatibility
+          });
+        }
+      } else {
+        // If no history data, initialize all tasks with zeros
+        for (var task in tasks) {
+          taskPerformance.add({
+            ...task,
+            'estimatedCompletions': 0,
+            'daysActive': 0,
+            'completionPercentage': 0.0,
+            'daysCompleted': 0,
+          });
+        }
+      }
+
+      // 6. Sort tasks by completion percentage
+      taskPerformance.sort(
+        (a, b) => (b['completionPercentage'] as double).compareTo(
+          a['completionPercentage'] as double,
+        ),
+      );
+
+      // 7. Get top and bottom performers (ensure they exist)
+      final topTasks = taskPerformance.take(3).toList();
+      final bottomTasks = taskPerformance.reversed.take(3).toList();
+
+      final bestTask = taskPerformance.isNotEmpty
+          ? taskPerformance.first
+          : _getEmptyTaskData();
+      final worstTask = taskPerformance.isNotEmpty
+          ? taskPerformance.last
+          : _getEmptyTaskData();
+
+      return {
+        'timeframe': isWeekly ? 'Weekly' : 'Monthly',
+        'startDate': startDate,
+        'endDate': endDate,
+        'daysInTimeframe': daysInTimeframe,
+        'totalTasks': tasks.length,
+        'totalDaysWithHistory': totalDaysWithHistory,
+        'totalDone': totalDone,
+        'totalNotDone': totalNotDone,
+        'totalMissed': totalMissed,
+        'totalTasksAssigned': totalTasksAssigned,
+        'totalCompleted': totalDone, // Alias for compatibility
+        'completionRate': completionRate,
+        'activeStreak': 0, // Default value
+        'totalDaysCompleted': totalDaysWithHistory,
+        'bestTask': bestTask,
+        'worstTask': worstTask,
+        'topTasks': topTasks,
+        'bottomTasks': bottomTasks,
+        'taskPerformance': taskPerformance,
+      };
+    } catch (e) {
+      print('❌ Error in _analyzeTasksWithHistory: $e');
+      return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
+    }
+  }
+
+  Future<Map<String, dynamic>> _getWeeklyTaskAnalysis(
+    String childId, {
+    int weekOffset = 0,
+  }) async {
+    try {
+      final result = await _analyzeTasksWithHistory(
+        childId: childId,
+        isWeekly: true,
+        offset: weekOffset,
+      );
+      return result;
+    } catch (e) {
+      print('❌ Error in _getWeeklyTaskAnalysis: $e');
+      return _getEmptyAnalysisData('Weekly');
+    }
+  }
+
+  Future<Map<String, dynamic>> _getMonthlyTaskAnalysis(
+    String childId, {
+    int monthOffset = 0,
+  }) async {
+    try {
+      final result = await _analyzeTasksWithHistory(
+        childId: childId,
+        isWeekly: false,
+        offset: monthOffset,
+      );
+      return result;
+    } catch (e) {
+      print('❌ Error in _getMonthlyTaskAnalysis: $e');
+      return _getEmptyAnalysisData('Monthly');
+    }
+  }
+
+  // Helper for empty data
+  Map<String, dynamic> _getEmptyAnalysisData(String timeframe) {
+    return {
+      'timeframe': timeframe,
+      'totalTasks': 0,
+      'totalDaysWithHistory': 0,
+      'totalDone': 0,
+      'totalNotDone': 0,
+      'totalMissed': 0,
+      'totalTasksAssigned': 0,
+      'totalCompleted': 0,
+      'completionRate': 0.0,
+      'activeStreak': 0,
+      'totalDaysCompleted': 0,
+      'daysInTimeframe': timeframe == 'Weekly' ? 7 : 30,
+      'startDate': DateTime.now(),
+      'endDate': DateTime.now(),
+      'bestTask': _getEmptyTaskData(),
+      'worstTask': _getEmptyTaskData(),
+      'topTasks': [],
+      'bottomTasks': [],
+      'taskPerformance': [],
+    };
+  }
+
+  // Update _getEmptyTaskData to include all required fields
+  Map<String, dynamic> _getEmptyTaskData() {
+    return {
+      'name': 'No tasks',
+      'estimatedCompletions': 0,
+      'daysActive': 0,
+      'completionPercentage': 0.0,
+      'daysCompleted': 0,
+      'difficulty': 'Medium',
+      'routine': 'anytime',
+      'reward': 0,
+    };
+  }
+
+  // Helper method to get days completed in any timeframe
+  Future<int> _getDaysCompletedInTimeframe({
+    required String parentId,
+    required String childId,
+    required String taskId,
+    required DateTime startDate,
+    required DateTime endDate,
+    required Map<String, dynamic> taskData,
+  }) async {
+    try {
+      print(
+        '🔍 Checking days completed for task: ${taskData['name']} ($taskId)',
+      );
+      print('   Parent: $parentId, Child: $childId');
+      print(
+        '   Timeframe: ${DateFormat('yyyy-MM-dd').format(startDate)} to ${DateFormat('yyyy-MM-dd').format(endDate)}',
+      );
+
+      // First, check if the task has a 'done' field that might indicate completion
+      if (taskData['isDone'] == true) {
+        final doneAt = taskData['doneAt'];
+        if (doneAt != null && doneAt is Timestamp) {
+          final completionDate = doneAt.toDate();
+          if (!completionDate.isBefore(startDate) &&
+              !completionDate.isAfter(endDate)) {
+            print('   ✅ Found completion in isDone field on: $completionDate');
+            return 1;
+          }
+        }
+      }
+
+      // Check completion dates array
+      final completionDates = taskData['completionDates'] as List?;
+      if (completionDates != null && completionDates.isNotEmpty) {
+        print(
+          '   Checking completionDates array with ${completionDates.length} entries',
+        );
+        int count = 0;
+        for (var date in completionDates) {
+          if (date is Timestamp) {
+            final completionDate = date.toDate();
+            if (!completionDate.isBefore(startDate) &&
+                !completionDate.isAfter(endDate)) {
+              count++;
+              print('     ✅ Found completion on: $completionDate');
+            }
+          }
+        }
+        if (count > 0) {
+          print('   Total completions in completionDates: $count');
+          return count;
+        }
+      }
+
+      // Try to fetch from history collection
+      print('   Checking history collection...');
+      try {
+        // Convert dates to string format for document ID query
+        final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
+        final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
+
+        print(
+          '   Looking for history documents from $startDateStr to $endDateStr',
+        );
+
+        final historySnap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('history')
+            .where(FieldPath.documentId, isGreaterThanOrEqualTo: startDateStr)
+            .where(FieldPath.documentId, isLessThanOrEqualTo: endDateStr)
+            .get();
+
+        print('   Found ${historySnap.docs.length} history documents');
+
+        int completedCount = 0;
+
+        for (var doc in historySnap.docs) {
+          final data = doc.data();
+          print('   Checking history for ${doc.id}: ${data.keys}');
+
+          // Check if this task appears in the done tasks list
+          if (data.containsKey('completedTasks')) {
+            final completedTasks = data['completedTasks'];
+            print(
+              '     completedTasks field type: ${completedTasks.runtimeType}',
+            );
+
+            if (completedTasks is List<dynamic>) {
+              print('     completedTasks list: $completedTasks');
+              if (completedTasks.contains(taskId)) {
+                completedCount++;
+                print('     ✅ Found in completedTasks for date: ${doc.id}');
+              }
+            }
+          }
+
+          // Check task-specific completion data
+          if (data.containsKey('taskCompletions')) {
+            final taskCompletions = data['taskCompletions'];
+            print(
+              '     taskCompletions field type: ${taskCompletions.runtimeType}',
+            );
+
+            if (taskCompletions is Map<String, dynamic>) {
+              print('     taskCompletions keys: ${taskCompletions.keys}');
+              if (taskCompletions[taskId] == true) {
+                completedCount++;
+                print('     ✅ Found in taskCompletions for date: ${doc.id}');
+              }
+            }
+          }
+
+          // Also check if there's a generic "tasks" field
+          if (data.containsKey('tasks')) {
+            final tasksData = data['tasks'];
+            if (tasksData is Map<String, dynamic>) {
+              final taskData = tasksData[taskId];
+              if (taskData != null && taskData['completed'] == true) {
+                completedCount++;
+                print('     ✅ Found in tasks field for date: ${doc.id}');
+              }
+            }
+          }
+        }
+
+        print('   Total completions found in history: $completedCount');
+        return completedCount;
+      } catch (e) {
+        print('   ❌ Error checking history: $e');
+      }
+
+      // Last resort: check last completion date
+      final lastCompletedDate = taskData['lastCompletedDate'];
+      final doneAt = taskData['doneAt'];
+
+      DateTime? latestCompletion;
+
+      if (lastCompletedDate != null && lastCompletedDate is Timestamp) {
+        latestCompletion = lastCompletedDate.toDate();
+        print(
+          '   Last completion date from lastCompletedDate: $latestCompletion',
+        );
+      } else if (doneAt != null && doneAt is Timestamp) {
+        latestCompletion = doneAt.toDate();
+        print('   Last completion date from doneAt: $latestCompletion');
+      }
+
+      if (latestCompletion != null &&
+          !latestCompletion.isBefore(startDate) &&
+          !latestCompletion.isAfter(endDate)) {
+        print('   ✅ Using last completion date: $latestCompletion');
+        return 1;
+      }
+
+      print('   ❌ No completions found for this task in timeframe');
+      return 0;
+    } catch (e) {
+      print('❌ Error calculating days completed: $e');
+      return 0;
+    }
+  }
+
+  // Get daily completion pattern for month
+  Future<List<int>> _getDailyCompletionPatternForMonth({
+    required String parentId,
+    required String childId,
+    required DateTime startOfMonth,
+    required DateTime endOfMonth,
+  }) async {
+    final daysInMonth = endOfMonth.day;
+    final List<int> dailyCompletions = List.filled(daysInMonth, 0);
+
+    try {
+      final historySnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(parentId)
+          .collection('children')
+          .doc(childId)
+          .collection('history')
+          .where(
+            'timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth),
+          )
+          .where(
+            'timestamp',
+            isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth),
+          )
+          .get();
+
+      for (var doc in historySnap.docs) {
+        final data = doc.data();
+        final timestamp = data['timestamp'];
+        if (timestamp != null && timestamp is Timestamp) {
+          final date = timestamp.toDate();
+          final dayIndex = date.day - 1; // Day 1 = index 0
+
+          if (dayIndex >= 0 && dayIndex < daysInMonth) {
+            final doneTasks = (data['done'] as int?) ?? 0;
+            dailyCompletions[dayIndex] = doneTasks;
+          }
+        }
+      }
+
+      return dailyCompletions;
+    } catch (e) {
+      print('❌ Error getting daily completion pattern for month: $e');
+      return dailyCompletions;
+    }
+  }
+
+  // Get weekly breakdown for month
+  Future<List<Map<String, dynamic>>> _getWeeklyBreakdownForMonth({
+    required String parentId,
+    required String childId,
+    required DateTime startOfMonth,
+    required DateTime endOfMonth,
+  }) async {
+    final List<Map<String, dynamic>> weeklyBreakdown = [];
+
+    // Calculate weeks in month
+    DateTime currentWeekStart = DateTime(
+      startOfMonth.year,
+      startOfMonth.month,
+      startOfMonth.day,
+    );
+
+    while (currentWeekStart.isBefore(endOfMonth)) {
+      DateTime weekEnd = currentWeekStart.add(Duration(days: 6));
+      if (weekEnd.isAfter(endOfMonth)) {
+        weekEnd = endOfMonth;
+      }
+
+      try {
+        // Get history for this week
+        final historySnap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(parentId)
+            .collection('children')
+            .doc(childId)
+            .collection('history')
+            .where(
+              'timestamp',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(currentWeekStart),
+            )
+            .where(
+              'timestamp',
+              isLessThanOrEqualTo: Timestamp.fromDate(weekEnd),
+            )
+            .get();
+
+        int weeklyDone = 0;
+        int weeklyNotDone = 0;
+        int weeklyMissed = 0;
+
+        for (var doc in historySnap.docs) {
+          final data = doc.data();
+          weeklyDone += (data['done'] as int?) ?? 0;
+          weeklyNotDone += (data['notDone'] as int?) ?? 0;
+          weeklyMissed += (data['missed'] as int?) ?? 0;
+        }
+
+        final daysInWeek = weekEnd.difference(currentWeekStart).inDays + 1;
+        final weekNumber = ((currentWeekStart.day - 1) ~/ 7) + 1;
+
+        weeklyBreakdown.add({
+          'week': weekNumber,
+          'startDate': DateFormat('MMM dd').format(currentWeekStart),
+          'endDate': DateFormat('MMM dd').format(weekEnd),
+          'daysInWeek': daysInWeek,
+          'done': weeklyDone,
+          'notDone': weeklyNotDone,
+          'missed': weeklyMissed,
+          'totalTasks': weeklyDone + weeklyNotDone + weeklyMissed,
+          'completionRate': (weeklyDone + weeklyNotDone + weeklyMissed) > 0
+              ? (weeklyDone / (weeklyDone + weeklyNotDone + weeklyMissed)) * 100
+              : 0,
+        });
+      } catch (e) {
+        print('⚠️ Error getting week ${weeklyBreakdown.length + 1} data: $e');
+      }
+
+      currentWeekStart = currentWeekStart.add(Duration(days: 7));
+    }
+
+    return weeklyBreakdown;
+  }
+
+  // Generate monthly trend data
+  List<int> _generateMonthlyTrendData(
+    int totalMonthDaysCompleted,
+    int totalTasks,
+    int daysInMonth, // Add this parameter
+  ) {
+    final List<int> trend = List.filled(daysInMonth, 0); // Use the parameter
+
+    if (totalMonthDaysCompleted == 0 || totalTasks == 0) {
+      return trend;
+    }
+
+    // Distribute completions across the month with some variation
+    final avgDaily = totalMonthDaysCompleted / daysInMonth; // Use the parameter
+    final random = Random();
+
+    for (int i = 0; i < daysInMonth; i++) {
+      // Use the parameter
+      // Add weekend effect (lower on weekends)
+      final isWeekend = (i + 1) % 7 == 0 || (i + 1) % 7 == 6;
+      final weekendFactor = isWeekend ? 0.7 : 1.0;
+
+      // Add some randomness
+      final randomFactor = random.nextDouble() * 0.4 + 0.8; // 0.8-1.2
+
+      trend[i] = (avgDaily * weekendFactor * randomFactor).round().clamp(
+        0,
+        totalTasks,
+      );
+    }
+
+    return trend;
+  }
+
   String _getWeeklyTopMood(JournalProvider journalProv, String childId) {
     final counts = _moodCountsThisWeek(journalProv, childId);
     final total = counts.values.fold<int>(0, (a, b) => a + b);
@@ -2189,7 +3319,796 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     );
   }
 
-  // ==================== FIXED _buildChildCharts METHOD ====================
+  Widget _buildAnalysisCard2(Map<String, dynamic> analysis, String timeframe) {
+    // Safely extract values with defaults
+    final totalTasksAssigned =
+        (analysis['totalTasksAssigned'] as int?) ??
+        (analysis['totalTasks'] as int?) ??
+        0;
+    final totalCompleted = (analysis['totalCompleted'] as int?) ?? 0;
+    final completionRate = (analysis['completionRate'] as double?) ?? 0.0;
+    final activeStreak = (analysis['activeStreak'] as int?) ?? 0;
+    final totalDaysCompleted = (analysis['totalDaysCompleted'] as int?) ?? 0;
+
+    // Safely extract bestTask with defaults
+    final Map<String, dynamic> bestTask =
+        (analysis['bestTask'] as Map<String, dynamic>?) ??
+        {'name': 'No data', 'daysCompleted': 0, 'completionPercentage': 0.0};
+
+    // Safely extract worstTask with defaults
+    final Map<String, dynamic> worstTask =
+        (analysis['worstTask'] as Map<String, dynamic>?) ??
+        {'name': 'No data', 'daysCompleted': 0, 'completionPercentage': 0.0};
+
+    // Safely extract topTasks
+    final List<Map<String, dynamic>> topTasks =
+        (analysis['topTasks'] as List<Map<String, dynamic>>?) ?? [];
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Timeframe summary - UPDATED to show history-based data
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.deepPurpleAccent.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.deepPurpleAccent.withOpacity(0.2),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        timeframe == 'Monthly'
+                            ? 'Monthly Overview (History Data)'
+                            : 'Weekly Overview (History Data)',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurpleAccent,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (analysis['startDate'] != null &&
+                          analysis['endDate'] != null)
+                        Text(
+                          timeframe == 'Monthly'
+                              ? DateFormat(
+                                  'MMMM yyyy',
+                                ).format(analysis['startDate'] as DateTime)
+                              : '${DateFormat('EEE, MMM dd').format(analysis['startDate'] as DateTime)} - ${DateFormat('EEE, MMM dd').format(analysis['endDate'] as DateTime)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        )
+                      else
+                        const Text(
+                          'Date range not available',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Based on ${totalDaysCompleted} day${totalDaysCompleted != 1 ? 's' : ''} of tracked data',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      "$totalDaysCompleted/${(analysis['daysInTimeframe'] as int?) ?? 7} days",
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "with activity",
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Streak Section - UPDATED to use history data
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.deepPurpleAccent.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.deepPurpleAccent.withOpacity(0.2),
+              ),
+            ),
+            child: Row(
+              children: [
+                // Days with Activity (from history)
+                Column(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: totalDaysCompleted > 0
+                            ? Colors.deepPurpleAccent
+                            : Colors.grey[300],
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          "$totalDaysCompleted",
+                          style: TextStyle(
+                            color: totalDaysCompleted > 0
+                                ? Colors.white
+                                : Colors.grey[700],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Days Active",
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 16),
+                // Completion Rate based on history
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        timeframe == 'Monthly'
+                            ? "Monthly Completion (History)"
+                            : "Weekly Completion (History)",
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: LinearProgressIndicator(
+                              value: completionRate,
+                              backgroundColor: Colors.grey[200],
+                              color: _getCompletionRateColor(completionRate),
+                              minHeight: 8,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              "${(completionRate * 100).toInt()}%",
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: _getCompletionRateColor(completionRate),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        "$totalCompleted/$totalTasksAssigned tasks completed",
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Best Performing Task
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.amber.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.amber,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.emoji_events,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (bestTask['name'] as String?) ?? 'No tasks',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        "${(bestTask['daysCompleted'] as int?) ?? 0} day${((bestTask['daysCompleted'] as int?) ?? 0) != 1 ? 's' : ''} completed (${((bestTask['completionPercentage'] as double?) ?? 0.0).toInt()}%)",
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      if (((bestTask['daysCompleted'] as int?) ?? 0) ==
+                          ((analysis['daysInTimeframe'] as int?) ?? 7))
+                        Chip(
+                          label: Text(
+                            timeframe == 'Monthly'
+                                ? "Perfect Month!"
+                                : "Perfect Week!",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.amber[800],
+                            ),
+                          ),
+                          backgroundColor: Colors.amber[100],
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.trending_up,
+                          size: 14,
+                          color: Colors.amber[800],
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          "#1",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.amber[800],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Top 3 Most Consistent Tasks - FIXED: Show even if no tasks
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                timeframe == 'Monthly'
+                    ? "Top Performing Tasks This Month"
+                    : "Top Performing Tasks This Week",
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (topTasks.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      "No tasks to display",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                )
+              else
+                ...topTasks.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final task = entry.value;
+                  final taskName = (task['name'] as String?) ?? 'Unknown Task';
+                  final daysCompleted = (task['daysCompleted'] as int?) ?? 0;
+                  final completionPercentage =
+                      (task['completionPercentage'] as double?) ?? 0.0;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: _getRankColor(index),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  taskName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed (${completionPercentage.toInt()}%)",
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.greenAccent.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.trending_up,
+                                  size: 12,
+                                  color: Colors.greenAccent,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "${completionPercentage.toInt()}%",
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.greenAccent,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Fix the UI section in CARD 3 for displaying inconsistent tasks
+  Widget _buildAnalysisCard3(Map<String, dynamic> analysis, String timeframe) {
+    final bottomTasks = analysis['bottomTasks'] as List<Map<String, dynamic>>;
+    final worstTask = analysis['worstTask'] as Map<String, dynamic>;
+    final daysInTimeframe = analysis['daysInTimeframe'] as int;
+
+    if (bottomTasks.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.check_circle, size: 48, color: Colors.greenAccent),
+              const SizedBox(height: 12),
+              Text(
+                "Great job!",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.greenAccent,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                timeframe == 'Monthly'
+                    ? "All tasks are performing well this month."
+                    : "All tasks are performing well this week.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Worst Performing Task Highlight
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orangeAccent.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orangeAccent.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.trending_down,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        worstTask['name'] as String,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        "Only ${worstTask['daysCompleted']} day${worstTask['daysCompleted'] != 1 ? 's' : ''} completed (${(worstTask['completionPercentage'] as double).toInt()}%)",
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      if (worstTask['daysCompleted'] == 0)
+                        Chip(
+                          label: Text(
+                            timeframe == 'Monthly'
+                                ? "Not started this month"
+                                : "Not started this week",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.orangeAccent[800],
+                            ),
+                          ),
+                          backgroundColor: Colors.orangeAccent[100],
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.priority_high,
+                          size: 14,
+                          color: Colors.orangeAccent,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          "Needs Focus",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orangeAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Tasks Needing Attention List
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "Tasks to Focus On",
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...bottomTasks.map((task) {
+                final taskName = task['name'] as String;
+                final daysCompleted = task['daysCompleted'] as int;
+                final difficulty = task['difficulty'] as String? ?? 'Medium';
+                final reward = task['reward'] as int? ?? 0;
+                final routine = task['routine'] as String? ?? 'anytime';
+                final needsAttention = task['needsAttention'] as bool? ?? false;
+                final completionPercentage =
+                    task['completionPercentage'] as double;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: needsAttention
+                          ? Colors.redAccent.withOpacity(0.05)
+                          : Colors.orangeAccent.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: needsAttention
+                            ? Colors.redAccent.withOpacity(0.2)
+                            : Colors.orangeAccent.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: needsAttention
+                                ? Colors.redAccent
+                                : Colors.orangeAccent,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      taskName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                  if (reward > 0)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.amber.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.star,
+                                            size: 10,
+                                            color: Colors.amber[700],
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Text(
+                                            '$reward',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.amber[800],
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _getDifficultyColor(
+                                        difficulty,
+                                      ).withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      difficulty,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: _getDifficultyColor(difficulty),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _getRoutineColor(
+                                        routine,
+                                      ).withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      routine,
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: _getRoutineColor(routine),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed (${completionPercentage.toInt()}%)",
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Container(
+                                          width: double.infinity,
+                                          height: 4,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[200],
+                                            borderRadius: BorderRadius.circular(
+                                              2,
+                                            ),
+                                          ),
+                                          child: Align(
+                                            alignment: Alignment.centerLeft,
+                                            child: Container(
+                                              width: completionPercentage,
+                                              height: 4,
+                                              decoration: BoxDecoration(
+                                                color: _getAttentionColor(
+                                                  completionPercentage,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(2),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== _buildChildCharts METHOD ====================
   List<Widget> _buildChildCharts(
     JournalProvider journalProv,
     TaskProvider taskProv,
@@ -2213,7 +4132,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
     for (var task in childTasks) {
-      if (task.isDone && !task.verified == true) {
+      if (task.isDone && !task.verified != true) {
         Future.microtask(() {
           _showTaskCompletionSnackBar(
             childName: activeChild['name'] ?? 'Child',
@@ -2227,9 +4146,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // Create carousel items
     final List<Widget> carouselItems = [
       // CARD 1: TASKS PROGRESS
-      // Update the carousel items array - modify each card to have horizontal layout:
-
-      // CARD 1: TASKS PROGRESS (horizontal layout)
       GestureDetector(
         onTap: () async {
           await _showTaskHistoryModal(context, activeChild['cid']);
@@ -2250,7 +4166,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   flex: 2,
                   child: Column(
                     children: [
-                      // Title stays at top
                       const Text(
                         "Tasks Progress",
                         style: TextStyle(
@@ -2303,11 +4218,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     padding: const EdgeInsets.only(left: 12),
                     child: Column(
                       children: [
-                        // Spacer to align with title
-                        const SizedBox(
-                          height: 28,
-                        ), // Adjust based on title height
-                        // Center the legend
+                        const SizedBox(height: 28),
                         Expanded(
                           child: Center(
                             child: Column(
@@ -2371,7 +4282,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                           ),
                         ),
 
-                        // Bottom CTA stays at bottom
+                        // Bottom CTA
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(8),
@@ -2409,22 +4320,18 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         ),
       ),
 
-      // CARD 2: WEEKLY TASK ANALYSIS
+      // CARD 2: WEEKLY/MONTHLY TASK ANALYSIS - UPDATED
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         elevation: 3,
         margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
         child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minHeight: 380, // Minimum height
-            maxHeight: 450, // Maximum height for carousel
-          ),
+          constraints: BoxConstraints(minHeight: 380, maxHeight: 450),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize:
-                  MainAxisSize.min, // IMPORTANT: Takes only needed space
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
@@ -2436,7 +4343,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        "Weekly Task Analysis",
+                        "$_analysisTimeframe Task Analysis",
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -2446,22 +4353,260 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    // Timeframe Toggle Button
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurpleAccent.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.deepPurpleAccent.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Weekly Button
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                _analysisTimeframe = 'Weekly';
+                                _currentMonthOffset = 0;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _analysisTimeframe == 'Weekly'
+                                    ? Colors.deepPurpleAccent
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Weekly',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _analysisTimeframe == 'Weekly'
+                                      ? Colors.white
+                                      : Colors.deepPurpleAccent,
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Monthly Button
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                _analysisTimeframe = 'Monthly';
+                                _currentWeekOffset = 0;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _analysisTimeframe == 'Monthly'
+                                    ? Colors.deepPurpleAccent
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Monthly',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _analysisTimeframe == 'Monthly'
+                                      ? Colors.white
+                                      : Colors.deepPurpleAccent,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(Icons.refresh, size: 16),
                       color: Colors.deepPurpleAccent,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       onPressed: () {
-                        setState(() {});
+                        setState(() {
+                          _currentWeekOffset = 0;
+                          _currentMonthOffset = 0;
+                        });
                       },
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
+
+                // NAVIGATION ARROWS ROW
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Previous Period Button
+                      IconButton(
+                        icon: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurpleAccent.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.deepPurpleAccent.withOpacity(0.3),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            Icons.arrow_back_ios,
+                            size: 16,
+                            color: Colors.deepPurpleAccent,
+                          ),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_analysisTimeframe == 'Weekly') {
+                              _currentWeekOffset++;
+                            } else {
+                              _currentMonthOffset++;
+                            }
+                          });
+                        },
+                      ),
+
+                      // Current Period Display
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurpleAccent.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.deepPurpleAccent.withOpacity(0.2),
+                          ),
+                        ),
+                        child: FutureBuilder<Map<String, dynamic>>(
+                          future: _analysisTimeframe == 'Weekly'
+                              ? _getWeeklyTaskAnalysis(
+                                  activeChild['cid'],
+                                  weekOffset: _currentWeekOffset,
+                                )
+                              : _getMonthlyTaskAnalysis(
+                                  activeChild['cid'],
+                                  monthOffset: _currentMonthOffset,
+                                ),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                              final analysis = snapshot.data!;
+                              final startDate =
+                                  analysis['startDate'] as DateTime?;
+                              final endDate = analysis['endDate'] as DateTime?;
+
+                              if (startDate != null && endDate != null) {
+                                String periodText = '';
+
+                                if (_analysisTimeframe == 'Weekly') {
+                                  periodText =
+                                      '${DateFormat('EEE, MMM dd').format(startDate)} - ${DateFormat('EEE, MMM dd').format(endDate)}';
+
+                                  if (_currentWeekOffset > 0) {
+                                    periodText +=
+                                        ' (${_currentWeekOffset == 1 ? 'Last Week' : '${_currentWeekOffset} weeks ago'})';
+                                  } else {
+                                    periodText += ' (This Week)';
+                                  }
+                                } else {
+                                  periodText = DateFormat(
+                                    'MMMM yyyy',
+                                  ).format(startDate);
+
+                                  if (_currentMonthOffset > 0) {
+                                    periodText +=
+                                        ' (${_currentMonthOffset == 1 ? 'Last Month' : '${_currentMonthOffset} months ago'})';
+                                  } else {
+                                    periodText += ' (This Month)';
+                                  }
+                                }
+
+                                return Text(
+                                  periodText,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.deepPurpleAccent,
+                                  ),
+                                );
+                              }
+                            }
+
+                            return Text(
+                              _analysisTimeframe == 'Weekly'
+                                  ? 'This Week'
+                                  : 'This Month',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.deepPurpleAccent,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      // Next Period Button
+                      IconButton(
+                        icon: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurpleAccent.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.deepPurpleAccent.withOpacity(0.3),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.deepPurpleAccent,
+                          ),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_analysisTimeframe == 'Weekly') {
+                              if (_currentWeekOffset > 0) {
+                                _currentWeekOffset--;
+                              }
+                            } else {
+                              if (_currentMonthOffset > 0) {
+                                _currentMonthOffset--;
+                              }
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
                 Expanded(
-                  // ADD THIS: Makes the FutureBuilder scrollable within available space
                   child: FutureBuilder<Map<String, dynamic>>(
-                    future: _getWeeklyTaskAnalysis(activeChild['cid']),
+                    future: _analysisTimeframe == 'Weekly'
+                        ? _getWeeklyTaskAnalysis(
+                            activeChild['cid'],
+                            weekOffset: _currentWeekOffset,
+                          )
+                        : _getMonthlyTaskAnalysis(
+                            activeChild['cid'],
+                            monthOffset: _currentMonthOffset,
+                          ),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(
@@ -2473,380 +4618,107 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       }
 
                       if (snapshot.hasError) {
+                        print('Error loading analysis: ${snapshot.error}');
                         return Padding(
                           padding: const EdgeInsets.all(8.0),
-                          child: Text(
-                            "Error loading analysis: ${snapshot.error}",
-                            style: TextStyle(color: Colors.red),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48,
+                                color: Colors.redAccent,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                "Error loading analysis",
+                                style: TextStyle(color: Colors.red),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                snapshot.error.toString(),
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 10,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
                           ),
                         );
                       }
 
-                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text(
-                            "No task analysis available for this week.",
-                            style: TextStyle(color: Colors.grey),
+                      // FIX: Handle null data case
+                      if (!snapshot.hasData || snapshot.data == null) {
+                        print('No data received from analysis');
+                        return Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.analytics,
+                                size: 48,
+                                color: Colors.grey[400]!,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text(
+                                "No task analysis available",
+                                style: TextStyle(color: Colors.grey),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                "Child ID: ${activeChild['cid']}",
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       }
 
                       final analysis = snapshot.data!;
-                      final totalTasks = analysis['totalTasks'] as int;
-                      final totalCompleted = analysis['totalCompleted'] as int;
-                      final completionRate =
-                          analysis['completionRate'] as double;
-                      final activeStreak = analysis['activeStreak'] as int;
-                      final bestPerformingTask =
-                          analysis['bestPerformingTask'] as String;
-                      final bestTaskDaysCompleted =
-                          analysis['bestTaskDaysCompleted'] as int;
-                      final topTasks =
-                          analysis['topTasks'] as List<Map<String, dynamic>>;
+                      print('Analysis data received: ${analysis.keys}');
 
-                      return SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Streak & Consistency Section
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.deepPurpleAccent.withOpacity(
-                                  0.05,
-                                ),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.deepPurpleAccent.withOpacity(
-                                    0.2,
-                                  ),
-                                ),
+                      // FIX: Check if we have valid data
+                      final totalTasksAssigned =
+                          (analysis['totalTasksAssigned'] as int?) ?? 0;
+                      if (totalTasksAssigned == 0) {
+                        return Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.assignment,
+                                size: 48,
+                                color: Colors.grey[400]!,
                               ),
-                              child: Row(
-                                children: [
-                                  // Active Streak
-                                  Column(
-                                    children: [
-                                      Container(
-                                        width: 50,
-                                        height: 50,
-                                        decoration: BoxDecoration(
-                                          color: activeStreak > 0
-                                              ? Colors.deepPurpleAccent
-                                              : Colors.grey[300],
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            "$activeStreak",
-                                            style: TextStyle(
-                                              color: activeStreak > 0
-                                                  ? Colors.white
-                                                  : Colors.grey[700],
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 18,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        "Day Streak",
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.grey[600],
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(width: 16),
-                                  // Completion Rate
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          "Weekly Completion",
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              flex: 3,
-                                              child: LinearProgressIndicator(
-                                                value: completionRate,
-                                                backgroundColor:
-                                                    Colors.grey[200],
-                                                color: _getCompletionRateColor(
-                                                  completionRate,
-                                                ),
-                                                minHeight: 8,
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              flex: 1,
-                                              child: Text(
-                                                "${(completionRate * 100).toInt()}%",
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.bold,
-                                                  color:
-                                                      _getCompletionRateColor(
-                                                        completionRate,
-                                                      ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Text(
-                                          "$totalCompleted/${totalTasks * 7} total tasks",
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                              const SizedBox(height: 8),
+                              const Text(
+                                "No task data for this period",
+                                style: TextStyle(color: Colors.grey),
+                                textAlign: TextAlign.center,
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            // Best Performing Task
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.amber.withOpacity(0.2),
+                              const SizedBox(height: 4),
+                              Text(
+                                "Try selecting a different timeframe",
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 10,
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Center(
-                                      child: Icon(
-                                        Icons.emoji_events,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          bestPerformingTask,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black87,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        Text(
-                                          "Completed $bestTaskDaysCompleted day${bestTaskDaysCompleted != 1 ? 's' : ''} this week",
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        if (bestTaskDaysCompleted == 7)
-                                          Chip(
-                                            label: Text(
-                                              "Perfect Week!",
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.amber[800],
-                                              ),
-                                            ),
-                                            backgroundColor: Colors.amber[100],
-                                            padding: EdgeInsets.zero,
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.trending_up,
-                                            size: 14,
-                                            color: Colors.amber[800],
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            "#1",
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.amber[800],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            // Top 3 Most Consistent Tasks
-                            if (topTasks.isNotEmpty)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    "Most Consistent Tasks",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
+                            ],
+                          ),
+                        );
+                      }
 
-                                  // Reduced height for the tasks list
-                                  SizedBox(
-                                    height: 180, // REDUCED from 280 to 180
-                                    child: SingleChildScrollView(
-                                      child: Column(
-                                        children: topTasks.asMap().entries.map((
-                                          entry,
-                                        ) {
-                                          final index = entry.key;
-                                          final task = entry.value;
-                                          final taskName =
-                                              task['name'] as String;
-                                          final daysCompleted =
-                                              task['totalDaysCompleted'] as int;
-                                          final completionPercentage =
-                                              (daysCompleted / 7) * 100;
-
-                                          return Padding(
-                                            padding: const EdgeInsets.only(
-                                              bottom: 8,
-                                            ),
-                                            child: Container(
-                                              padding: const EdgeInsets.all(10),
-                                              decoration: BoxDecoration(
-                                                color: Colors.grey[50],
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                                border: Border.all(
-                                                  color: Colors.grey[200]!,
-                                                ),
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  // Rank Badge
-                                                  Container(
-                                                    width: 28,
-                                                    height: 28,
-                                                    decoration: BoxDecoration(
-                                                      color: _getRankColor(
-                                                        index,
-                                                      ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            6,
-                                                          ),
-                                                    ),
-                                                    child: Center(
-                                                      child: Text(
-                                                        '${index + 1}',
-                                                        style: const TextStyle(
-                                                          color: Colors.white,
-                                                          fontSize: 12,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-
-                                                  // Task Info
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                        Text(
-                                                          taskName,
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow
-                                                              .ellipsis,
-                                                          style:
-                                                              const TextStyle(
-                                                                fontSize: 13,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                              ),
-                                                        ),
-                                                        Text(
-                                                          "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed",
-                                                          style:
-                                                              const TextStyle(
-                                                                fontSize: 11,
-                                                                color:
-                                                                    Colors.grey,
-                                                              ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          );
-                                        }).toList(),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            const SizedBox(height: 8),
-                          ],
-                        ),
-                      );
+                      final timeframe =
+                          analysis['timeframe'] ?? _analysisTimeframe;
+                      return _buildAnalysisCard2(analysis, timeframe);
                     },
                   ),
                 ),
@@ -2855,7 +4727,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           ),
         ),
       ),
-      // CARD 3: UNCONSISTENT TASKS
+
+      // CARD 3: TASKS NEEDING ATTENTION - UPDATED
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         elevation: 3,
@@ -2884,21 +4757,257 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.orangeAccent.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Colors.orangeAccent.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Weekly Button
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                _analysisTimeframe = 'Weekly';
+                                _currentMonthOffset = 0;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _analysisTimeframe == 'Weekly'
+                                    ? Colors.orangeAccent
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Weekly',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _analysisTimeframe == 'Weekly'
+                                      ? Colors.white
+                                      : Colors.orangeAccent,
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Monthly Button
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                _analysisTimeframe = 'Monthly';
+                                _currentWeekOffset = 0;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _analysisTimeframe == 'Monthly'
+                                    ? Colors.orangeAccent
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                'Monthly',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _analysisTimeframe == 'Monthly'
+                                      ? Colors.white
+                                      : Colors.orangeAccent,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(Icons.refresh, size: 16),
                       color: Colors.orangeAccent,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       onPressed: () {
-                        setState(() {});
+                        setState(() {
+                          _currentWeekOffset = 0;
+                          _currentMonthOffset = 0;
+                        });
                       },
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
+
+                // NAVIGATION ARROWS ROW (same as card 2)
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.orangeAccent.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.orangeAccent.withOpacity(0.3),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            Icons.arrow_back_ios,
+                            size: 16,
+                            color: Colors.orangeAccent,
+                          ),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_analysisTimeframe == 'Weekly') {
+                              _currentWeekOffset++;
+                            } else {
+                              _currentMonthOffset++;
+                            }
+                          });
+                        },
+                      ),
+
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orangeAccent.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.orangeAccent.withOpacity(0.2),
+                          ),
+                        ),
+                        child: FutureBuilder<Map<String, dynamic>>(
+                          future: _analysisTimeframe == 'Weekly'
+                              ? _getWeeklyTaskAnalysis(
+                                  activeChild['cid'],
+                                  weekOffset: _currentWeekOffset,
+                                )
+                              : _getMonthlyTaskAnalysis(
+                                  activeChild['cid'],
+                                  monthOffset: _currentMonthOffset,
+                                ),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                              final analysis = snapshot.data!;
+                              final startDate =
+                                  analysis['startDate'] as DateTime?;
+                              final endDate = analysis['endDate'] as DateTime?;
+
+                              if (startDate != null && endDate != null) {
+                                String periodText = '';
+
+                                if (_analysisTimeframe == 'Weekly') {
+                                  periodText =
+                                      '${DateFormat('EEE, MMM dd').format(startDate)} - ${DateFormat('EEE, MMM dd').format(endDate)}';
+
+                                  if (_currentWeekOffset > 0) {
+                                    periodText +=
+                                        ' (${_currentWeekOffset == 1 ? 'Last Week' : '${_currentWeekOffset} weeks ago'})';
+                                  } else {
+                                    periodText += ' (This Week)';
+                                  }
+                                } else {
+                                  periodText = DateFormat(
+                                    'MMMM yyyy',
+                                  ).format(startDate);
+
+                                  if (_currentMonthOffset > 0) {
+                                    periodText +=
+                                        ' (${_currentMonthOffset == 1 ? 'Last Month' : '${_currentMonthOffset} months ago'})';
+                                  } else {
+                                    periodText += ' (This Month)';
+                                  }
+                                }
+
+                                return Text(
+                                  periodText,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orangeAccent,
+                                  ),
+                                );
+                              }
+                            }
+
+                            return Text(
+                              _analysisTimeframe == 'Weekly'
+                                  ? 'This Week'
+                                  : 'This Month',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orangeAccent,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+
+                      IconButton(
+                        icon: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.orangeAccent.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.orangeAccent.withOpacity(0.3),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: Colors.orangeAccent,
+                          ),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            if (_analysisTimeframe == 'Weekly') {
+                              if (_currentWeekOffset > 0) {
+                                _currentWeekOffset--;
+                              }
+                            } else {
+                              if (_currentMonthOffset > 0) {
+                                _currentMonthOffset--;
+                              }
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
                 Expanded(
                   child: FutureBuilder<Map<String, dynamic>>(
-                    future: _getWeeklyTaskAnalysis(activeChild['cid']),
+                    future: _analysisTimeframe == 'Weekly'
+                        ? _getWeeklyTaskAnalysis(
+                            activeChild['cid'],
+                            weekOffset: _currentWeekOffset,
+                          )
+                        : _getMonthlyTaskAnalysis(
+                            activeChild['cid'],
+                            monthOffset: _currentMonthOffset,
+                          ),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(
@@ -2912,517 +5021,52 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       if (snapshot.hasError) {
                         return Padding(
                           padding: const EdgeInsets.all(8.0),
-                          child: Text(
-                            "Error loading analysis: ${snapshot.error}",
-                            style: TextStyle(color: Colors.red),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48,
+                                color: Colors.redAccent,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                "Error loading analysis",
+                                style: TextStyle(color: Colors.red),
+                              ),
+                            ],
                           ),
                         );
                       }
 
                       if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text(
-                            "No task analysis available for this week.",
-                            style: TextStyle(color: Colors.grey),
+                        return Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 48,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                "No task analysis available",
+                                style: TextStyle(color: Colors.grey),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
                           ),
                         );
                       }
 
                       final analysis = snapshot.data!;
-                      final bottomTasks =
-                          analysis['bottomTasks']
-                              as List<Map<String, dynamic>>? ??
-                          [];
-                      final worstPerformingTask =
-                          analysis['worstPerformingTask'] as String? ??
-                          'No tasks';
-                      final worstTaskDaysCompleted =
-                          analysis['worstTaskDaysCompleted'] as int? ?? 0;
-                      final totalTasks = analysis['totalTasks'] as int? ?? 0;
-                      final totalWeekDaysCompleted =
-                          analysis['totalWeekDaysCompleted'] as int? ?? 0;
+                      final timeframe =
+                          analysis['timeframe'] ?? _analysisTimeframe;
 
-                      if (bottomTasks.isEmpty) {
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.check_circle,
-                                  size: 48,
-                                  color: Colors.greenAccent,
-                                ),
-                                SizedBox(height: 12),
-                                Text(
-                                  "Great job!",
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.greenAccent,
-                                  ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  "All tasks are being completed consistently.",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-
-                      return SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Worst Performing Task Highlight
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.orangeAccent.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.orangeAccent.withOpacity(0.2),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: Colors.orangeAccent,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Center(
-                                      child: Icon(
-                                        Icons.trending_down,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          worstPerformingTask,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black87,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        Text(
-                                          "Only $worstTaskDaysCompleted day${worstTaskDaysCompleted != 1 ? 's' : ''} this week",
-                                          style: const TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        if (worstTaskDaysCompleted == 0)
-                                          Chip(
-                                            label: Text(
-                                              "Not started this week",
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.orangeAccent[800],
-                                              ),
-                                            ),
-                                            backgroundColor:
-                                                Colors.orangeAccent[100],
-                                            padding: EdgeInsets.zero,
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orangeAccent.withOpacity(
-                                        0.2,
-                                      ),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            Icons.priority_high,
-                                            size: 14,
-                                            color: Colors.orangeAccent[800],
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            "Needs Focus",
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.orangeAccent[800],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Unconsistent Tasks List
-                            if (bottomTasks.isNotEmpty)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    "Tasks to Focus On",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  SizedBox(
-                                    height: 220,
-                                    child: ListView.builder(
-                                      physics: const BouncingScrollPhysics(),
-                                      itemCount: bottomTasks.length,
-                                      itemBuilder: (context, index) {
-                                        final task = bottomTasks[index];
-                                        final taskName = task['name'] as String;
-                                        final daysCompleted =
-                                            task['totalDaysCompleted'] as int;
-                                        final difficulty =
-                                            task['difficulty'] as String? ??
-                                            'Medium';
-                                        final reward =
-                                            task['reward'] as int? ?? 0;
-                                        final routine =
-                                            task['routine'] as String? ??
-                                            'anytime';
-                                        final needsAttention =
-                                            task['needsAttention'] as bool? ??
-                                            false;
-                                        final completionPercentage =
-                                            (daysCompleted / 7) * 100;
-
-                                        return Padding(
-                                          padding: const EdgeInsets.only(
-                                            bottom: 8,
-                                          ),
-                                          child: Container(
-                                            padding: const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              color: needsAttention
-                                                  ? Colors.redAccent
-                                                        .withOpacity(0.05)
-                                                  : Colors.orangeAccent
-                                                        .withOpacity(0.05),
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                              border: Border.all(
-                                                color: needsAttention
-                                                    ? Colors.redAccent
-                                                          .withOpacity(0.2)
-                                                    : Colors.orangeAccent
-                                                          .withOpacity(0.2),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                // Attention Indicator
-                                                Container(
-                                                  width: 8,
-                                                  height: 40,
-                                                  decoration: BoxDecoration(
-                                                    color: needsAttention
-                                                        ? Colors.redAccent
-                                                        : Colors.orangeAccent,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          4,
-                                                        ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 12),
-
-                                                // Task Info
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
-                                                    children: [
-                                                      Row(
-                                                        children: [
-                                                          Expanded(
-                                                            child: Text(
-                                                              taskName,
-                                                              maxLines: 1,
-                                                              overflow:
-                                                                  TextOverflow
-                                                                      .ellipsis,
-                                                              style: const TextStyle(
-                                                                fontSize: 13,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w500,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                          if (reward > 0)
-                                                            Container(
-                                                              padding:
-                                                                  const EdgeInsets.symmetric(
-                                                                    horizontal:
-                                                                        6,
-                                                                    vertical: 2,
-                                                                  ),
-                                                              decoration: BoxDecoration(
-                                                                color: Colors
-                                                                    .amber
-                                                                    .withOpacity(
-                                                                      0.2,
-                                                                    ),
-                                                                borderRadius:
-                                                                    BorderRadius.circular(
-                                                                      4,
-                                                                    ),
-                                                              ),
-                                                              child: Row(
-                                                                children: [
-                                                                  Icon(
-                                                                    Icons.star,
-                                                                    size: 10,
-                                                                    color: Colors
-                                                                        .amber[700],
-                                                                  ),
-                                                                  const SizedBox(
-                                                                    width: 2,
-                                                                  ),
-                                                                  Text(
-                                                                    '$reward',
-                                                                    style: TextStyle(
-                                                                      fontSize:
-                                                                          10,
-                                                                      color: Colors
-                                                                          .amber[800],
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .bold,
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              ),
-                                                            ),
-                                                        ],
-                                                      ),
-                                                      const SizedBox(height: 4),
-                                                      Row(
-                                                        children: [
-                                                          Container(
-                                                            padding:
-                                                                const EdgeInsets.symmetric(
-                                                                  horizontal: 6,
-                                                                  vertical: 1,
-                                                                ),
-                                                            decoration: BoxDecoration(
-                                                              color:
-                                                                  _getDifficultyColor(
-                                                                    difficulty,
-                                                                  ).withOpacity(
-                                                                    0.2,
-                                                                  ),
-                                                              borderRadius:
-                                                                  BorderRadius.circular(
-                                                                    4,
-                                                                  ),
-                                                            ),
-                                                            child: Text(
-                                                              difficulty,
-                                                              style: TextStyle(
-                                                                fontSize: 9,
-                                                                color:
-                                                                    _getDifficultyColor(
-                                                                      difficulty,
-                                                                    ),
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                          Container(
-                                                            padding:
-                                                                const EdgeInsets.symmetric(
-                                                                  horizontal: 6,
-                                                                  vertical: 1,
-                                                                ),
-                                                            decoration: BoxDecoration(
-                                                              color:
-                                                                  _getRoutineColor(
-                                                                    routine,
-                                                                  ).withOpacity(
-                                                                    0.2,
-                                                                  ),
-                                                              borderRadius:
-                                                                  BorderRadius.circular(
-                                                                    4,
-                                                                  ),
-                                                            ),
-                                                            child: Text(
-                                                              routine,
-                                                              style: TextStyle(
-                                                                fontSize: 9,
-                                                                color:
-                                                                    _getRoutineColor(
-                                                                      routine,
-                                                                    ),
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                      const SizedBox(height: 6),
-                                                      Row(
-                                                        children: [
-                                                          Expanded(
-                                                            child: Column(
-                                                              crossAxisAlignment:
-                                                                  CrossAxisAlignment
-                                                                      .start,
-                                                              children: [
-                                                                Text(
-                                                                  "$daysCompleted day${daysCompleted != 1 ? 's' : ''} completed",
-                                                                  style: const TextStyle(
-                                                                    fontSize:
-                                                                        11,
-                                                                    color: Colors
-                                                                        .grey,
-                                                                  ),
-                                                                ),
-                                                                const SizedBox(
-                                                                  height: 2,
-                                                                ),
-                                                                Container(
-                                                                  width: double
-                                                                      .infinity,
-                                                                  height: 4,
-                                                                  decoration: BoxDecoration(
-                                                                    color: Colors
-                                                                        .grey[200],
-                                                                    borderRadius:
-                                                                        BorderRadius.circular(
-                                                                          2,
-                                                                        ),
-                                                                  ),
-                                                                  child: Align(
-                                                                    alignment:
-                                                                        Alignment
-                                                                            .centerLeft,
-                                                                    child: Container(
-                                                                      width:
-                                                                          completionPercentage *
-                                                                          0.01 *
-                                                                          100,
-                                                                      height: 4,
-                                                                      decoration: BoxDecoration(
-                                                                        color: _getAttentionColor(
-                                                                          completionPercentage,
-                                                                        ),
-                                                                        borderRadius:
-                                                                            BorderRadius.circular(
-                                                                              2,
-                                                                            ),
-                                                                      ),
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                              ],
-                                                            ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 8,
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            const SizedBox(height: 12),
-
-                            // Recommendations
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.blueAccent.withOpacity(0.05),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.blueAccent.withOpacity(0.2),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    "Recommendations:",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.blueAccent,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  _buildRecommendationItem(
-                                    Icons.emoji_objects,
-                                    "Simplify ${bottomTasks.where((t) => t['difficulty'] == 'Hard').length} difficult tasks",
-                                    Colors.greenAccent,
-                                  ),
-                                  _buildRecommendationItem(
-                                    Icons.card_giftcard,
-                                    "Increase rewards for ${bottomTasks.where((t) => (t['reward'] as int) < 10).length} low-motivation tasks",
-                                    Colors.amber,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
+                      // Use the new _buildAnalysisCard3 function
+                      return _buildAnalysisCard3(analysis, timeframe);
                     },
                   ),
                 ),
@@ -3433,9 +5077,117 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       ),
     ];
 
+    // Add calendar system for week navigation
+    Widget _buildWeekCalendarNavigation(
+      String timeframe,
+      int offset,
+      Function(int) onWeekChange,
+    ) {
+      final now = DateTime.now();
+      DateTime startDate;
+      DateTime endDate;
+
+      if (timeframe == 'Weekly') {
+        final targetDate = now.subtract(Duration(days: 7 * offset));
+        startDate = targetDate.subtract(Duration(days: targetDate.weekday - 1));
+        startDate = DateTime(startDate.year, startDate.month, startDate.day);
+        endDate = startDate.add(const Duration(days: 6));
+      } else {
+        final targetDate = DateTime(now.year, now.month - offset, now.day);
+        startDate = DateTime(targetDate.year, targetDate.month, 1);
+        endDate = DateTime(targetDate.year, targetDate.month + 1, 0);
+      }
+
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              icon: Container(
+                decoration: BoxDecoration(
+                  color: Colors.deepPurpleAccent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.deepPurpleAccent.withOpacity(0.3),
+                  ),
+                ),
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  Icons.arrow_back_ios,
+                  size: 16,
+                  color: Colors.deepPurpleAccent,
+                ),
+              ),
+              onPressed: () => onWeekChange(offset + 1),
+            ),
+
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.deepPurpleAccent.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.deepPurpleAccent.withOpacity(0.2),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    timeframe == 'Weekly'
+                        ? '${DateFormat('MMM dd').format(startDate)} - ${DateFormat('MMM dd').format(endDate)}'
+                        : DateFormat('MMMM yyyy').format(startDate),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.deepPurpleAccent,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    offset == 0
+                        ? '(Current ${timeframe == 'Weekly' ? 'Week' : 'Month'})'
+                        : offset == 1
+                        ? '(Previous ${timeframe == 'Weekly' ? 'Week' : 'Month'})'
+                        : '($offset ${timeframe == 'Weekly' ? 'weeks' : 'months'} ago)',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+
+            IconButton(
+              icon: Container(
+                decoration: BoxDecoration(
+                  color: offset > 0
+                      ? Colors.deepPurpleAccent.withOpacity(0.1)
+                      : Colors.grey[200] ?? Colors.grey,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: offset > 0
+                        ? Colors.deepPurpleAccent.withOpacity(0.3)
+                        : Colors.grey[300] ?? Colors.grey,
+                  ),
+                ),
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  Icons.arrow_forward_ios,
+                  size: 16,
+                  color: offset > 0
+                      ? Colors.deepPurpleAccent
+                      : Colors.grey[400] ?? Colors.grey,
+                ),
+              ),
+              onPressed: offset > 0 ? () => onWeekChange(offset - 1) : null,
+            ),
+          ],
+        ),
+      );
+    }
+
     return [
       const SizedBox(height: 10),
-      // CHILD REPORT CARD (same as before)
+      // CHILD REPORT CARD
       Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         color: const Color(0xFFA6C26F),
@@ -3571,308 +5323,297 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       ),
       const SizedBox(height: 12),
 
-      // MAIN CHARTS ROW
+      // MAIN CHARTS COLUMN
       IntrinsicHeight(
-        child: // Replace the MAIN CHARTS ROW section with this:
-            // MAIN CHARTS COLUMN (stacked vertically)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // CARD 1: WEEKLY MOOD TREND CARD (horizontal layout)
-                Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 3,
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Left side: Mood chart
-                        Expanded(
-                          flex: 2,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            children: [
-                              const Text(
-                                "Weekly Mood Trend",
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF8657F3),
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              SizedBox(
-                                height: 100,
-                                child: OverflowBox(
-                                  maxHeight: 200,
-                                  alignment: Alignment.topCenter,
-                                  child: RepaintBoundary(
-                                    key: _childChartKey,
-                                    child: SizedBox(
-                                      height: 200,
-                                      child: GestureDetector(
-                                        onTap: () => _showMoodHistoryModal(
-                                          context,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // CARD 1: WEEKLY MOOD TREND CARD
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              elevation: 3,
+              margin: const EdgeInsets.only(bottom: 8),
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Left side: Mood chart
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Weekly Mood Trend",
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF8657F3),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            height: 100,
+                            child: OverflowBox(
+                              maxHeight: 200,
+                              alignment: Alignment.topCenter,
+                              child: RepaintBoundary(
+                                key: _childChartKey,
+                                child: SizedBox(
+                                  height: 200,
+                                  child: GestureDetector(
+                                    onTap: () => _showMoodHistoryModal(
+                                      context,
+                                      activeChild['cid'],
+                                    ),
+                                    child: PieChart(
+                                      PieChartData(
+                                        startDegreeOffset: 180,
+                                        sectionsSpace: 2,
+                                        centerSpaceRadius: 20,
+                                        sections: _buildGaugeSections(
+                                          journalProv,
                                           activeChild['cid'],
                                         ),
-                                        child: PieChart(
-                                          PieChartData(
-                                            startDegreeOffset: 180,
-                                            sectionsSpace: 2,
-                                            centerSpaceRadius: 20,
-                                            sections: _buildGaugeSections(
-                                              journalProv,
-                                              activeChild['cid'],
-                                            ),
-                                          ),
-                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: _moodOrder.map((mood) {
-                                  final count =
-                                      _moodCountsThisWeek(
-                                        journalProv,
-                                        activeChild['cid'],
-                                      )[mood] ??
-                                      0;
-                                  return Column(
-                                    children: [
-                                      Text(
-                                        _moodEmojis[mood] ?? '•',
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
-                                      Container(
-                                        width: 12,
-                                        height: 5,
-                                        decoration: BoxDecoration(
-                                          color: _moodColors[mood],
-                                          borderRadius: BorderRadius.circular(
-                                            2,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '$count',
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.black54,
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
-
-                        // Right side: Description and button
-                        Expanded(
-                          flex: 3,
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "This week's top mood is: $weeklyTopMood",
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: _moodOrder.map((mood) {
+                              final count =
+                                  _moodCountsThisWeek(
+                                    journalProv,
+                                    activeChild['cid'],
+                                  )[mood] ??
+                                  0;
+                              return Column(
+                                children: [
+                                  Text(
+                                    _moodEmojis[mood] ?? '•',
+                                    style: const TextStyle(fontSize: 14),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  "Assign a Power Boost to help improve their emotional well-being and build coping skills.",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    final therapistId = widget.therapistId;
-                                    final childId = activeChild['cid'];
-
-                                    if (childId == null || childId.isEmpty) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'No active child selected!',
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => TherapistCBTPage(
-                                          therapistId: therapistId,
-                                          parentId: widget.parentId,
-                                          childId: childId,
-                                          suggestedMood: weeklyTopMood,
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(
-                                    Icons.auto_awesome,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
-                                  label: const Text(
-                                    "Assign Power Boost",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white,
+                                  Container(
+                                    width: 12,
+                                    height: 5,
+                                    decoration: BoxDecoration(
+                                      color: _moodColors[mood],
+                                      borderRadius: BorderRadius.circular(2),
                                     ),
                                   ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFFECE00),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 10,
-                                    ),
-                                    textStyle: const TextStyle(fontSize: 12),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    "Tap chart to view mood history →",
-                                    style: TextStyle(
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$count',
+                                    style: const TextStyle(
                                       fontSize: 10,
-                                      color: Colors.grey[600],
-                                      fontStyle: FontStyle.italic,
+                                      color: Colors.black54,
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // CARD 2: CAROUSEL FOR TASKS PROGRESS & ANALYSIS
-                Column(
-                  children: [
-                    // PageView Carousel
-                    SizedBox(
-                      height:
-                          460, // Increased from 400 to 460 to accommodate content
-                      child: PageView.builder(
-                        controller: _pageController,
-                        itemCount: carouselItems.length,
-                        onPageChanged: (index) {
-                          setState(() {
-                            _currentCarouselIndex = index;
-                          });
-                        },
-                        itemBuilder: (context, index) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 0),
-                            child: carouselItems[index],
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Carousel indicators
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: carouselItems.asMap().entries.map((entry) {
-                        return GestureDetector(
-                          onTap: () {
-                            _pageController.animateToPage(
-                              entry.key,
-                              duration: Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          },
-                          child: Container(
-                            width: 8.0,
-                            height: 8.0,
-                            margin: const EdgeInsets.symmetric(horizontal: 4.0),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _currentCarouselIndex == entry.key
-                                  ? Colors.deepPurpleAccent
-                                  : Colors.grey[300],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-
-                    // Navigation buttons
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            icon: Icon(Icons.arrow_back_ios, size: 16),
-                            onPressed: _currentCarouselIndex > 0
-                                ? () {
-                                    _pageController.previousPage(
-                                      duration: Duration(milliseconds: 300),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  }
-                                : null,
-                          ),
-                          Text(
-                            "${_currentCarouselIndex + 1}/${carouselItems.length}",
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          IconButton(
-                            icon: Icon(Icons.arrow_forward_ios, size: 16),
-                            onPressed:
-                                _currentCarouselIndex < carouselItems.length - 1
-                                ? () {
-                                    _pageController.nextPage(
-                                      duration: Duration(milliseconds: 300),
-                                      curve: Curves.easeInOut,
-                                    );
-                                  }
-                                : null,
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ],
                       ),
                     ),
+
+                    // Right side: Description and button
+                    Expanded(
+                      flex: 3,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "This week's top mood is: $weeklyTopMood",
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              "Assign a Power Boost to help improve their emotional well-being and build coping skills.",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ElevatedButton.icon(
+                              onPressed: () {
+                                final therapistId = widget.therapistId;
+                                final childId = activeChild['cid'];
+
+                                if (childId == null || childId.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'No active child selected!',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TherapistCBTPage(
+                                      therapistId: therapistId,
+                                      parentId: widget.parentId,
+                                      childId: childId,
+                                      suggestedMood: weeklyTopMood,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.auto_awesome,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                              label: const Text(
+                                "Assign Power Boost",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFECE00),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
+                                textStyle: const TextStyle(fontSize: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                "Tap chart to view mood history →",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[600],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
+                ),
+              ),
+            ),
+
+            // CARD 2: CAROUSEL FOR TASKS PROGRESS & ANALYSIS
+            Column(
+              children: [
+                // PageView Carousel
+                SizedBox(
+                  height: 460,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: carouselItems.length,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _currentCarouselIndex = index;
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 0),
+                        child: carouselItems[index],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Carousel indicators
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: carouselItems.asMap().entries.map((entry) {
+                    return GestureDetector(
+                      onTap: () {
+                        _pageController.animateToPage(
+                          entry.key,
+                          duration: Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      child: Container(
+                        width: 8.0,
+                        height: 8.0,
+                        margin: const EdgeInsets.symmetric(horizontal: 4.0),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _currentCarouselIndex == entry.key
+                              ? Colors.deepPurpleAccent
+                              : Colors.grey[300],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+
+                // Navigation buttons
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.arrow_back_ios, size: 16),
+                        onPressed: _currentCarouselIndex > 0
+                            ? () {
+                                _pageController.previousPage(
+                                  duration: Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                              }
+                            : null,
+                      ),
+                      Text(
+                        "${_currentCarouselIndex + 1}/${carouselItems.length}",
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.arrow_forward_ios, size: 16),
+                        onPressed:
+                            _currentCarouselIndex < carouselItems.length - 1
+                            ? () {
+                                _pageController.nextPage(
+                                  duration: Duration(milliseconds: 300),
+                                  curve: Curves.easeInOut,
+                                );
+                              }
+                            : null,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+          ],
+        ),
       ),
     ];
   }
@@ -3903,13 +5644,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     }
   }
 
-  Color _getAttentionColor(double percentage) {
-    if (percentage == 0) return Colors.redAccent;
-    if (percentage < 30) return Colors.orangeAccent;
-    if (percentage < 50) return Colors.yellow;
-    return Colors.greenAccent;
-  }
-
   Widget _buildRecommendationItem(IconData icon, String text, Color color) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -3936,470 +5670,36 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     return Colors.redAccent;
   }
 
-  Color _getRankColor(int index) {
-    switch (index) {
-      case 0:
-        return Colors.amber;
-      case 1:
-        return Colors.grey[400]!;
-      case 2:
-        return Colors.brown[400]!;
-      default:
-        return Colors.grey[300]!;
-    }
-  }
-
-  Future<int> _getDaysCompletedThisWeek({
-    required String parentId,
-    required String childId,
-    required String taskId,
-    required DateTime startOfWeek,
-    required DateTime endOfWeek,
-    required Map<String, dynamic> taskData,
-  }) async {
-    try {
-      // Get completion dates array if it exists
-      final completionDates = taskData['completionDates'] as List?;
-
-      if (completionDates != null && completionDates.isNotEmpty) {
-        // If you have an array of completion dates, count those within this week
-        int count = 0;
-        for (var date in completionDates) {
-          if (date is Timestamp) {
-            final completionDate = date.toDate();
-            if (!completionDate.isBefore(startOfWeek) &&
-                !completionDate.isAfter(endOfWeek)) {
-              count++;
-            }
-          }
-        }
-        return count;
-      }
-
-      // Fallback: Check lastCompletedDate and doneAt
-      final lastCompletedDate = taskData['lastCompletedDate'];
-      final doneAt = taskData['doneAt'];
-
-      // If task has never been completed, return 0
-      if (lastCompletedDate == null && doneAt == null) {
-        return 0;
-      }
-
-      // Get the most recent completion date
-      DateTime? latestCompletion;
-
-      if (lastCompletedDate != null && lastCompletedDate is Timestamp) {
-        latestCompletion = lastCompletedDate.toDate();
-      } else if (doneAt != null && doneAt is Timestamp) {
-        latestCompletion = doneAt.toDate();
-      }
-
-      // If latest completion is before this week, return 0
-      if (latestCompletion == null || latestCompletion.isBefore(startOfWeek)) {
-        return 0;
-      }
-
-      // Check if task was completed within this week
-      if (!latestCompletion.isAfter(endOfWeek)) {
-        // Task was completed at least once this week
-        // Now we need to estimate how many times
-
-        // OPTION 1: Check history collection for daily completions
-        try {
-          final historySnap = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(parentId)
-              .collection('children')
-              .doc(childId)
-              .collection('history')
-              .where(
-                'timestamp',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek),
-              )
-              .where(
-                'timestamp',
-                isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek),
-              )
-              .get();
-
-          int completedCount = 0;
-
-          // Search for task completion in history
-          for (var doc in historySnap.docs) {
-            final data = doc.data();
-            final timestamp = doc['timestamp'];
-
-            if (timestamp != null && timestamp is Timestamp) {
-              final date = DateFormat('yyyy-MM-dd').format(timestamp.toDate());
-
-              // Try different field names that might store task completion info
-              if (data.containsKey('taskCompletions')) {
-                final completions = data['taskCompletions'];
-                if (completions is Map<String, dynamic> &&
-                    completions[taskId] == true) {
-                  completedCount++;
-                }
-              }
-              // Check if task ID appears in any other field
-              else if (data.containsKey('completedTasks')) {
-                final completedTasks = data['completedTasks'];
-                if (completedTasks is List<dynamic> &&
-                    completedTasks.contains(taskId)) {
-                  completedCount++;
-                }
-              }
-            }
-          }
-
-          // If we found completions in history, use that count
-          if (completedCount > 0) {
-            return completedCount;
-          }
-        } catch (e) {
-          print('⚠️ Error checking history for task $taskId: $e');
-        }
-
-        // OPTION 2: Use activeStreak as minimum estimate for current week
-        final activeStreak = (taskData['activeStreak'] as int?) ?? 0;
-        final totalDaysCompleted =
-            (taskData['totalDaysCompleted'] as int?) ?? 0;
-
-        // If task was completed today and active streak is > 0
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-        final yesterday = today.subtract(const Duration(days: 1));
-
-        if (latestCompletion.isAtSameMomentAs(today) ||
-            (latestCompletion.isAfter(yesterday) &&
-                latestCompletion.isBefore(
-                  today.add(const Duration(days: 1)),
-                ))) {
-          // Estimate based on streak and days since start of week
-          final daysSinceWeekStart = now.difference(startOfWeek).inDays + 1;
-          final estimatedCompletions = min(activeStreak, daysSinceWeekStart);
-
-          return max(
-            1,
-            estimatedCompletions,
-          ); // At least 1 if completed this week
-        }
-
-        // OPTION 3: Simple check - if completed within this week, count as at least 1
-        return 1;
-      }
-
-      return 0;
-    } catch (e) {
-      print(
-        '❌ Error calculating days completed this week for task $taskId: $e',
-      );
-      return 0;
-    }
-  }
-
-  Future<Map<String, dynamic>> _getWeeklyTaskAnalysis(String childId) async {
-    try {
-      final parentId = await _getParentIdFromChild(childId);
-
-      if (parentId == null || parentId.isEmpty) {
-        throw Exception('Parent not found for child');
-      }
-
-      print(
-        '🔍 Fetching task analysis for child $childId from parent $parentId',
-      );
-
-      // Get current week boundaries
-      final now = DateTime.now();
-      final startOfWeek = DateTime(
-        now.year,
-        now.month,
-        now.day,
-      ).subtract(Duration(days: now.weekday - 1));
-      final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-      print(
-        '📅 Week range: ${DateFormat('MMM dd').format(startOfWeek)} - ${DateFormat('MMM dd').format(endOfWeek)}',
-      );
-
-      // Fetch all tasks for the child
-      final tasksSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(parentId)
-          .collection('children')
-          .doc(childId)
-          .collection('tasks')
-          .get();
-
-      if (tasksSnap.docs.isEmpty) {
-        print('⚠️ No tasks found for child');
-        return {};
-      }
-
-      final tasks = await Future.wait(
-        tasksSnap.docs.map((doc) async {
-          final data = doc.data();
-          final taskId = doc.id;
-
-          // Get days completed THIS WEEK for this task
-          final daysCompletedThisWeek = await _getDaysCompletedThisWeek(
-            parentId: parentId,
-            childId: childId,
-            taskId: taskId,
-            startOfWeek: startOfWeek,
-            endOfWeek: endOfWeek,
-            taskData: data,
-          );
-
-          return {
-            'id': taskId,
-            'name': data['name'] ?? 'Unnamed Task',
-            'isDone': data['isDone'] ?? false,
-            'totalDaysCompleted': (data['totalDaysCompleted'] as int?) ?? 0,
-            'lastCompletedDate': data['lastCompletedDate'] is Timestamp
-                ? (data['lastCompletedDate'] as Timestamp).toDate()
-                : null,
-            'doneAt': data['doneAt'] is Timestamp
-                ? (data['doneAt'] as Timestamp).toDate()
-                : null,
-            'activeStreak': (data['activeStreak'] as int?) ?? 0,
-            'daysCompletedThisWeek': daysCompletedThisWeek,
-            'routine': data['routine'] ?? 'anytime',
-            'difficulty': data['difficulty'] ?? 'Medium',
-            'reward': (data['reward'] as int?) ?? 0,
-          };
-        }),
-      );
-
-      print('📊 Found ${tasks.length} tasks');
-
-      // Log each task's weekly completion
-      for (var task in tasks) {
-        print(
-          '   - ${task['name']}: ${task['daysCompletedThisWeek']} days this week',
-        );
-      }
-
-      // Calculate statistics
-      int totalTasks = tasks.length;
-      int totalCompletedToday = tasks.where((t) => t['isDone'] == true).length;
-      double completionRateToday = totalTasks > 0
-          ? totalCompletedToday / totalTasks
-          : 0;
-
-      // Calculate ACTUAL consistency for this week (not streak-based)
-      int totalWeekDaysCompleted = 0;
-      int maxPossibleCompletions = totalTasks * 7; // 7 days in a week
-
-      for (var task in tasks) {
-        totalWeekDaysCompleted += (task['daysCompletedThisWeek'] as int);
-      }
-
-      double weeklyConsistencyRate = maxPossibleCompletions > 0
-          ? totalWeekDaysCompleted / maxPossibleCompletions
-          : 0;
-
-      print(
-        '📈 Weekly consistency: $totalWeekDaysCompleted/$maxPossibleCompletions (${(weeklyConsistencyRate * 100).toStringAsFixed(1)}%)',
-      );
-
-      // Find best performing task (most days completed this week)
-      String bestPerformingTask = 'No tasks';
-      int bestTaskDaysCompleted = 0;
-
-      // Find worst performing task (least days completed this week)
-      String worstPerformingTask = 'No tasks';
-      int worstTaskDaysCompleted = 7; // Start with max possible
-
-      final List<Map<String, dynamic>> topTasks = [];
-      final List<Map<String, dynamic>> bottomTasks = [];
-
-      for (var task in tasks) {
-        final taskName = task['name'] as String;
-        final daysCompletedThisWeek = task['daysCompletedThisWeek'] as int;
-        final difficulty = task['difficulty'] as String;
-        final reward = task['reward'] as int;
-
-        if (daysCompletedThisWeek > bestTaskDaysCompleted) {
-          bestPerformingTask = taskName;
-          bestTaskDaysCompleted = daysCompletedThisWeek;
-        }
-
-        if (daysCompletedThisWeek < worstTaskDaysCompleted) {
-          worstPerformingTask = taskName;
-          worstTaskDaysCompleted = daysCompletedThisWeek;
-        }
-
-        if (daysCompletedThisWeek > 0) {
-          topTasks.add({
-            'name': taskName,
-            'totalDaysCompleted': daysCompletedThisWeek,
-            'overallTotal': task['totalDaysCompleted'] as int,
-            'routine': task['routine'] as String,
-            'difficulty': difficulty,
-            'reward': reward,
-          });
-        }
-
-        // Add to bottom tasks if completed less than 3 days this week
-        if (daysCompletedThisWeek < 3) {
-          bottomTasks.add({
-            'name': taskName,
-            'totalDaysCompleted': daysCompletedThisWeek,
-            'overallTotal': task['totalDaysCompleted'] as int,
-            'routine': task['routine'] as String,
-            'difficulty': difficulty,
-            'reward': reward,
-            'needsAttention': daysCompletedThisWeek == 0,
-          });
-        }
-      }
-
-      // Sort top tasks by days completed this week (descending)
-      topTasks.sort(
-        (a, b) => (b['totalDaysCompleted'] as int).compareTo(
-          a['totalDaysCompleted'] as int,
-        ),
-      );
-
-      // Sort bottom tasks by days completed this week (ascending)
-      bottomTasks.sort(
-        (a, b) => (a['totalDaysCompleted'] as int).compareTo(
-          b['totalDaysCompleted'] as int,
-        ),
-      );
-
-      // Take top 3 consistent tasks
-      final top3Tasks = topTasks.take(3).toList();
-
-      // Take bottom 3 unconsistent tasks (or all if less than 3)
-      final bottom3Tasks = bottomTasks.take(3).toList();
-
-      // Calculate consistency score (0-100)
-      final consistencyScore = (weeklyConsistencyRate * 100).toInt();
-
-      // Calculate daily completion pattern
-      final dailyCompletionPattern = await _getDailyCompletionPattern(
-        parentId: parentId,
-        childId: childId,
-        startOfWeek: startOfWeek,
-      );
-
-      print('✅ Analysis complete:');
-      print('   - Total tasks: $totalTasks');
-      print('   - Completed today: $totalCompletedToday');
-      print(
-        '   - Completion rate today: ${(completionRateToday * 100).toStringAsFixed(1)}%',
-      );
-      print(
-        '   - Weekly consistency: $consistencyScore% ($totalWeekDaysCompleted days completed)',
-      );
-      print(
-        '   - Best task this week: $bestPerformingTask ($bestTaskDaysCompleted days)',
-      );
-      print(
-        '   - Worst task this week: $worstPerformingTask ($worstTaskDaysCompleted days)',
-      );
-      print('   - Top 3 consistent tasks: ${top3Tasks.length}');
-      print('   - Bottom 3 unconsistent tasks: ${bottom3Tasks.length}');
-      print('   - Daily pattern: $dailyCompletionPattern');
-
-      return {
-        'totalTasks': totalTasks,
-        'totalCompleted': totalCompletedToday,
-        'completionRate': completionRateToday,
-        'activeStreak': _calculateRealisticActiveStreak(tasks),
-        'consistencyScore': consistencyScore,
-        'totalWeekDaysCompleted': totalWeekDaysCompleted,
-        'bestPerformingTask': bestPerformingTask,
-        'bestTaskDaysCompleted': bestTaskDaysCompleted,
-        'worstPerformingTask': worstPerformingTask,
-        'worstTaskDaysCompleted': worstTaskDaysCompleted,
-        'topTasks': top3Tasks,
-        'bottomTasks': bottom3Tasks,
-        'dailyCompletionPattern': dailyCompletionPattern,
-        'weeklyTrend': _generateWeeklyTrendData(
-          totalWeekDaysCompleted,
-          totalTasks,
-        ),
-      };
-    } catch (e) {
-      print('❌ Error fetching weekly task analysis: $e');
-      return {};
-    }
-  }
-
   int _calculateRealisticActiveStreak(List<Map<String, dynamic>> tasks) {
-    // Calculate a realistic streak based on recent completion pattern
-    // Instead of just taking the highest activeStreak from tasks
+    if (tasks.isEmpty) return 0;
 
     int maxStreak = 0;
     for (var task in tasks) {
       final streak = (task['activeStreak'] as int?) ?? 0;
+
+      // For weekly, also consider days completed this week
       final daysCompletedThisWeek =
           (task['daysCompletedThisWeek'] as int?) ?? 0;
+      final daysCompletedThisMonth =
+          (task['daysCompletedThisMonth'] as int?) ?? 0;
 
-      // Give more weight to tasks with consistent weekly completion
-      final adjustedStreak = streak * (1 + (daysCompletedThisWeek / 7));
+      // Use the appropriate completion count based on context
+      final completionCount = daysCompletedThisWeek > 0
+          ? daysCompletedThisWeek
+          : daysCompletedThisMonth;
+
+      // Give more weight to tasks with consistent completion
+      final adjustedStreak = streak * (1 + (completionCount / 7));
       maxStreak = max(maxStreak, adjustedStreak.round());
     }
 
     return maxStreak;
   }
 
-  Future<List<int>> _getDailyCompletionPattern({
-    required String parentId,
-    required String childId,
-    required DateTime startOfWeek,
-  }) async {
-    final List<int> dailyCompletions = List.filled(7, 0);
-
-    try {
-      final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-      // Get history for the week
-      final historySnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(parentId)
-          .collection('children')
-          .doc(childId)
-          .collection('history')
-          .where(
-            'timestamp',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfWeek),
-          )
-          .where(
-            'timestamp',
-            isLessThanOrEqualTo: Timestamp.fromDate(endOfWeek),
-          )
-          .get();
-
-      for (var doc in historySnap.docs) {
-        final data = doc.data();
-        final timestamp = data['timestamp'];
-        if (timestamp != null && timestamp is Timestamp) {
-          final date = timestamp.toDate();
-          final dayIndex = date.weekday - 1; // Monday = 0
-
-          if (dayIndex >= 0 && dayIndex < 7) {
-            final doneTasks = (data['done'] as int?) ?? 0;
-            dailyCompletions[dayIndex] = doneTasks;
-          }
-        }
-      }
-
-      return dailyCompletions;
-    } catch (e) {
-      print('❌ Error getting daily completion pattern: $e');
-      return dailyCompletions;
-    }
-  }
-
   List<int> _generateWeeklyTrendData(
     int totalWeekDaysCompleted,
     int totalTasks,
   ) {
-    // Generate realistic trend data based on total completions
     final List<int> trend = List.filled(7, 0);
 
     if (totalWeekDaysCompleted == 0 || totalTasks == 0) {
@@ -4418,11 +5718,32 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     return trend;
   }
 
-  Color _getConsistencyColor(double percentage) {
-    if (percentage >= 85) return Colors.greenAccent;
-    if (percentage >= 70) return Colors.lightGreenAccent;
-    if (percentage >= 50) return Colors.orangeAccent;
+  // Add these helper methods to your _TherapistDashboardPageState class
+  Color _getConsistencyColor(double rate) {
+    if (rate >= 0.85) return Colors.greenAccent;
+    if (rate >= 0.70) return Colors.lightGreenAccent;
+    if (rate >= 0.50) return Colors.orangeAccent;
     return Colors.redAccent;
+  }
+
+  Color _getRankColor(int index) {
+    switch (index) {
+      case 0:
+        return Colors.amber;
+      case 1:
+        return Colors.grey[400]!;
+      case 2:
+        return Colors.brown[400]!;
+      default:
+        return Colors.grey[300]!;
+    }
+  }
+
+  Color _getAttentionColor(double percentage) {
+    if (percentage == 0) return Colors.redAccent;
+    if (percentage < 30) return Colors.orangeAccent;
+    if (percentage < 50) return Colors.yellow;
+    return Colors.greenAccent;
   }
 
   Widget _legendWithCounter({

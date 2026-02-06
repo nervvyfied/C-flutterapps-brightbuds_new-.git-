@@ -390,7 +390,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       return;
     }
 
-    // Mood configuration
     final Map<String, Color> moodColors = {
       'calm': const Color(0xFFA6C26F),
       'sad': const Color(0xFF57A0F3),
@@ -418,7 +417,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       'scared',
     ];
 
-    // --- WEEKLY DATA ---
     Map<String, List> weekGroups = {};
     List<DateTime> weekStarts = [];
 
@@ -433,9 +431,8 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       }
       weekGroups[key]!.add(entry);
     }
-    weekStarts.sort((a, b) => b.compareTo(a)); // latest first
+    weekStarts.sort((a, b) => b.compareTo(a));
 
-    // --- MONTHLY DATA ---
     List<DateTime> monthStarts = [];
     for (var entry in allEntries) {
       final monthStart = DateTime(
@@ -449,7 +446,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         monthStarts.add(monthStart);
       }
     }
-    monthStarts.sort((a, b) => b.compareTo(a)); // latest first
+    monthStarts.sort((a, b) => b.compareTo(a));
 
     int currentWeekIndex = 0;
     int currentMonthIndex = 0;
@@ -468,7 +465,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           String label;
 
           if (isMonthly) {
-            // --- MONTHLY VIEW ---
             final monthStart = monthStarts[currentMonthIndex];
             entriesToDisplay = allEntries
                 .where(
@@ -479,7 +475,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 .toList();
             label = "${monthStart.month}/${monthStart.year}";
           } else {
-            // --- WEEKLY VIEW ---
             final weekStart = weekStarts[currentWeekIndex];
             final weekEnd = weekStart.add(const Duration(days: 6));
             final key = "${weekStart.year}-${weekStart.month}-${weekStart.day}";
@@ -488,7 +483,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 "Week of ${weekStart.month}/${weekStart.day}-${weekEnd.month}/${weekEnd.day}";
           }
 
-          // Count moods
           final counts = {for (var m in moodOrder) m: 0};
           for (var entry in entriesToDisplay) {
             final mood = entry.mood.toLowerCase();
@@ -498,11 +492,44 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           final sortedMoods = counts.entries.where((e) => e.value > 0).toList()
             ..sort((a, b) => b.value.compareTo(a.value));
 
+          // Monthly = grouped by week of month (like weekly)
+          List<BarChartGroupData> monthlyWeekBarGroups = [];
+
+          if (isMonthly && entriesToDisplay.isNotEmpty) {
+            final monthStart = monthStarts[currentMonthIndex];
+
+            // Determine week number in month (1–5)
+            Map<int, int> weekCounts = {};
+
+            for (var entry in entriesToDisplay) {
+              final weekOfMonth = ((entry.createdAt.day - 1) / 7).floor() + 1;
+
+              weekCounts[weekOfMonth] = (weekCounts[weekOfMonth] ?? 0) + 1;
+            }
+
+            final maxWeeks = weekCounts.keys.reduce((a, b) => a > b ? a : b);
+
+            monthlyWeekBarGroups = List.generate(maxWeeks, (i) {
+              final week = i + 1;
+              final count = weekCounts[week] ?? 0;
+
+              return BarChartGroupData(
+                x: i,
+                barRods: [
+                  BarChartRodData(
+                    toY: count.toDouble(),
+                    color: Colors.blueAccent,
+                    width: 16,
+                  ),
+                ],
+              );
+            });
+          }
+
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                // Header + navigation
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -536,7 +563,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Pie chart
                 if (sortedMoods.isEmpty)
                   const Text("No mood entries to display")
                 else
@@ -566,8 +592,35 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                     ),
                   ),
                 const SizedBox(height: 16),
-                // Weekly Bar chart
-                if (!isMonthly)
+
+                // FIX: Show appropriate chart based on view mode
+                if (isMonthly && entriesToDisplay.isNotEmpty)
+                  Expanded(
+                    child: BarChart(
+                      BarChartData(
+                        titlesData: FlTitlesData(
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: true),
+                          ),
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (value, _) {
+                                return Text(
+                                  'Week ${value.toInt() + 1}',
+                                  style: const TextStyle(fontSize: 10),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        barGroups: monthlyWeekBarGroups,
+                        borderData: FlBorderData(show: false),
+                        gridData: FlGridData(show: true),
+                      ),
+                    ),
+                  )
+                else if (!isMonthly && entriesToDisplay.isNotEmpty)
                   Expanded(
                     child: BarChart(
                       BarChartData(
@@ -589,7 +642,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                   'Sun',
                                 ];
                                 if (value >= 0 && value < weekdays.length) {
-                                  return Text(weekdays[value.toInt()]);
+                                  return Text(
+                                    weekdays[value.toInt()],
+                                    style: const TextStyle(fontSize: 10),
+                                  );
                                 }
                                 return const Text('');
                               },
@@ -606,8 +662,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                 entry.createdAt.month == day.month &&
                                 entry.createdAt.year == day.year) {
                               final mood = entry.mood.toLowerCase();
-                              if (dayCounts.containsKey(mood))
+                              if (dayCounts.containsKey(mood)) {
                                 dayCounts[mood] = dayCounts[mood]! + 1;
+                              }
                             }
                           }
                           final total = dayCounts.values.fold(
@@ -625,11 +682,12 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                             ],
                           );
                         }),
+                        borderData: FlBorderData(show: false),
                       ),
                     ),
                   ),
+
                 const SizedBox(height: 12),
-                // Mood legend with icons
                 Wrap(
                   spacing: 12,
                   children: moodOrder.map((m) {
@@ -642,7 +700,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   }).toList(),
                 ),
                 const SizedBox(height: 12),
-                // Weekly/Monthly switch
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -938,7 +995,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     // ✅ Show SnackBar once per completed task
     for (var task in childTasks) {
-      if (task.isDone && !task.verified == true) {
+      if (task.isDone && task.verified != true) {
         Future.microtask(() {
           _showTaskCompletionSnackBar(
             childName: activeChild['name'] ?? 'Child',

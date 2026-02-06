@@ -48,7 +48,6 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
     );
   }
 
-  // In _TherapistAuthPageState class, update the _handleAuth method:
   void _handleAuth() async {
     if (_isWaiting) return;
 
@@ -56,11 +55,17 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
     setState(() => isLoading = true);
 
     try {
-      final email = _emailController.text.trim();
-      final password = _passwordController.text.trim();
-
       if (isLogin) {
         // Login
+        final email = _emailController.text.trim();
+        final password = _passwordController.text.trim();
+
+        // Add validation
+        if (email.isEmpty || password.isEmpty) {
+          _showSnackBar("Please fill in all fields");
+          return;
+        }
+
         await auth.loginTherapist(email, password);
 
         // Get therapist data
@@ -82,12 +87,46 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
           MaterialPageRoute(builder: (_) => const TherapistNavigationShell()),
         );
       } else {
-        // Sign-up code...
+        // Sign-up
+        final name = _nameController.text.trim();
+        final email = _emailController.text.trim();
+        final password = _passwordController.text.trim();
+        final confirmPassword = _confirmPasswordController.text.trim();
+
+        // Add validation
+        if (name.isEmpty ||
+            email.isEmpty ||
+            password.isEmpty ||
+            confirmPassword.isEmpty) {
+          _showSnackBar("Please fill in all fields");
+          return;
+        }
+
+        if (password != confirmPassword) {
+          _showSnackBar("Passwords do not match");
+          return;
+        }
+
+        if (password.length < 6) {
+          _showSnackBar("Password must be at least 6 characters");
+          return;
+        }
+
+        // Call sign-up method from auth provider
+        await auth.signUpTherapist(name, email, password);
+
+        // After successful sign-up, go to verification page
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => VerifyEmailScreen(email: email)),
+        );
       }
     } catch (e) {
       _showSnackBar("Error: ${e.toString()}");
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
@@ -168,6 +207,15 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
   }
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
@@ -233,7 +281,7 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                   child: Column(
                     key: ValueKey(isLogin),
                     children: [
-                      if (!isLogin) ...[
+                      if (!isLogin)
                         TextField(
                           controller: _nameController,
                           decoration: const InputDecoration(
@@ -241,8 +289,8 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                             prefixIcon: Icon(Icons.person_outline),
                           ),
                         ),
-                        const SizedBox(height: 15),
-                      ],
+                      if (!isLogin) const SizedBox(height: 15),
+
                       TextField(
                         controller: _emailController,
                         decoration: const InputDecoration(
@@ -250,46 +298,77 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                           prefixIcon: Icon(Icons.email_outlined),
                         ),
                       ),
+
                       const SizedBox(height: 15),
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        decoration: InputDecoration(
-                          labelText: "Password",
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                            ),
-                            onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      if (!isLogin)
+
+                      // Login: Only password field
+                      if (isLogin)
                         TextField(
-                          controller: _confirmPasswordController,
-                          obscureText: _obscureConfirmPassword,
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
                           decoration: InputDecoration(
-                            labelText: "Confirm Password",
+                            labelText: "Password",
                             prefixIcon: const Icon(Icons.lock_outline),
                             suffixIcon: IconButton(
                               icon: Icon(
-                                _obscureConfirmPassword
+                                _obscurePassword
                                     ? Icons.visibility_off
                                     : Icons.visibility,
                               ),
                               onPressed: () => setState(
-                                () => _obscureConfirmPassword =
-                                    !_obscureConfirmPassword,
+                                () => _obscurePassword = !_obscurePassword,
                               ),
                             ),
                           ),
                         ),
+
+                      // Sign-up: Password and Confirm Password
+                      if (!isLogin)
+                        Column(
+                          children: [
+                            TextField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              decoration: InputDecoration(
+                                labelText: "Password",
+                                prefixIcon: const Icon(Icons.lock_outline),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 15),
+                            TextField(
+                              controller: _confirmPasswordController,
+                              obscureText: _obscureConfirmPassword,
+                              decoration: InputDecoration(
+                                labelText: "Confirm Password",
+                                prefixIcon: const Icon(Icons.lock_outline),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscureConfirmPassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _obscureConfirmPassword =
+                                        !_obscureConfirmPassword,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                      const SizedBox(height: 15),
+
                       if (isLogin)
                         Align(
                           alignment: Alignment.centerRight,
@@ -304,6 +383,7 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                             ),
                           ),
                         ),
+
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
@@ -337,6 +417,7 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
                               : Text(isLogin ? "Login" : "Sign Up"),
                         ),
                       ),
+
                       const SizedBox(height: 15),
                       SizedBox(
                         width: double.infinity,
