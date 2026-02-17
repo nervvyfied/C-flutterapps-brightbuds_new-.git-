@@ -537,7 +537,8 @@ class AuthProvider extends ChangeNotifier {
         await _saveTherapistSession(therapist);
         debugPrint('✅ Therapist logged in: ${therapist.name}');
       }
-    } catch (e) {
+    } 
+    }catch (e) {
       debugPrint('❌ Therapist login failed: $e');
       rethrow;
     } finally {
