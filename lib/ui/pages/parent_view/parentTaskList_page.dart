@@ -459,7 +459,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
         });
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Smaller padding
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF8657F3) : Colors.grey[300],
           borderRadius: BorderRadius.circular(8),
@@ -469,6 +469,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
           style: TextStyle(
             color: selected ? Colors.white : Colors.black87,
             fontWeight: FontWeight.bold,
+            fontSize: 14, // Smaller font size
           ),
         ),
       ),
@@ -493,31 +494,41 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
           Column(
             children: [
               const SizedBox(height: 40),
+              // Title Section
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
+                child: Text(
+                  'Quests for $childName',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Filter Buttons Section
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     _buildFilterButton("All", TaskFilter.all),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     _buildFilterButton("Not Done", TaskFilter.notDone),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     _buildFilterButton("Done", TaskFilter.done),
-                    Text(
-                      'Quests for $childName',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(

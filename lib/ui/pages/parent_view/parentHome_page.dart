@@ -390,7 +390,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       return;
     }
 
-    // Mood configuration
     final Map<String, Color> moodColors = {
       'calm': const Color(0xFFA6C26F),
       'sad': const Color(0xFF57A0F3),
@@ -418,7 +417,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       'scared',
     ];
 
-    // --- WEEKLY DATA ---
     Map<String, List> weekGroups = {};
     List<DateTime> weekStarts = [];
 
@@ -433,9 +431,8 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       }
       weekGroups[key]!.add(entry);
     }
-    weekStarts.sort((a, b) => b.compareTo(a)); // latest first
+    weekStarts.sort((a, b) => b.compareTo(a));
 
-    // --- MONTHLY DATA ---
     List<DateTime> monthStarts = [];
     for (var entry in allEntries) {
       final monthStart = DateTime(
@@ -449,7 +446,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         monthStarts.add(monthStart);
       }
     }
-    monthStarts.sort((a, b) => b.compareTo(a)); // latest first
+    monthStarts.sort((a, b) => b.compareTo(a));
 
     int currentWeekIndex = 0;
     int currentMonthIndex = 0;
@@ -468,7 +465,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           String label;
 
           if (isMonthly) {
-            // --- MONTHLY VIEW ---
             final monthStart = monthStarts[currentMonthIndex];
             entriesToDisplay = allEntries
                 .where(
@@ -479,7 +475,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 .toList();
             label = "${monthStart.month}/${monthStart.year}";
           } else {
-            // --- WEEKLY VIEW ---
             final weekStart = weekStarts[currentWeekIndex];
             final weekEnd = weekStart.add(const Duration(days: 6));
             final key = "${weekStart.year}-${weekStart.month}-${weekStart.day}";
@@ -488,7 +483,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                 "Week of ${weekStart.month}/${weekStart.day}-${weekEnd.month}/${weekEnd.day}";
           }
 
-          // Count moods
           final counts = {for (var m in moodOrder) m: 0};
           for (var entry in entriesToDisplay) {
             final mood = entry.mood.toLowerCase();
@@ -498,11 +492,44 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           final sortedMoods = counts.entries.where((e) => e.value > 0).toList()
             ..sort((a, b) => b.value.compareTo(a.value));
 
+          // Monthly = grouped by week of month (like weekly)
+          List<BarChartGroupData> monthlyWeekBarGroups = [];
+
+          if (isMonthly && entriesToDisplay.isNotEmpty) {
+            final monthStart = monthStarts[currentMonthIndex];
+
+            // Determine week number in month (1–5)
+            Map<int, int> weekCounts = {};
+
+            for (var entry in entriesToDisplay) {
+              final weekOfMonth = ((entry.createdAt.day - 1) / 7).floor() + 1;
+
+              weekCounts[weekOfMonth] = (weekCounts[weekOfMonth] ?? 0) + 1;
+            }
+
+            final maxWeeks = weekCounts.keys.reduce((a, b) => a > b ? a : b);
+
+            monthlyWeekBarGroups = List.generate(maxWeeks, (i) {
+              final week = i + 1;
+              final count = weekCounts[week] ?? 0;
+
+              return BarChartGroupData(
+                x: i,
+                barRods: [
+                  BarChartRodData(
+                    toY: count.toDouble(),
+                    color: Colors.blueAccent,
+                    width: 16,
+                  ),
+                ],
+              );
+            });
+          }
+
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                // Header + navigation
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -536,7 +563,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                // Pie chart
                 if (sortedMoods.isEmpty)
                   const Text("No mood entries to display")
                 else
@@ -566,8 +592,35 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                     ),
                   ),
                 const SizedBox(height: 16),
-                // Weekly Bar chart
-                if (!isMonthly)
+
+                // FIX: Show appropriate chart based on view mode
+                if (isMonthly && entriesToDisplay.isNotEmpty)
+                  Expanded(
+                    child: BarChart(
+                      BarChartData(
+                        titlesData: FlTitlesData(
+                          leftTitles: AxisTitles(
+                            sideTitles: SideTitles(showTitles: true),
+                          ),
+                          bottomTitles: AxisTitles(
+                            sideTitles: SideTitles(
+                              showTitles: true,
+                              getTitlesWidget: (value, _) {
+                                return Text(
+                                  'Week ${value.toInt() + 1}',
+                                  style: const TextStyle(fontSize: 10),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        barGroups: monthlyWeekBarGroups,
+                        borderData: FlBorderData(show: false),
+                        gridData: FlGridData(show: true),
+                      ),
+                    ),
+                  )
+                else if (!isMonthly && entriesToDisplay.isNotEmpty)
                   Expanded(
                     child: BarChart(
                       BarChartData(
@@ -589,7 +642,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                   'Sun',
                                 ];
                                 if (value >= 0 && value < weekdays.length) {
-                                  return Text(weekdays[value.toInt()]);
+                                  return Text(
+                                    weekdays[value.toInt()],
+                                    style: const TextStyle(fontSize: 10),
+                                  );
                                 }
                                 return const Text('');
                               },
@@ -606,8 +662,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                                 entry.createdAt.month == day.month &&
                                 entry.createdAt.year == day.year) {
                               final mood = entry.mood.toLowerCase();
-                              if (dayCounts.containsKey(mood))
+                              if (dayCounts.containsKey(mood)) {
                                 dayCounts[mood] = dayCounts[mood]! + 1;
+                              }
                             }
                           }
                           final total = dayCounts.values.fold(
@@ -625,11 +682,12 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                             ],
                           );
                         }),
+                        borderData: FlBorderData(show: false),
                       ),
                     ),
                   ),
+
                 const SizedBox(height: 12),
-                // Mood legend with icons
                 Wrap(
                   spacing: 12,
                   children: moodOrder.map((m) {
@@ -642,7 +700,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                   }).toList(),
                 ),
                 const SizedBox(height: 12),
-                // Weekly/Monthly switch
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -827,287 +884,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     _notifiedTaskIds.add(taskId);
   }
 
-  Future<void> exportChildDataToPdfWithCharts(
-    String parentId,
-    String childId,
-    Map<String, dynamic> childData,
-  ) async {
-    final pdf = pw.Document();
-    final name = childData['name'] ?? 'Unknown';
-    final parentName = childData['parentName'] ?? '-';
-    final parentEmail = childData['parentEmail'] ?? '-';
-    final moodCounts = Map<String, int>.from(childData['moodCounts'] ?? {});
-    final now = DateTime.now();
-    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-    // ---------------- Fetch weekly task progress history ----------------
-    final historySnap = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentId)
-        .collection('children')
-        .doc(childId)
-        .collection('history')
-        .orderBy('timestamp', descending: true)
-        .limit(7)
-        .get();
-
-    final weeklyHistory = historySnap.docs
-        .map(
-          (d) => {
-            'date': d.id,
-            'done': d['done'] ?? 0,
-            'notDone': d['notDone'] ?? 0,
-            'missed': d['missed'] ?? 0,
-          },
-        )
-        .toList();
-
-    // ---------------- Fetch weekly CBT assignments ----------------
-    final cbtSnap = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(parentId)
-        .collection('children')
-        .doc(childId)
-        .collection('CBT')
-        .get();
-
-    // Filter assignments for this week and map them
-    final cbtTasks = cbtSnap.docs
-        .map((d) {
-          final data = d.data();
-
-          // Use exerciseId instead of title/docId
-          final exerciseId = data['exerciseId'] ?? d.id;
-
-          // Get the assigned date or createdAt (must exist in your DB)
-          final assignedAt = data['assignedAt'];
-          DateTime assignedDate;
-          if (assignedAt is Timestamp) {
-            assignedDate = assignedAt.toDate();
-          } else if (assignedAt is DateTime) {
-            assignedDate = assignedAt;
-          } else {
-            assignedDate = DateTime.now(); // fallback if no date
-          }
-
-          // Only include if assigned within this week
-          if (assignedDate.isBefore(startOfWeek) ||
-              assignedDate.isAfter(endOfWeek)) {
-            return null;
-          }
-
-          final completed = data['completed'] ?? false;
-          final status = completed ? 'Completed' : 'Pending';
-
-          return {'exerciseId': exerciseId, 'status': status};
-        })
-        .where((e) => e != null)
-        .toList();
-
-    // ---------------- Compute Summary Statistics ----------------
-    int done = 0, notDone = 0, missed = 0;
-    for (var h in weeklyHistory) {
-      done += (h['done'] as num).toInt();
-      notDone += (h['notDone'] as num).toInt();
-      missed += (h['missed'] as num).toInt();
-    }
-    final totalTasks = done + notDone + missed;
-    final completionRate = totalTasks > 0
-        ? (done / totalTasks * 100).toStringAsFixed(1)
-        : '0';
-    final missedRate = totalTasks > 0
-        ? (missed / totalTasks * 100).toStringAsFixed(1)
-        : '0';
-
-    // Compute top mood safely
-    String topMood = '-';
-    if (moodCounts.isNotEmpty && moodCounts.values.any((v) => v > 0)) {
-      final maxEntry = moodCounts.entries.reduce(
-        (a, b) => a.value > b.value ? a : b,
-      );
-      topMood = maxEntry.key[0].toUpperCase() + maxEntry.key.substring(1);
-    }
-    final moodDiversity = moodCounts.entries
-        .where((e) => e.value > 0)
-        .length
-        .toString();
-
-    // ---------------- Behavioral Insights ----------------
-    String mostProductiveDay = '-';
-    String mostMissedDay = '-';
-    double highestCompletionRate = 0;
-    double lowestCompletionRate = 1;
-
-    for (var entry in weeklyHistory) {
-      final total = (entry['done'] + entry['notDone'] + entry['missed'])
-          .toDouble();
-      if (total > 0) {
-        final rate = entry['done'] / total;
-        if (rate > highestCompletionRate) {
-          highestCompletionRate = rate;
-          mostProductiveDay = entry['date'];
-        }
-        if (rate < lowestCompletionRate) {
-          lowestCompletionRate = rate;
-          mostMissedDay = entry['date'];
-        }
-      }
-    }
-
-    // ---------------- PDF BUILD ----------------
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        build: (context) {
-          return [
-            // HEADER
-            pw.Text(
-              "$name's Weekly Progress Report",
-              style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.Text(
-              "Date Range: ${dateFormat.format(startOfWeek)} - ${dateFormat.format(endOfWeek)}",
-            ),
-            pw.SizedBox(height: 12),
-            pw.Text(
-              "Parent: $parentName ($parentEmail)",
-              style: const pw.TextStyle(fontSize: 12),
-            ),
-            pw.Divider(),
-
-            // SUMMARY STATISTICS
-            pw.Text(
-              "Summary Statistics",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Bullet(text: "Total Tasks: $totalTasks"),
-            pw.Bullet(text: "Completion Rate: $completionRate%"),
-            pw.Bullet(text: "Missed Rate: $missedRate%"),
-            pw.Bullet(text: "Most Frequent Mood: $topMood"),
-            pw.Bullet(text: "Mood Diversity: $moodDiversity"),
-            pw.SizedBox(height: 16),
-
-            // MOOD SUMMARY
-            pw.Text(
-              "Mood Summary",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Container(
-              height: 150,
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: moodCounts.entries.map((entry) {
-                  final color =
-                      PdfColors.primaries[moodCounts.keys.toList().indexOf(
-                            entry.key,
-                          ) %
-                          PdfColors.primaries.length];
-                  return pw.Padding(
-                    padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                    child: pw.Row(
-                      children: [
-                        pw.Container(width: 10, height: 10, color: color),
-                        pw.SizedBox(width: 8),
-                        pw.Text(
-                          '${entry.key[0].toUpperCase() + entry.key.substring(1)}: ${entry.value}',
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            pw.SizedBox(height: 16),
-
-            // DAILY BREAKDOWN TABLE
-            pw.Text(
-              "Daily Task Breakdown",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.Table.fromTextArray(
-              headers: ['Date', 'Done', 'Not Done', 'Missed', 'Completion %'],
-              data: weeklyHistory.map((h) {
-                final total = (h['done'] + h['notDone'] + h['missed'])
-                    .toDouble();
-                final completion = total > 0
-                    ? ((h['done'] / total) * 100).toStringAsFixed(0)
-                    : '0';
-                return [
-                  h['date'],
-                  h['done'].toString(),
-                  h['notDone'].toString(),
-                  h['missed'].toString(),
-                  '$completion%',
-                ];
-              }).toList(),
-            ),
-            pw.SizedBox(height: 16),
-
-            // CBT ASSIGNMENTS
-            pw.Text(
-              "CBT Assignments",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.SizedBox(height: 8),
-            ...cbtTasks.isEmpty
-                ? [pw.Text("No CBT assignments for this week.")]
-                : cbtTasks.map(
-                    (cbt) => pw.Padding(
-                      padding: const pw.EdgeInsets.only(bottom: 6),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text("${cbt?['exerciseId']} - ${cbt?['status']}"),
-                        ],
-                      ),
-                    ),
-                  ),
-            pw.SizedBox(height: 16),
-
-            // BEHAVIORAL INSIGHTS
-            pw.Text(
-              "Behavioral Insights",
-              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-            ),
-            pw.Bullet(
-              text:
-                  "Most Focused Day: ${mostProductiveDay != '-' ? mostProductiveDay : 'No data'}",
-            ),
-            pw.Bullet(
-              text:
-                  "Most Missed Day: ${mostMissedDay != '-' ? mostMissedDay : 'No data'}",
-            ),
-            pw.Bullet(
-              text:
-                  "Consistency Level: ${completionRate}% average task completion",
-            ),
-            pw.Bullet(
-              text:
-                  "Emotional Stability: ${moodDiversity} moods expressed this week (${topMood != '-' ? 'mainly $topMood' : 'no mood data'})",
-            ),
-
-            pw.SizedBox(height: 24),
-            pw.Center(
-              child: pw.Text(
-                "Generated by BrightBuds Parent Dashboard",
-                style: pw.TextStyle(fontSize: 10, color: PdfColors.grey),
-              ),
-            ),
-          ];
-        },
-      ),
-    );
-
-    await Printing.layoutPdf(
-      name: "child_${name}_weekly_report.pdf",
-      onLayout: (format) async => pdf.save(),
-    );
-  }
-
   static const List<String> _moodOrder = [
     'calm',
     'sad',
@@ -1219,7 +995,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     // ✅ Show SnackBar once per completed task
     for (var task in childTasks) {
-      if (task.isDone && !task.verified == true) {
+      if (task.isDone && task.verified != true) {
         Future.microtask(() {
           _showTaskCompletionSnackBar(
             childName: activeChild['name'] ?? 'Child',
@@ -1246,69 +1022,9 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
               color: Colors.white,
             ),
           ),
-          trailing: IconButton(
-            icon: const Icon(Icons.download, color: Colors.white),
-            tooltip: "Export to PDF",
-            onPressed: () async {
-              final journalProv = Provider.of<JournalProvider>(
-                context,
-                listen: false,
-              );
-              final taskProv = Provider.of<TaskProvider>(
-                context,
-                listen: false,
-              );
-
-              final moodCounts = <String, int>{};
-              final childId = activeChild['cid'] ?? '';
-              if (childId.isNotEmpty) {
-                final entries = journalProv.getEntries(childId);
-                final now = DateTime.now();
-                final startOfWeek = DateTime(
-                  now.year,
-                  now.month,
-                  now.day,
-                ).subtract(Duration(days: now.weekday - 1));
-
-                for (var mood in _moodOrder) {
-                  moodCounts[mood] = 0;
-                }
-
-                for (final e in entries) {
-                  final d = e.createdAt;
-                  if (!d.isBefore(startOfWeek) &&
-                      !d.isAfter(startOfWeek.add(Duration(days: 6)))) {
-                    final key = e.mood.toLowerCase();
-                    if (moodCounts.containsKey(key)) {
-                      moodCounts[key] = moodCounts[key]! + 1;
-                    }
-                  }
-                }
-              }
-
-              final childTasks = taskProv.tasks
-                  .where((t) => t.childId == childId)
-                  .toList();
-
-              final statusCounts = _countTaskStatuses(childTasks);
-
-              final fullChildData = {
-                ...activeChild,
-                'moodCounts': moodCounts,
-                'done': statusCounts['done']!,
-                'notDone': statusCounts['notDone']!,
-                'missed': statusCounts['missed']!, // <-- include missed here
-              };
-
-              await exportChildDataToPdfWithCharts(
-                widget.parentId,
-                childId,
-                fullChildData,
-              );
-            },
-          ),
         ),
       ),
+
       const SizedBox(height: 12),
       IntrinsicHeight(
         child: Row(
@@ -1562,12 +1278,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     // Ensure selected child is not null
     final activeChild =
         selectedChildProv.selectedChild ??
-        {
-          "cid": "",
-          "name": "No Child",
-          "balance": 0,
-          "parentUid": widget.parentId,
-        };
+        {"cid": "", "name": "No Child", "parentUid": widget.parentId};
 
     final parentName = _parent?.name ?? "Parent";
     final parentEmail = _parent?.email ?? "";

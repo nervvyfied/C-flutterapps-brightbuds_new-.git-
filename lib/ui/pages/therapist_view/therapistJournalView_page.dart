@@ -187,6 +187,16 @@ class _TherapistJournalListPageState extends State<TherapistJournalListPage> {
     );
   }
 
+  void _navigateMonth(int delta) {
+    setState(() {
+      _selectedMonth = DateTime(
+        _selectedMonth.year,
+        _selectedMonth.month + delta,
+      );
+      _selectedDay = null; // Clear day selection when navigating months
+    });
+  }
+
   Widget _buildMoodIcon(String mood) {
     String assetPath = 'assets/moods/';
     switch (mood.toLowerCase()) {
@@ -262,19 +272,52 @@ class _TherapistJournalListPageState extends State<TherapistJournalListPage> {
             title: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Previous month button
+                IconButton(
+                  icon: const Icon(Icons.chevron_left, size: 24),
+                  onPressed: () => _navigateMonth(-1),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+
+                // Month/Year display with dropdown
                 GestureDetector(
                   onTap: _pickMonth,
-                  child: Text(
-                    _selectedDay != null
-                        ? "${DateFormat.yMMMd().format(_selectedDay!)} ▼"
-                        : "${DateFormat.yMMM().format(_selectedMonth)} ▼",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      color: Theme.of(context).colorScheme.surfaceVariant,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _selectedDay != null
+                              ? DateFormat.yMMMd().format(_selectedDay!)
+                              : DateFormat.yMMM().format(_selectedMonth),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.keyboard_arrow_down, size: 20),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 48), // spacing to balance the row
+
+                // Next month button
+                IconButton(
+                  icon: const Icon(Icons.chevron_right, size: 24),
+                  onPressed: () => _navigateMonth(1),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
               ],
             ),
             actions: [

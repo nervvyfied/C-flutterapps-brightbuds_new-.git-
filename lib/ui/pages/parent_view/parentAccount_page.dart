@@ -83,7 +83,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                     cid: childMap['cid'],
                     name: childMap['name'],
                     parentUid: widget.parentId,
-                    xp: childMap['xp'] ?? 0, 
+                    xp: childMap['xp'] ?? 0,
                     therapistUid: null, // IMPORTANT
                   );
 
@@ -169,7 +169,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
             cid: firstChild['cid'],
             name: firstChild['name'],
             parentUid: widget.parentId,
-            xp: firstChild['xp'] ?? 0, 
+            xp: firstChild['xp'] ?? 0,
             therapistUid: null,
           );
 
@@ -209,7 +209,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
     }
   }
 
-   Future<void> _switchChildDialog() async {
+  Future<void> _switchChildDialog() async {
     if (childrenList.isEmpty) return;
     await showDialog(
       context: context,
@@ -584,31 +584,36 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                       elevation: 3,
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.blue[100],
+                          backgroundColor: const Color(
+                            0xFF8657F3,
+                          ).withOpacity(0.2),
                           child: Text(
-                            Provider.of<SelectedChildProvider>(
-                              context,
-                            ).selectedChild!['name'][0],
-                            style: const TextStyle(color: Colors.black),
+                            activeChild?['name'][0],
+                            style: const TextStyle(
+                              color: Color(0xFF8657F3),
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         title: Text(
-                          Provider.of<SelectedChildProvider>(
-                            context,
-                          ).selectedChild!['name'],
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          activeChild?['name'],
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF070211),
+                          ),
                         ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Balance: ${Provider.of<SelectedChildProvider>(context).selectedChild!['balance']}",
-                            ),
-                          ],
+                        subtitle: Text(
+                          "Access Code: ${activeChild?['accessCode'] ?? 'N/A'}",
+                          style: TextStyle(
+                            color: const Color(0xFF070211).withOpacity(0.8),
+                          ),
                         ),
                         trailing: IconButton(
                           onPressed: _switchChildDialog,
-                          icon: const Icon(Icons.swap_horiz),
+                          icon: const Icon(
+                            Icons.swap_horiz,
+                            color: Color(0xFF070211),
+                          ),
                           tooltip: "Switch Child",
                         ),
                       ),
