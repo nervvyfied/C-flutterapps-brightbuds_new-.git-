@@ -395,11 +395,6 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
       await firebaseUser?.reload();
       firebaseUser = _auth.currentUser;
 
-      if (firebaseUser != null && !firebaseUser!.emailVerified) {
-        await _auth.signOut();
-        throw Exception("Please verify your email before logging in.");
-      }
-
       if (parent != null) {
         // ✅ Role check
         final isActuallyParent = await _userRepo.isParent(firebaseUser!.uid);
@@ -503,26 +498,27 @@ WidgetsBinding.instance.addPostFrameCallback((_) {
     }
   }
 
-  Future<void> loginTherapist(String email, String password) async {
+   Future<void> loginTherapist(String email, String password) async {
     final operationId = 'loginTherapist';
     _trackOperation(operationId);
 
     try {
       debugPrint('=== Logging in therapist: $email ===');
 
+      // Login via AuthService
       final therapist = await _auth.loginTherapist(email, password);
       firebaseUser = _auth.currentUser;
 
-      await firebaseUser?.reload();
-      firebaseUser = _auth.currentUser;
-
-      if (firebaseUser != null && !firebaseUser!.emailVerified) {
+      // 🔒 Only allow login if therapist.isVerified is true
+      if (therapist != null && therapist.isVerified != true) {
         await _auth.signOut();
-        throw Exception("Please verify your email before logging in.");
+        throw Exception(
+          "Your therapist account is pending verification. Please wait for approval.",
+        );
       }
 
       if (therapist != null) {
-        // ✅ Role check
+        // Role check
         final isActuallyTherapist = await _userRepo.isTherapist(
           firebaseUser!.uid,
         );
