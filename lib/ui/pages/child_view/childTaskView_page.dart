@@ -3,7 +3,7 @@
 import 'dart:async';
 import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/models/parent_model.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
@@ -36,240 +36,366 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
   bool _isOffline = false;
   int _xp = 0;
   late Box _settingsBox;
-
+  late final AudioPlayer _audioPlayer;
   StreamSubscription<DocumentSnapshot>? _balanceSubscription;
   StreamSubscription<QuerySnapshot>? _taskSubscription;
+  StreamSubscription<QuerySnapshot>? _notificationSubscription;
+
   // Cached future to avoid racing openBox calls
 
   int _getXPForDifficulty(String difficulty) {
-      switch (difficulty.toLowerCase()) {
-        case 'easy':
-          return 5;
-        case 'medium':
-          return 10;
-        case 'hard':
-          return 20;
-        default:
-          return 0;
-      }
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return 5;
+      case 'medium':
+        return 10;
+      case 'hard':
+        return 20;
+      default:
+        return 0;
     }
-
+  }
 
   @override
   void initState() {
     super.initState();
+    _audioPlayer = AudioPlayer();
+
+    // 🔥 Important
+    _audioPlayer.setReleaseMode(ReleaseMode.stop);
+    _audioPlayer.setPlayerMode(PlayerMode.lowLatency);
+
     _initialize();
   }
 
   /// Initialize page: load cached data immediately, then fetch online data
   Future<void> _initialize() async {
-  _settingsBox = await Hive.openBox('settings');
+    _settingsBox = await Hive.openBox('settings');
 
- // 1️⃣ Load cached XP safely
-  final cachedXP = _settingsBox.get(
-    'cached_xp_${widget.childId}',
-    defaultValue: 0,
-  );
-  setState(() => _xp = cachedXP);
+    // 1️⃣ Load cached XP safely
+    final cachedXP = _settingsBox.get(
+      'cached_xp_${widget.childId}',
+      defaultValue: 0,
+    );
+    setState(() => _xp = cachedXP);
 
-  // 2️⃣ Load cached tasks safely
-  final rawCachedTasks = _settingsBox.get(
-    'cached_tasks_${widget.childId}',
-    defaultValue: [],
-  ) as List<dynamic>; // Always dynamic on Web
+    // 2️⃣ Load cached tasks safely
+    final rawCachedTasks =
+        _settingsBox.get('cached_tasks_${widget.childId}', defaultValue: [])
+            as List<dynamic>; // Always dynamic on Web
 
-  final cachedTasks = rawCachedTasks.map((e) {
-    if (e is TaskModel) return e;           // Mobile: already TaskModel
-    if (e is Map<String, dynamic>) return TaskModel.fromMap(e); // Web: stored as Map
-    return null;
-  }).whereType<TaskModel>().toList();
+    final cachedTasks = rawCachedTasks
+        .map((e) {
+          if (e is TaskModel) return e; // Mobile: already TaskModel
+          if (e is Map<String, dynamic>) {
+            return TaskModel.fromMap(e); // Web: stored as Map
+          }
+          return null;
+        })
+        .whereType<TaskModel>()
+        .toList();
 
-  final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-  if (cachedTasks.isNotEmpty) {
-    taskProvider.loadCachedTasks(cachedTasks);
+    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+    if (cachedTasks.isNotEmpty) {
+      taskProvider.loadCachedTasks(cachedTasks);
+    }
+
+    // 3️⃣ Check connectivity
+    final online = await NetworkHelper.isOnline();
+    if (mounted) setState(() => _isOffline = !online);
+
+    // 4️⃣ Initialize provider Hive & fetch tasks async
+    taskProvider.initHive();
+    await taskProvider.loadTasks(
+      parentId: widget.parentId,
+      childId: widget.childId,
+    );
+    taskProvider.startDailyResetScheduler();
+
+    // 5️⃣ Start listeners
+    _listenToXP();
+    _listenToTasks();
+    _listenToNotifications();
+
+    // 6️⃣ Fetch XP from Firestore in background
+    _fetchXP();
   }
 
-  // 3️⃣ Check connectivity
-  final online = await NetworkHelper.isOnline();
-  if (mounted) setState(() => _isOffline = !online);
+  void _listenToNotifications() {
+    _notificationSubscription?.cancel();
 
-  // 4️⃣ Initialize provider Hive & fetch tasks async
-  taskProvider.initHive();
-  await taskProvider.loadTasks(parentId: widget.parentId, childId: widget.childId);
-  taskProvider.startDailyResetScheduler();
+    final stream = FirebaseFirestore.instance
+        .collection('child_notifications')
+        .where('childId', isEqualTo: widget.childId)
+        .where('read', isEqualTo: false)
+        .snapshots();
 
-  // 5️⃣ Start listeners
-  _listenToXP();
-  _listenToTasks();
+    _notificationSubscription = stream.listen(
+      (snapshot) async {
+        if (!mounted) return;
 
-  // 6️⃣ Fetch XP from Firestore in background
-  _fetchXP();
-}
+        for (var doc in snapshot.docs) {
+          final data = doc.data();
+
+          final taskName = data['taskName'] ?? '';
+          final reason = data['reason'] ?? '';
+          final message = data['message'] ?? '';
+
+          // If everything empty, skip
+          if (taskName.isEmpty && reason.isEmpty && message.isEmpty) {
+            continue;
+          }
+
+          final formattedMessage = StringBuffer();
+
+          if (taskName.isNotEmpty) {
+            formattedMessage.writeln("📌 Task Name: $taskName\n");
+          }
+
+          if (reason.isNotEmpty) {
+            formattedMessage.writeln("📝 Reason: $reason\n");
+          }
+
+          if (message.isNotEmpty) {
+            formattedMessage.writeln("⏰ Reminder: $message");
+          }
+          try {
+            await _audioPlayer.play(
+              AssetSource('audios/notification/ding.mp3'),
+            );
+          } catch (e) {
+            debugPrint('⚠️ Audio error: $e');
+          }
+
+          // Show dialog safely
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => AlertDialog(
+              title: const Text("Message from Parent/Therapist"),
+              content: Text(
+                formattedMessage.toString(),
+                style: const TextStyle(fontSize: 14),
+              ),
+              actions: [
+                Center(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8657F3),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(context);
+
+                      // ✅ Mark notification as read after closing
+                      await doc.reference.update({'read': true});
+                    },
+                    child: const Text(
+                      "OK",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+      },
+      onError: (e) {
+        debugPrint('❌ Notification stream error: $e');
+      },
+    );
+  }
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
   void _listenToTasks() {
     _taskSubscription?.cancel();
 
-  final stream = FirebaseFirestore.instance
-      .collection('users')
-      .doc(widget.parentId)
-      .collection('children')
-      .doc(widget.childId)
-      .collection('tasks')
-      .snapshots();
+    final stream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(widget.childId)
+        .collection('tasks')
+        .snapshots();
 
-  _taskSubscription = stream.listen((snapshot) async {
-    if (!mounted) return;
-    final taskProvider = Provider.of<TaskProvider>(context, listen: false);
-    final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
+    _taskSubscription = stream.listen((snapshot) async {
+      if (!mounted) return;
+      final taskProvider = Provider.of<TaskProvider>(context, listen: false);
+      final tokenNotifier = Provider.of<TokenNotifier>(context, listen: false);
 
-    // Reload tasks from Firestore
-    await taskProvider.loadTasks(
-      parentId: widget.parentId,
-      childId: widget.childId,
-    );
+      // Reload tasks from Firestore
+      await taskProvider.loadTasks(
+        parentId: widget.parentId,
+        childId: widget.childId,
+      );
 
-    // ✅ Save tasks to Hive safely (always convert to Map for Web)
-    final tasksToCache = taskProvider.tasks.map((t) => t.toMapForHive()).toList();
-    await _settingsBox.put('cached_tasks_${widget.childId}', tasksToCache);
+      // ✅ Save tasks to Hive safely (always convert to Map for Web)
+      final tasksToCache = taskProvider.tasks
+          .map((t) => t.toMapForHive())
+          .toList();
+      await _settingsBox.put('cached_tasks_${widget.childId}', tasksToCache);
 
-    // Find newly verified tasks
-    final newlyVerifiedTasks = taskProvider.tasks.where((t) {
-      if (t.verified != true) return false;
+      // Find newly verified tasks
+      final newlyVerifiedTasks = taskProvider.tasks.where((t) {
+        if (t.verified != true) return false;
 
-      final rawSeen = _settingsBox.get(
-        'seen_verified_tasks_${widget.childId}',
-        defaultValue: [],
-      ) as List<dynamic>; // Always dynamic
-      final seenIds = rawSeen.whereType<String>().toList();
+        final rawSeen =
+            _settingsBox.get(
+                  'seen_verified_tasks_${widget.childId}',
+                  defaultValue: [],
+                )
+                as List<dynamic>; // Always dynamic
+        final seenIds = rawSeen.whereType<String>().toList();
 
-      return !seenIds.contains(t.id);
-    }).toList();
+        return !seenIds.contains(t.id);
+      }).toList();
 
-    if (newlyVerifiedTasks.isNotEmpty) {
-      final rawSeen = _settingsBox.get(
-        'seen_verified_tasks_${widget.childId}',
-        defaultValue: [],
-      ) as List<dynamic>;
-      final seenIds = rawSeen.whereType<String>().toList();
-      seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
-      await _settingsBox.put('seen_verified_tasks_${widget.childId}', seenIds);
+      if (newlyVerifiedTasks.isNotEmpty) {
+        final rawSeen =
+            _settingsBox.get(
+                  'seen_verified_tasks_${widget.childId}',
+                  defaultValue: [],
+                )
+                as List<dynamic>;
+        final seenIds = rawSeen.whereType<String>().toList();
+        seenIds.addAll(newlyVerifiedTasks.map((t) => t.id));
+        await _settingsBox.put(
+          'seen_verified_tasks_${widget.childId}',
+          seenIds,
+        );
 
-      tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
-    }
-  }, onError: (e) => debugPrint('❌ Task stream error: $e'));
-}
+        tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
+      }
+    }, onError: (e) => debugPrint('❌ Task stream error: $e'));
+  }
+
   /// Listen to real-time XP updates and sync to Hive safely
-void _listenToXP() {
-  _balanceSubscription?.cancel(); // reuse subscription variable
+  void _listenToXP() {
+    _balanceSubscription?.cancel(); // reuse subscription variable
 
-  final docRef = FirebaseFirestore.instance
-      .collection('users')
-      .doc(widget.parentId)
-      .collection('children')
-      .doc(widget.childId);
+    final docRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(widget.childId);
 
-  _balanceSubscription = docRef.snapshots().listen((snapshot) async {
-    if (!snapshot.exists) return;
-    final data = snapshot.data();
-    if (data == null) return;
+    _balanceSubscription = docRef.snapshots().listen((snapshot) async {
+      if (!snapshot.exists) return;
+      final data = snapshot.data();
+      if (data == null) return;
 
-    final newXP = (data['xp'] is int)
-        ? data['xp']
-        : (data['xp'] is double)
-            ? (data['xp'] as double).toInt()
-            : int.tryParse('${data['xp']}') ?? 0;
+      final newXP = (data['xp'] is int)
+          ? data['xp']
+          : (data['xp'] is double)
+          ? (data['xp'] as double).toInt()
+          : int.tryParse('${data['xp']}') ?? 0;
 
+      final cachedKey = 'cached_xp_${widget.childId}';
+      if (_xp != newXP) {
+        // Play XP gained sound
+        try {
+          await _audioPlayer.play(AssetSource('audios/notification/ding.mp3'));
+        } catch (e) {
+          debugPrint('⚠️ Failed to play XP sound: $e');
+        }
+      }
+
+      // ✅ Update UI immediately
+      if (mounted) setState(() => _xp = newXP);
+
+      // ✅ Save to settings Hive box
+      await _settingsBox.put(cachedKey, newXP);
+
+      // ✅ Persist to Hive childBox if open and type-safe
+      if (Hive.isBoxOpen('childBox')) {
+        try {
+          final childBox = Hive.box<ChildUser>('childBox');
+          final child = childBox.get(widget.childId);
+          if (child != null) {
+            final updatedChild = child.copyWith(xp: newXP);
+            await childBox.put(widget.childId, updatedChild);
+            debugPrint('💾 Hive childBox XP updated: $newXP');
+          }
+        } catch (e) {
+          debugPrint('⚠️ Failed to persist XP to childBox: $e');
+        }
+      } else {
+        debugPrint('⚠️ childBox not open yet, skipping XP update.');
+      }
+
+      debugPrint('🟢 XP synced Firestore → Hive: $newXP');
+    }, onError: (e) => debugPrint('❌ XP stream error: $e'));
+  }
+
+  /// Fetch XP from Firestore (offline-first) and sync to Hive safely
+  Future<void> _fetchXP() async {
     final cachedKey = 'cached_xp_${widget.childId}';
 
-    // ✅ Update UI immediately
-    if (mounted) setState(() => _xp = newXP);
+    // ✅ Load cached Hive value immediately
+    final cached = _settingsBox.get(cachedKey, defaultValue: 0);
+    if (mounted) setState(() => _xp = cached);
+    debugPrint('📦 Loaded cached XP: $cached');
 
-    // ✅ Save to settings Hive box
-    await _settingsBox.put(cachedKey, newXP);
-
-    // ✅ Persist to Hive childBox if open and type-safe
-    if (Hive.isBoxOpen('childBox')) {
+    // ✅ Fetch latest from Firestore if online
+    if (await NetworkHelper.isOnline()) {
       try {
-        final childBox = Hive.box<ChildUser>('childBox');
-        final child = childBox.get(widget.childId);
-        if (child != null) {
-          final updatedChild = child.copyWith(xp: newXP);
-          await childBox.put(widget.childId, updatedChild);
-          debugPrint('💾 Hive childBox XP updated: $newXP');
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.parentId)
+            .collection('children')
+            .doc(widget.childId)
+            .get();
+
+        if (!doc.exists || doc.data() == null) return;
+
+        final val = doc['xp'];
+        final fetched = (val is int)
+            ? val
+            : (val is double)
+            ? val.toInt()
+            : int.tryParse('$val') ?? 0;
+
+        if (fetched != cached) {
+          if (mounted) setState(() => _xp = fetched);
+          await _settingsBox.put(cachedKey, fetched);
+
+          // ✅ Persist to Hive childBox safely
+          if (Hive.isBoxOpen('childBox')) {
+            try {
+              final childBox = Hive.box<ChildUser>('childBox');
+              final child = childBox.get(widget.childId);
+              if (child != null) {
+                final updatedChild = child.copyWith(xp: fetched);
+                await childBox.put(widget.childId, updatedChild);
+                debugPrint('💾 Hive childBox XP refreshed: $fetched');
+              }
+            } catch (e) {
+              debugPrint('⚠️ Failed to update Hive child XP: $e');
+            }
+          } else {
+            debugPrint('⚠️ childBox not open yet, skipping Hive update.');
+          }
+
+          debugPrint('🟢 XP refreshed Firestore → Hive: $fetched');
         }
       } catch (e) {
-        debugPrint('⚠️ Failed to persist XP to childBox: $e');
+        debugPrint('⚠️ Error fetching XP from Firestore: $e');
       }
     } else {
-      debugPrint('⚠️ childBox not open yet, skipping XP update.');
+      debugPrint('📴 Offline mode — using cached Hive XP.');
     }
-
-    debugPrint('🟢 XP synced Firestore → Hive: $newXP');
-  }, onError: (e) => debugPrint('❌ XP stream error: $e'));
-}
-
-
-
-  /// Fetch balance from Firestore (offline-first) and sync to Hive safely
-  /// Fetch XP from Firestore (offline-first) and sync to Hive safely
-Future<void> _fetchXP() async {
-  final cachedKey = 'cached_xp_${widget.childId}';
-
-  // ✅ Load cached Hive value immediately
-  final cached = _settingsBox.get(cachedKey, defaultValue: 0);
-  if (mounted) setState(() => _xp = cached);
-  debugPrint('📦 Loaded cached XP: $cached');
-
-  // ✅ Fetch latest from Firestore if online
-  if (await NetworkHelper.isOnline()) {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.parentId)
-          .collection('children')
-          .doc(widget.childId)
-          .get();
-
-      if (!doc.exists || doc.data() == null) return;
-
-      final val = doc['xp'];
-      final fetched = (val is int)
-          ? val
-          : (val is double)
-              ? val.toInt()
-              : int.tryParse('$val') ?? 0;
-
-      if (fetched != cached) {
-        if (mounted) setState(() => _xp = fetched);
-        await _settingsBox.put(cachedKey, fetched);
-
-        // ✅ Persist to Hive childBox safely
-        if (Hive.isBoxOpen('childBox')) {
-          try {
-            final childBox = Hive.box<ChildUser>('childBox');
-            final child = childBox.get(widget.childId);
-            if (child != null) {
-              final updatedChild = child.copyWith(xp: fetched);
-              await childBox.put(widget.childId, updatedChild);
-              debugPrint('💾 Hive childBox XP refreshed: $fetched');
-            }
-          } catch (e) {
-            debugPrint('⚠️ Failed to update Hive child XP: $e');
-          }
-        } else {
-          debugPrint('⚠️ childBox not open yet, skipping Hive update.');
-        }
-
-        debugPrint('🟢 XP refreshed Firestore → Hive: $fetched');
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error fetching XP from Firestore: $e');
-    }
-  } else {
-    debugPrint('📴 Offline mode — using cached Hive XP.');
   }
-}
 
   String _getGreeting() {
     final h = DateTime.now().hour;
@@ -370,13 +496,15 @@ Future<void> _fetchXP() async {
                       const SizedBox(width: 8),
                       Row(
                         children: [
-                          const Icon(Icons.flash_on, size: 16, color: Colors.orange),
+                          const Icon(
+                            Icons.flash_on,
+                            size: 16,
+                            color: Colors.orange,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             '+${_getXPForDifficulty(task.difficulty)} XP',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
@@ -430,8 +558,11 @@ Future<void> _fetchXP() async {
                                     task.copyWith(isDone: value),
                                   );
 
-                                  final childMap = unlockManager.childProvider.selectedChild;
-                                  final currentLevel = childMap?['level'] ?? 1; // fallback to 1 if null
+                                  final childMap =
+                                      unlockManager.childProvider.selectedChild;
+                                  final currentLevel =
+                                      childMap?['level'] ??
+                                      1; // fallback to 1 if null
                                   unlockManager.checkLevelUnlocks(currentLevel);
 
                                   if (!_isOffline) {
@@ -463,8 +594,10 @@ Future<void> _fetchXP() async {
 
   @override
   void dispose() {
+    _audioPlayer.dispose();
     _balanceSubscription?.cancel();
     _taskSubscription?.cancel();
+    _notificationSubscription?.cancel();
     super.dispose();
   }
 
@@ -534,12 +667,23 @@ Future<void> _fetchXP() async {
                           .where(
                             (t) =>
                                 t.childId == widget.childId &&
-                                t.name.isNotEmpty,
+                                t.name.isNotEmpty &&
+                                t.isAccepted ==
+                                    true, // ✅ ONLY SHOW APPROVED TASKS
                           )
                           .toList();
 
                       if (childTasks.isEmpty) {
-                        return const Center(child: CircularProgressIndicator());
+                        return const Center(
+                          child: Text(
+                            "No approved tasks yet.\nWaiting for therapist approval.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        );
                       }
 
                       final grouped = {

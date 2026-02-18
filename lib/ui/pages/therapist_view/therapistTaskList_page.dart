@@ -211,34 +211,175 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                   const SizedBox(height: 24),
 
                   // Confirm button
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // ❌ Not Verified button
+                      ElevatedButton(
+                        onPressed: () {
+                          Provider.of<TaskProvider>(context, listen: false);
+
+                          Navigator.pop(context); // close verify modal first
+                          _showRejectReasonModal(task);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          "Not Verified",
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+
+                      // ✅ Confirm button
+                      ElevatedButton(
+                        onPressed: () {
+                          final taskProvider = Provider.of<TaskProvider>(
+                            context,
+                            listen: false,
+                          );
+
+                          taskProvider.verifyTask(task.id, task.childId);
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          "Verify",
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showRejectReasonModal(TaskModel task) {
+    final reasonController = TextEditingController();
+    final reminderController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Not Verified",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Reason field
+                  const Text("Reason"),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      hintText: "Explain why this task was not verified...",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Reminder field
+                  const Text("Reminder Message (optional)"),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reminderController,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      hintText: "Encourage the child to try again...",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Send button
                   Center(
                     child: ElevatedButton(
-                      onPressed: () {
-                        final taskProvider = Provider.of<TaskProvider>(
-                          context,
-                          listen: false,
-                        );
-                        taskProvider.verifyTask(task.id, task.childId);
-                        Navigator.pop(context); // Close modal
-                      },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.red,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 24,
                           vertical: 12,
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
                       ),
-                      child: const Text(
-                        "Confirm Verification",
-                        style: TextStyle(fontSize: 16),
-                      ),
+                      onPressed: () async {
+                        final reason = reasonController.text.trim();
+                        final reminder = reminderController.text.trim();
+
+                        if (reason.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Please provide a reason."),
+                            ),
+                          );
+                          return;
+                        }
+
+                        final taskProvider = Provider.of<TaskProvider>(
+                          context,
+                          listen: false,
+                        );
+
+                        await taskProvider.rejectTaskWithMessage(
+                          taskId: task.id,
+                          childId: task.childId,
+                          reason: reason,
+                          reminder: reminder,
+                        );
+
+                        Navigator.pop(context); // close reject modal
+
+                        // Optional local confirmation
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Feedback sent to child."),
+                          ),
+                        );
+                      },
+                      child: const Text("Send"),
                     ),
                   ),
-                  const SizedBox(height: 16),
                 ],
               ),
             ),
@@ -398,7 +539,25 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      if (!task.verified && task.isDone)
+                      if (task.isAccepted !=
+                          true) // show Accept button only if not accepted
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                          ),
+                          onPressed: () =>
+                              _showAcceptTaskModal(task), // ✅ only call modal
+                          child: const Text("Accept"),
+                        )
+                      else if (task.verified != true && task.isDone == true)
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF8657F3),
@@ -411,13 +570,10 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                               vertical: 6,
                             ),
                           ),
-                          onPressed: () {
-                            if (!mounted) return;
-                            _showVerifyModal(task);
-                          },
+                          onPressed: () => _showVerifyModal(task),
                           child: const Text("Verify"),
                         )
-                      else if (task.verified)
+                      else if (task.verified == true)
                         const Text(
                           "✅ Verified",
                           style: TextStyle(
@@ -448,6 +604,58 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showAcceptTaskModal(TaskModel task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Accept Task",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                _buildDetailRow("Task Name", task.name),
+                _buildDetailRow("Difficulty", task.difficulty),
+                _buildDetailRow("Routine", task.routine),
+                const SizedBox(height: 24),
+                Center(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                    onPressed: () async {
+                      await _taskProvider.acceptTask(task.id, task.childId);
+                      Navigator.pop(context);
+                    },
+                    child: const Text("Accept Task"),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -913,38 +1121,9 @@ class _TaskFormModalState extends State<TaskFormModal> {
                           );
 
                           if (widget.task == null) {
-                            final newTask = TaskModel(
-                              id: DateTime.now().millisecondsSinceEpoch
-                                  .toString(),
-                              name: taskName,
-                              difficulty: difficulty,
-                              reward: 0,
-                              routine: routine,
-                              parentId: widget.parentId,
-                              childId: widget.childId,
-                              createdAt: DateTime.now(),
-                              alarm: alarmDateTime,
-                              therapistId: '',
-                              creatorId: '',
-                              creatorType: '',
-                            );
-                            taskProvider.addTask(newTask, context);
+                            taskProvider.addTask(task, context);
                           } else {
-                            final updatedTask = TaskModel(
-                              id: widget.task!.id,
-                              name: taskName,
-                              difficulty: difficulty,
-                              reward: 0,
-                              routine: routine,
-                              parentId: widget.parentId,
-                              childId: widget.childId,
-                              createdAt: widget.task!.createdAt,
-                              alarm: alarmDateTime,
-                              therapistId: '',
-                              creatorId: '',
-                              creatorType: '',
-                            );
-                            taskProvider.updateTask(updatedTask);
+                            taskProvider.updateTask(task);
                           }
 
                           Navigator.pop(context);

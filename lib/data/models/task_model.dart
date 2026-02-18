@@ -68,6 +68,17 @@ class TaskModel {
   @HiveField(20)
   final String creatorType; // "parent" | "therapist"
 
+  @HiveField(21)
+  final String? rejectionReason;
+
+  @HiveField(22)
+  final String? reminderMessage;
+
+  @HiveField(23)
+  final bool? isAccepted; // null = pending, true = accepted, false = rejected
+
+  
+
   TaskModel({
     required this.id,
     required this.name,
@@ -90,6 +101,9 @@ class TaskModel {
     required this.createdAt,
     required this.creatorId,
     required this.creatorType,
+    this.rejectionReason,
+    this.reminderMessage,
+    this.isAccepted,
   });
 
   // ---------------- FIRESTORE -> MODEL ----------------
@@ -124,6 +138,9 @@ class TaskModel {
       createdAt: parseDate(data['createdAt']) ?? DateTime.now(),
       creatorId: data['creatorId'] as String? ?? data['parentId'] ?? '',
       creatorType: data['creatorType'] as String? ?? 'parent',
+      rejectionReason: data['rejectionReason'] as String?,
+      reminderMessage: data['reminderMessage'] as String?,
+      isAccepted: data['isAccepted'] as bool? ?? false,
     );
   }
 
@@ -159,6 +176,9 @@ class TaskModel {
       'createdAt': ts(createdAt),
       'creatorId': creatorId,
       'creatorType': creatorType,
+      'rejectionReason': rejectionReason,
+      'reminderMessage': reminderMessage,
+      'isAccepted': isAccepted,
     };
   }
 
@@ -185,6 +205,11 @@ Map<String, dynamic> toMapForHive() {
     'lastUpdated': lastUpdated,
     'verified': verified,
     'createdAt': createdAt,
+    'creatorId': creatorId,
+    'creatorType': creatorType,
+    'rejectionReason': rejectionReason,
+    'reminderMessage': reminderMessage,
+    'isAccepted': isAccepted,
   };
 }
 
@@ -212,6 +237,9 @@ Map<String, dynamic> toMapForHive() {
     String? parentId,
     String? creatorId,
     String? creatorType,
+    String? rejectionReason,
+    String? reminderMessage,
+    bool? isAccepted,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -235,6 +263,9 @@ Map<String, dynamic> toMapForHive() {
       parentId: parentId ?? this.parentId,
       creatorId: creatorId ?? this.creatorId,
       creatorType: creatorType ?? this.creatorType,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      reminderMessage: reminderMessage ?? this.reminderMessage,
+      isAccepted: isAccepted ?? this.isAccepted,
     );
   }
 

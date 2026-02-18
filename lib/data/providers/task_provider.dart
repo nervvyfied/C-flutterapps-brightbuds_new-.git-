@@ -83,13 +83,12 @@ class TaskProvider extends ChangeNotifier {
   }
 
   void clearCurrentUser() {
-    _currentUserId = null;
-    _currentUserType = null;
+    currentUser = null;
     notifyListeners();
   }
 
-  String? get currentUserId => _currentUserId;
-  UserType? get currentUserType => _currentUserType;
+  String? get currentUserId => currentUser?.uid;
+  UserType? get currentUserType => currentUser?.type;
 
   ChildUser? currentChild;
   bool canManageTask(TaskModel task) {
@@ -347,14 +346,6 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _scheduleAllAlarms(List<TaskModel> tasks) async {
-    for (var task in tasks) {
-      if (task.alarm != null && !kIsWeb) {
-        await scheduleTaskAlarm(task);
-      }
-    }
-  }
-
   // ---------------- MERGE REMOTE ----------------
   Future<void> mergeRemoteTasks({
     required String parentId,
@@ -450,6 +441,7 @@ class TaskProvider extends ChangeNotifier {
   // ---------------- ADD TASK ----------------
   Future<void> addTask(TaskModel task, BuildContext context) async {
     try {
+      // ✅ Validate reward
       final rewardInt = int.tryParse(task.reward.toString());
       if (rewardInt == null || rewardInt < 0) {
         _showSnackBar(context, "Reward must be a positive number");
@@ -457,6 +449,8 @@ class TaskProvider extends ChangeNotifier {
       }
 
       String actualParentId = task.parentId;
+
+      // 🔐 If therapist, resolve parent ID for child
       if (currentUser?.type == UserType.therapist) {
         final fetchedParentId = await _getParentIdForChild(task.childId);
         if (fetchedParentId != null) {
@@ -470,35 +464,38 @@ class TaskProvider extends ChangeNotifier {
         }
       }
 
+      // ✅ Create the new task
       final newTask = task.copyWith(
         reward: rewardInt,
         id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
         lastUpdated: DateTime.now(),
         creatorId: currentUser?.uid ?? actualParentId,
-        creatorType: currentUser?.type.name ?? 'parent',
+        creatorType: currentUser?.type.name.toLowerCase() ?? 'parent',
         therapistId: currentUser?.type == UserType.therapist
             ? currentUser!.uid
             : null,
-        parentId: actualParentId, // Set the correct parentId
+        parentId: actualParentId,
+        // Therapist auto-accepts
+        isAccepted: currentUser?.type == UserType.therapist,
       );
 
-      final index = _tasks.indexWhere((t) => t.id == newTask.id);
-      if (index == -1) {
-        _tasks.add(newTask);
-      } else {
-        _tasks[index] = newTask;
-      }
+      // Add to local state
+      _tasks.add(newTask);
       await _taskBox?.put(newTask.id, newTask);
-
       notifyListeners();
+
+      // Save to repository
       await _taskRepo.saveTask(newTask);
 
+      // Schedule alarm if not web
       if (!kIsWeb) {
         await scheduleTaskAlarm(newTask);
       }
 
-      _showSnackBar(context, "Task added successfully!");
+      // Show success
+      _showSnackBar(context, "Task submitted successfully!");
 
+      // Sync to Firestore
       await _syncToFirestore(newTask, parentIdOverride: actualParentId);
     } catch (e) {
       debugPrint("⚠️ Error adding task: $e");
@@ -560,6 +557,81 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _sendChildPopupMessage({
+    required String childId,
+    required String message,
+  }) async {
+    await _firestore.collection('child_notifications').add({
+      'childId': childId,
+      'message': message,
+      'createdAt': FieldValue.serverTimestamp(),
+      'read': false,
+    });
+  }
+
+  Future<void> rejectTaskWithMessage({
+    required String taskId,
+    required String childId,
+    required String reason,
+    required String reminder,
+  }) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    final task = _tasks[index];
+
+    final updatedTask = task.copyWith(
+      isDone: false,
+      verified: false,
+      rejectionReason: reason,
+      reminderMessage: reminder,
+      lastUpdated: DateTime.now(),
+    );
+
+    _tasks[index] = updatedTask;
+
+    await _taskBox?.put(updatedTask.id, updatedTask);
+    await _taskRepo.updateTask(updatedTask);
+
+    await _syncToFirestore(updatedTask);
+
+    notifyListeners();
+
+    // 🔥 Push child popup message
+    await _sendChildPopupMessage(
+      childId: childId,
+      message: reminder.isNotEmpty
+          ? reminder
+          : "Task was not verified. Reason: $reason",
+    );
+
+    debugPrint("❌ Task rejected with message.");
+  }
+
+  Future<void> acceptTask(String taskId, String childId) async {
+    try {
+      final index = _tasks.indexWhere(
+        (t) => t.id == taskId && t.childId == childId,
+      );
+      if (index == -1) return;
+
+      final task = _tasks[index];
+
+      // ✅ Create a new TaskModel with therapist acceptance
+      final updatedTask = task.copyWith(
+        isAccepted: true,
+        lastUpdated: DateTime.now(),
+      );
+
+      // ✅ Use the centralized updateTask method
+      await updateTask(updatedTask);
+
+      debugPrint('✅ Task accepted by therapist: ${task.name}');
+    } catch (e) {
+      debugPrint("⚠️ Error accepting task: $e");
+    }
+  }
+
   // ---------------- UPDATE TASK ----------------
   Future<void> updateTask(TaskModel updatedFields) async {
     final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
@@ -567,9 +639,17 @@ class TaskProvider extends ChangeNotifier {
 
     final oldTask = _tasks[index];
 
+    // 🔐 Permission check
     if (!canManageTask(oldTask)) {
       debugPrint('⚠️ User not allowed to update task ${oldTask.id}');
       return;
+    }
+
+    bool? updatedAcceptance = oldTask.isAccepted;
+
+    // ✅ ONLY therapist can approve
+    if (currentUser?.type == UserType.therapist) {
+      updatedAcceptance = updatedFields.isAccepted;
     }
 
     final mergedTask = oldTask.copyWith(
@@ -578,15 +658,17 @@ class TaskProvider extends ChangeNotifier {
       reward: updatedFields.reward,
       routine: updatedFields.routine,
       alarm: updatedFields.alarm,
+      isAccepted: updatedAcceptance,
       lastUpdated: DateTime.now(),
     );
 
     _tasks[index] = mergedTask;
+
     await _taskBox?.put(mergedTask.id, mergedTask);
     await _taskRepo.updateTask(mergedTask);
 
-    // ✅ Get actual parent ID for sync
     String actualParentId = mergedTask.parentId;
+
     if (currentUser?.type == UserType.therapist) {
       final fetchedParentId = await _getParentIdForChild(mergedTask.childId);
       if (fetchedParentId != null) {
@@ -600,7 +682,10 @@ class TaskProvider extends ChangeNotifier {
 
     if (!kIsWeb) {
       await cancelTaskAlarm(oldTask);
-      if (mergedTask.alarm != null) await scheduleTaskAlarm(mergedTask);
+
+      if (mergedTask.alarm != null) {
+        await scheduleTaskAlarm(mergedTask);
+      }
     }
 
     debugPrint('📝 Task updated: ${mergedTask.name}');
@@ -880,6 +965,36 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> rejectTask(String taskId, String childId) async {
+    final taskIndex = tasks.indexWhere(
+      (t) => t.id == taskId && t.childId == childId,
+    );
+
+    if (taskIndex == -1) return;
+
+    final task = tasks[taskIndex];
+
+    final updatedTask = task.copyWith(
+      isDone: false,
+      verified: false,
+      doneAt: null,
+    );
+
+    tasks[taskIndex] = updatedTask;
+
+    // 🔥 Update Firestore (adjust path if needed)
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(task.parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('tasks')
+        .doc(taskId)
+        .update({'isDone': false, 'verified': false, 'doneAt': null});
+
+    notifyListeners();
+  }
+
   // ---------------- VERIFY TASK ----------------
   Future<void> verifyTask(String taskId, String childId) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
@@ -1117,25 +1232,28 @@ class TaskProvider extends ChangeNotifier {
         lastReset.day,
       );
 
-      // Check if we've crossed midnight since last reset
+      // If last reset was before today → new day crossed
       if (lastResetDay.isBefore(today)) {
-        debugPrint(
-          '🔄 Auto-reset triggered — last reset was ${lastResetDay.toLocal()}, today is ${today.toLocal()}.',
-        );
+        debugPrint('🔄 Auto-reset triggered — last reset was $lastResetDay');
+
         await resetDailyTasks();
         await setLastResetDate(today);
-
-        // Also check and reset streaks for all children
-        await _resetStreaksIfNeeded();
-      } else {
-        debugPrint(
-          '✅ Daily tasks already reset today (${lastResetDay.toLocal()}).',
-        );
       }
-    } catch (e, stack) {
-      debugPrint('❌ autoResetIfNeeded() failed: $e');
-      debugPrint(stack.toString());
+    } catch (e) {
+      debugPrint('⚠️ autoResetIfNeeded failed: $e');
     }
+  }
+
+  Future<DateTime?> getLastResetDate() async {
+    final box = await Hive.openBox('appMeta');
+    final stored = box.get('lastReset');
+    if (stored == null) return null;
+    return DateTime.parse(stored);
+  }
+
+  Future<void> setLastResetDate(DateTime date) async {
+    final box = await Hive.openBox('appMeta');
+    await box.put('lastReset', date.toIso8601String());
   }
 
   // Optional: Add streak reset logic
@@ -1241,23 +1359,6 @@ class TaskProvider extends ChangeNotifier {
     await _syncService.syncAllPendingChanges();
     notifyListeners();
   }
-
- Future<DateTime?> getLastResetDate() async {
-  final box = await Hive.openBox('appSettings');
-  final millis = box.get('lastResetDate');
-  if (millis is int) {
-    return DateTime.fromMillisecondsSinceEpoch(millis);
-  }
-  return null;
-}
-
-Future<void> setLastResetDate(DateTime date) async {
-  final box = await Hive.openBox('appSettings');
-  await box.put('lastResetDate', date.millisecondsSinceEpoch);
-}
-
-
-
 
   // ---------------- FCM PARENT ----------------
   Future<void> notifyParentCompletion({
