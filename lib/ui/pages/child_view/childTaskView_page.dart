@@ -11,6 +11,7 @@ import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hive/hive.dart';
@@ -115,106 +116,79 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     // 5️⃣ Start listeners
     _listenToXP();
     _listenToTasks();
-    _listenToNotifications();
+    _listenToRejectedTasks();
 
     // 6️⃣ Fetch XP from Firestore in background
     _fetchXP();
   }
 
-  void _listenToNotifications() {
+  bool _initialized = false;
+  final Map<String, String> _rejectionCache = {};
+
+  void _listenToRejectedTasks() {
     _notificationSubscription?.cancel();
 
     final stream = FirebaseFirestore.instance
-        .collection('child_notifications')
-        .where('childId', isEqualTo: widget.childId)
-        .where('read', isEqualTo: false)
+        .collection('users')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(widget.childId)
+        .collection('tasks')
         .snapshots();
 
-    _notificationSubscription = stream.listen(
-      (snapshot) async {
+    _notificationSubscription = stream.listen((snapshot) async {
+      if (!mounted) return;
+
+      for (final change in snapshot.docChanges) {
+        if (change.type != DocumentChangeType.modified) continue;
+
+        final doc = change.doc;
+        final data = doc.data();
+        if (data == null) continue;
+
+        final rejectionReason = (data['rejectionReason'] ?? '').toString();
+
+        if (rejectionReason.isEmpty) continue;
+
+        final taskName = (data['name'] ?? '').toString();
+
+        final reminderMessage = (data['reminderMessage'] ?? '').toString();
+
         if (!mounted) return;
 
-        for (var doc in snapshot.docs) {
-          final data = doc.data();
-
-          final taskName = data['taskName'] ?? '';
-          final reason = data['reason'] ?? '';
-          final message = data['message'] ?? '';
-
-          // If everything empty, skip
-          if (taskName.isEmpty && reason.isEmpty && message.isEmpty) {
-            continue;
-          }
-
-          final formattedMessage = StringBuffer();
-
-          if (taskName.isNotEmpty) {
-            formattedMessage.writeln("📌 Task Name: $taskName\n");
-          }
-
-          if (reason.isNotEmpty) {
-            formattedMessage.writeln("📝 Reason: $reason\n");
-          }
-
-          if (message.isNotEmpty) {
-            formattedMessage.writeln("⏰ Reminder: $message");
-          }
-          try {
-            await _audioPlayer.play(
-              AssetSource('audios/notification/ding.mp3'),
-            );
-          } catch (e) {
-            debugPrint('⚠️ Audio error: $e');
-          }
-
-          // Show dialog safely
-          await showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => AlertDialog(
-              title: const Text("Message from Parent/Therapist"),
-              content: Text(
-                formattedMessage.toString(),
-                style: const TextStyle(fontSize: 14),
-              ),
-              actions: [
-                Center(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF8657F3),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                    ),
-                    onPressed: () async {
-                      Navigator.pop(context);
-
-                      // ✅ Mark notification as read after closing
-                      await doc.reference.update({'read': true});
-                    },
-                    child: const Text(
-                      "OK",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ),
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Text("Message from your therapist/parent"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (taskName.isNotEmpty) Text("📌 Task Name: $taskName"),
+                Text("📝 Reason: $rejectionReason"),
+                if (reminderMessage.isNotEmpty)
+                  Text("⏰ Reminder: $reminderMessage"),
               ],
             ),
-          );
-        }
-      },
-      onError: (e) {
-        debugPrint('❌ Notification stream error: $e');
-      },
-    );
+            actions: [
+              Center(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("OK"),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        // 🔥 CRITICAL: Clear the rejection so it never shows again
+        await doc.reference.update({
+          'rejectionReason': '',
+          'reminderMessage': '',
+        });
+      }
+    });
   }
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
@@ -304,10 +278,20 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
       final cachedKey = 'cached_xp_${widget.childId}';
       if (_xp != newXP) {
         // Play XP gained sound
+
+        // Play notification sound
         try {
-          await _audioPlayer.play(AssetSource('audios/notification/ding.mp3'));
+          if (kIsWeb) {
+            await _audioPlayer.play(
+              UrlSource('assets/audios/notification/ding.mp3'),
+            );
+          } else {
+            await _audioPlayer.play(
+              AssetSource('audios/notification/ding.mp3'),
+            );
+          }
         } catch (e) {
-          debugPrint('⚠️ Failed to play XP sound: $e');
+          debugPrint('⚠️ Audio error: $e');
         }
       }
 

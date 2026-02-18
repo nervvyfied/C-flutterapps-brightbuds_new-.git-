@@ -557,18 +557,6 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> _sendChildPopupMessage({
-    required String childId,
-    required String message,
-  }) async {
-    await _firestore.collection('child_notifications').add({
-      'childId': childId,
-      'message': message,
-      'createdAt': FieldValue.serverTimestamp(),
-      'read': false,
-    });
-  }
-
   Future<void> rejectTaskWithMessage({
     required String taskId,
     required String childId,
@@ -580,32 +568,29 @@ class TaskProvider extends ChangeNotifier {
 
     final task = _tasks[index];
 
+    // Update task locally
     final updatedTask = task.copyWith(
       isDone: false,
       verified: false,
-      rejectionReason: reason,
-      reminderMessage: reminder,
+      rejectionReason: reason.isNotEmpty ? reason : "No reason provided",
+      reminderMessage: reminder.isNotEmpty
+          ? reminder
+          : "Task was not verified. Reason: ${reason.isNotEmpty ? reason : 'No reason provided'}",
       lastUpdated: DateTime.now(),
     );
 
     _tasks[index] = updatedTask;
 
+    // Save locally
     await _taskBox?.put(updatedTask.id, updatedTask);
-    await _taskRepo.updateTask(updatedTask);
 
+    // Update backend / Firestore
+    await _taskRepo.updateTask(updatedTask);
     await _syncToFirestore(updatedTask);
 
     notifyListeners();
 
-    // 🔥 Push child popup message
-    await _sendChildPopupMessage(
-      childId: childId,
-      message: reminder.isNotEmpty
-          ? reminder
-          : "Task was not verified. Reason: $reason",
-    );
-
-    debugPrint("❌ Task rejected with message.");
+    debugPrint("❌ Task '${task.name}' rejected and updated in Firestore");
   }
 
   Future<void> acceptTask(String taskId, String childId) async {
@@ -963,36 +948,6 @@ class TaskProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('⚠️ Failed to notify parent: $e');
     }
-  }
-
-  Future<void> rejectTask(String taskId, String childId) async {
-    final taskIndex = tasks.indexWhere(
-      (t) => t.id == taskId && t.childId == childId,
-    );
-
-    if (taskIndex == -1) return;
-
-    final task = tasks[taskIndex];
-
-    final updatedTask = task.copyWith(
-      isDone: false,
-      verified: false,
-      doneAt: null,
-    );
-
-    tasks[taskIndex] = updatedTask;
-
-    // 🔥 Update Firestore (adjust path if needed)
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(task.parentId)
-        .collection('children')
-        .doc(childId)
-        .collection('tasks')
-        .doc(taskId)
-        .update({'isDone': false, 'verified': false, 'doneAt': null});
-
-    notifyListeners();
   }
 
   // ---------------- VERIFY TASK ----------------

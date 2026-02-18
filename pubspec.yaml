@@ -104,7 +104,7 @@ flutter:
     - assets/audios/calm/
     - assets/audios/happy/
     - assets/audios/angry/
-    - assets/audios/
+    - assets/audios/notification/ding.mp3
     - assets/moods/
     - assets/cbt/calm/
     - assets/cbt/happy/
