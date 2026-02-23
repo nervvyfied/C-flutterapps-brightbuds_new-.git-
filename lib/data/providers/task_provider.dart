@@ -269,18 +269,82 @@ class TaskProvider extends ChangeNotifier {
     );
   }
 
-  // ---------------- HIVE ----------------
+  // Add this flag to prevent multiple resets
+  bool _hasCheckedDailyReset = false;
+
+  // Add this method to check and perform daily reset on app launch
+  Future<void> checkAndPerformDailyResetOnLaunch() async {
+    // Prevent checking multiple times
+    if (_hasCheckedDailyReset) return;
+
+    try {
+      debugPrint('🚀 Checking for daily reset on app launch...');
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final lastReset = await getLastResetDate();
+
+      debugPrint('📅 Last reset date: $lastReset');
+      debugPrint('📅 Today: $today');
+
+      // Case 1: First time ever running the app
+      if (lastReset == null) {
+        debugPrint('🆕 First app launch - performing initial reset');
+        await resetDailyTasks();
+        await setLastResetDate(today);
+        _hasCheckedDailyReset = true;
+        return;
+      }
+
+      // Case 2: Normal case - check if we need to reset
+      final lastResetDay = DateTime(
+        lastReset.year,
+        lastReset.month,
+        lastReset.day,
+      );
+
+      if (lastResetDay.isBefore(today)) {
+        debugPrint(
+          '🔄 New day detected! Last reset: $lastResetDay, Today: $today',
+        );
+        debugPrint('🔄 Performing daily reset on app launch...');
+
+        await resetDailyTasks();
+        await setLastResetDate(today);
+
+        debugPrint('✅ Daily reset completed on app launch');
+      } else {
+        debugPrint('✅ Already reset today, no action needed');
+      }
+
+      _hasCheckedDailyReset = true;
+    } catch (e, stack) {
+      debugPrint('⚠️ Error in checkAndPerformDailyResetOnLaunch: $e');
+      debugPrint(stack.toString());
+    }
+  }
+
+  // Modify initHive to check on app launch
   Future<void> initHive() async {
     _taskBox = Hive.isBoxOpen('tasksBox')
         ? Hive.box<TaskModel>('tasksBox')
         : await Hive.openBox<TaskModel>('tasksBox');
+
+    // Check for daily reset immediately when Hive is initialized
+    await checkAndPerformDailyResetOnLaunch();
+
+    debugPrint('📦 Hive initialized and daily reset checked');
   }
 
+  // Also check when loading tasks (backup check)
   Future<void> loadTasks({
     required String parentId,
     String? childId,
     bool isParent = false,
   }) async {
+    // Check daily reset again when loading tasks (just in case)
+    await checkAndPerformDailyResetOnLaunch();
+
     _setLoading(true);
 
     try {
@@ -973,7 +1037,7 @@ class TaskProvider extends ChangeNotifier {
 
     // 🧮 Calculate XP BASED ON DIFFICULTY (single source of truth)
     final levelCalculator = LevelCalculator();
-    final earnedXP = levelCalculator.xpFromTask(task.difficulty ?? 'easy');
+    final earnedXP = levelCalculator.xpFromTask(task.difficulty);
 
     // ✅ Update task: verified = true
     final verifiedTask = task.copyWith(verified: true, lastUpdated: now);
@@ -1159,12 +1223,12 @@ class TaskProvider extends ChangeNotifier {
     if (updated) notifyListeners();
   }
 
-  // Helper method to compare days (ignoring time)
-  bool _isSameDay(DateTime? date1, DateTime? date2) {
-    if (date1 == null || date2 == null) return false;
-    return date1.year == date2.year &&
-        date1.month == date2.month &&
-        date1.day == date2.day;
+  bool _isResetting = false;
+
+  Box get _settingsBox => Hive.box('appSettings');
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   // ---------------- AUTO RESET CHECK ----------------
@@ -1187,120 +1251,41 @@ class TaskProvider extends ChangeNotifier {
         lastReset.day,
       );
 
-      // If last reset was before today → new day crossed
       if (lastResetDay.isBefore(today)) {
-        debugPrint('🔄 Auto-reset triggered — last reset was $lastResetDay');
-
+        debugPrint(
+          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.',
+        );
         await resetDailyTasks();
         await setLastResetDate(today);
+      } else {
+        debugPrint(
+          '✅ Daily tasks already reset today (${lastResetDay.toLocal()}).',
+        );
       }
-    } catch (e) {
-      debugPrint('⚠️ autoResetIfNeeded failed: $e');
+    } catch (e, stack) {
+      debugPrint('❌ autoResetIfNeeded() failed: $e');
+      debugPrint(stack.toString());
     }
   }
 
-  Future<DateTime?> getLastResetDate() async {
-    final box = await Hive.openBox('appMeta');
-    final stored = box.get('lastReset');
-    if (stored == null) return null;
-    return DateTime.parse(stored);
-  }
-
-  Future<void> setLastResetDate(DateTime date) async {
-    final box = await Hive.openBox('appMeta');
-    await box.put('lastReset', date.toIso8601String());
-  }
-
-  // Optional: Add streak reset logic
-  Future<void> _resetStreaksIfNeeded() async {
-    try {
-      // Group tasks by child
-      final Map<String, List<TaskModel>> childTasks = {};
-      for (final task in _tasks) {
-        childTasks.putIfAbsent(task.childId, () => []).add(task);
-      }
-
-      // For each child, check if any tasks need streak reset
-      for (final entry in childTasks.entries) {
-        final tasks = entry.value;
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-
-        for (final task in tasks) {
-          if (task.isDone) {
-            final lastDone = task.lastCompletedDate;
-            if (lastDone != null) {
-              final lastDoneDate = DateTime(
-                lastDone.year,
-                lastDone.month,
-                lastDone.day,
-              );
-              final yesterday = today.subtract(const Duration(days: 1));
-
-              // Reset streak if last done was more than 1 day ago
-              if (!_isSameDay(lastDoneDate, yesterday) &&
-                  !_isSameDay(lastDoneDate, today)) {
-                // This task's streak should be reset
-                final updatedTask = task.copyWith(
-                  activeStreak: 0,
-                  lastUpdated: now,
-                );
-
-                final index = _tasks.indexWhere((t) => t.id == task.id);
-                if (index != -1) {
-                  _tasks[index] = updatedTask;
-                  await _taskBox?.put(updatedTask.id, updatedTask);
-
-                  // Update in Firestore
-                  if (await NetworkHelper.isOnline()) {
-                    await _firestore
-                        .collection('users')
-                        .doc(updatedTask.parentId)
-                        .collection('children')
-                        .doc(updatedTask.childId)
-                        .collection('tasks')
-                        .doc(updatedTask.id)
-                        .set(updatedTask.toMap(), SetOptions(merge: true));
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error resetting streaks: $e');
-    }
-  }
-
+  // ---------------- DAILY RESET SCHEDULER ----------------
   void startDailyResetScheduler() {
-    // Cancel any existing timer
     _midnightTimer?.cancel();
 
     final now = DateTime.now();
-    // Next midnight (start of next day)
-    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
-
-    // Duration until next midnight
+    final tomorrow = now.add(const Duration(days: 1));
+    final nextMidnight = DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
     final durationUntilMidnight = nextMidnight.difference(now);
 
     _midnightTimer = Timer(durationUntilMidnight, () async {
-      try {
-        debugPrint('🌙 Midnight reached, resetting daily tasks...');
-        await resetDailyTasks(); // reset tasks
-        await setLastResetDate(DateTime.now()); // update last reset record
-      } catch (e, stack) {
-        debugPrint('⚠️ Error during daily reset: $e');
-        debugPrint(stack.toString());
-      } finally {
-        // Schedule next reset
-        startDailyResetScheduler();
-      }
+      await resetDailyTasks();
+      await setLastResetDate(DateTime.now());
+
+      // Schedule again for the next day
+      startDailyResetScheduler();
     });
 
-    debugPrint(
-      '⏰ Daily reset scheduled in ${durationUntilMidnight.inSeconds} seconds for ${nextMidnight.toLocal()}',
-    );
+    debugPrint('⏰ Daily reset scheduled for ${nextMidnight.toLocal()}');
   }
 
   void stopDailyResetScheduler() {
@@ -1313,6 +1298,15 @@ class TaskProvider extends ChangeNotifier {
   Future<void> pushPendingChanges() async {
     await _syncService.syncAllPendingChanges();
     notifyListeners();
+  }
+
+  Future<DateTime?> getLastResetDate() async {
+    final millis = _settingsBox.get('lastResetDate') as int?;
+    return millis != null ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
+  }
+
+  Future<void> setLastResetDate(DateTime date) async {
+    await _settingsBox.put('lastResetDate', date.millisecondsSinceEpoch);
   }
 
   // ---------------- FCM PARENT ----------------
