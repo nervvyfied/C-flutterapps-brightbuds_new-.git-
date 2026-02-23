@@ -11,7 +11,9 @@ import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
 import 'package:brightbuds_new/aquarium/pages/world_unlocks_modal.dart';
 import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
 import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
+import 'package:brightbuds_new/aquarium/service/feedback_service.dart';
 import 'package:brightbuds_new/aquarium/widgets/floating_xp.dart';
+import 'package:brightbuds_new/aquarium/widgets/level_feedback_dialog.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/journal_provider.dart';
@@ -240,6 +242,37 @@ void didChangeDependencies() {
   void initState() {
     super.initState();
     _progression = context.read<ProgressionProvider>();
+
+_progression.onLevelUp = () async {
+  if (!mounted) return;
+
+  final auth = context.read<AuthProvider>();
+  final currentUser = auth.currentUserModel;
+  if (currentUser is! ChildUser) return;
+
+  // Delay slightly to avoid build-cycle conflicts
+  await Future.delayed(const Duration(milliseconds: 300));
+
+  if (!mounted) return;
+
+  await showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => LevelFeedbackDialog(
+      level: _progression.state.level,
+      onSubmit: (rating, emoji, notes) async {
+        await FeedbackService().submitFeedback(
+          parentUid: currentUser.parentUid,
+          childId: currentUser.cid,
+          level: _progression.state.level,
+          rating: rating,
+          emoji: emoji,
+          notes: notes,
+        );
+      },
+    ),
+  );
+};
 
     context.read<TaskProvider>().addListener(_onTasksChanged);
 
@@ -859,6 +892,7 @@ void didChangeDependencies() {
 void dispose() {
   _xpSubscription?.cancel();
   _progression.removeListener(() {});
+  _progression.onLevelUp = null;
   _animController.dispose();
   _controller.dispose();
   super.dispose();
@@ -1421,26 +1455,41 @@ dynamic getNextUnlock({
       : nextDecor.first;
 }
 
-void _openWorldUnlocks(BuildContext context) {
-  showGeneralDialog(
+void _openWorldUnlocks(BuildContext context) async {
+  final result = await showGeneralDialog(
     context: context,
     barrierDismissible: true,
     barrierLabel: 'World Unlocks',
-    transitionDuration: const Duration(milliseconds: 250),
     pageBuilder: (_, __, ___) {
-      return const WorldUnlocksModal();
-    },
-    transitionBuilder: (_, animation, __, child) {
-      return Transform.scale(
-        scale: Curves.easeOutBack.transform(animation.value),
-        child: Opacity(
-          opacity: animation.value,
-          child: child,
-        ),
+      return WorldUnlocksModal(
+        onWorldChange: (fishList, decorList) {
+          // Update aquarium state with new world assets
+          setState(() {
+            fishes = fishList.map((f) => AquariumFish(
+              definition: f,
+              x: Random().nextDouble() * MediaQuery.of(context).size.width,
+              y: Random().nextDouble() * MediaQuery.of(context).size.height * 0.6,
+              speed: 1.0 + Random().nextDouble(),
+              movingRight: true,
+              verticalOffset: 0,
+              sineFrequency: 0.05,
+            )).toList();
+
+            decors = decorList.map((d) => DecorInstance(
+              id: d.id,
+              assetPath: d.assetPath,
+              layer: d.layer,
+              anchorX: d.anchorX,       // use catalog value
+              anchorY: d.anchorY,       // use catalog value
+              widthFactor: d.widthFactor, // use catalog value
+            )).toList();
+          });
+        },
       );
     },
   );
 }
+
 
 
 }

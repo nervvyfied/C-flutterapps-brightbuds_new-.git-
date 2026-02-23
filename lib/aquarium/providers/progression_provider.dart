@@ -3,7 +3,10 @@ import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
 import 'package:brightbuds_new/aquarium/progression/unlock_resolver.dart';
 import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/fish_definition.dart';
 import '../models/decor_definition.dart';
 
@@ -82,37 +85,66 @@ class ProgressionProvider extends ChangeNotifier {
   }
 
   void _recalculateProgression() {
-  final newLevel = _levelCalculator.calculateLevel(_child.xp);
-  final world = Worlds.getWorldForLevel(newLevel);
+    final newLevel = _levelCalculator.calculateLevel(_child.xp);
+    final world = Worlds.getWorldForLevel(newLevel);
 
-  _lastLevel = newLevel;
+    // Resolve unlocked items for current level/world
+    final unlockResolver = UnlockResolver(
+      currentLevel: newLevel,
+      currentWorld: world.worldId,
+    );
 
-  final unlockResolver = UnlockResolver(
-    currentLevel: newLevel,
-    currentWorld: world.worldId,
+    // Check if leveled up BEFORE updating _lastLevel
+    final leveledUp = newLevel > _lastLevel;
+
+    _state = ProgressionState(
+      xp: _child.xp,
+      level: newLevel,
+      world: world,
+      unlockedFish: unlockResolver.unlockedFish,
+      unlockedDecor: unlockResolver.unlockedDecor,
+    );
+
+    _lastLevel = newLevel; // update last level AFTER detecting level-up
+
+    notifyListeners();
+
+    // Trigger level-up callback for UI
+    if (leveledUp) {
+      onLevelUp?.call();
+    }
+
+    // Check achievements
+    achievementManager?.checkAchievements();
+  }
+
+void visitWorld(int worldId) {
+  // Find the world by ID
+  final newWorld = Worlds.all.firstWhere(
+    (w) => w.worldId == worldId,
+    orElse: () => _state.world, // fallback to current world if not found
   );
 
-  _state = ProgressionState(
-    xp: _child.xp,
-    level: newLevel,
-    world: world,
+  // Use current level to determine unlocks
+  final currentLevel = _state.level;
+
+  final unlockResolver = UnlockResolver(
+    currentLevel: currentLevel,
+    currentWorld: worldId,
+  );
+
+  // Update state with new world and unlocked items
+  _state = _state.copyWith(
+    world: newWorld,
     unlockedFish: unlockResolver.unlockedFish,
     unlockedDecor: unlockResolver.unlockedDecor,
   );
 
-  final leveledUp = newLevel > _lastLevel;
-_lastLevel = newLevel;
-
-if (leveledUp) {
-  onLevelUp?.call();
-}
-
-  _lastLevel = newLevel;
   notifyListeners();
 
+  // Optional: trigger achievement checks
   achievementManager?.checkAchievements();
 }
-
 
 }
 
