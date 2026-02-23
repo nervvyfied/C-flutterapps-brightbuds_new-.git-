@@ -83,13 +83,12 @@ class TaskProvider extends ChangeNotifier {
   }
 
   void clearCurrentUser() {
-    _currentUserId = null;
-    _currentUserType = null;
+    currentUser = null;
     notifyListeners();
   }
 
-  String? get currentUserId => _currentUserId;
-  UserType? get currentUserType => _currentUserType;
+  String? get currentUserId => currentUser?.uid;
+  UserType? get currentUserType => currentUser?.type;
 
   ChildUser? currentChild;
   bool canManageTask(TaskModel task) {
@@ -270,18 +269,82 @@ class TaskProvider extends ChangeNotifier {
     );
   }
 
-  // ---------------- HIVE ----------------
+  // Add this flag to prevent multiple resets
+  bool _hasCheckedDailyReset = false;
+
+  // Add this method to check and perform daily reset on app launch
+  Future<void> checkAndPerformDailyResetOnLaunch() async {
+    // Prevent checking multiple times
+    if (_hasCheckedDailyReset) return;
+
+    try {
+      debugPrint('🚀 Checking for daily reset on app launch...');
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final lastReset = await getLastResetDate();
+
+      debugPrint('📅 Last reset date: $lastReset');
+      debugPrint('📅 Today: $today');
+
+      // Case 1: First time ever running the app
+      if (lastReset == null) {
+        debugPrint('🆕 First app launch - performing initial reset');
+        await resetDailyTasks();
+        await setLastResetDate(today);
+        _hasCheckedDailyReset = true;
+        return;
+      }
+
+      // Case 2: Normal case - check if we need to reset
+      final lastResetDay = DateTime(
+        lastReset.year,
+        lastReset.month,
+        lastReset.day,
+      );
+
+      if (lastResetDay.isBefore(today)) {
+        debugPrint(
+          '🔄 New day detected! Last reset: $lastResetDay, Today: $today',
+        );
+        debugPrint('🔄 Performing daily reset on app launch...');
+
+        await resetDailyTasks();
+        await setLastResetDate(today);
+
+        debugPrint('✅ Daily reset completed on app launch');
+      } else {
+        debugPrint('✅ Already reset today, no action needed');
+      }
+
+      _hasCheckedDailyReset = true;
+    } catch (e, stack) {
+      debugPrint('⚠️ Error in checkAndPerformDailyResetOnLaunch: $e');
+      debugPrint(stack.toString());
+    }
+  }
+
+  // Modify initHive to check on app launch
   Future<void> initHive() async {
     _taskBox = Hive.isBoxOpen('tasksBox')
         ? Hive.box<TaskModel>('tasksBox')
         : await Hive.openBox<TaskModel>('tasksBox');
+
+    // Check for daily reset immediately when Hive is initialized
+    await checkAndPerformDailyResetOnLaunch();
+
+    debugPrint('📦 Hive initialized and daily reset checked');
   }
 
+  // Also check when loading tasks (backup check)
   Future<void> loadTasks({
     required String parentId,
     String? childId,
     bool isParent = false,
   }) async {
+    // Check daily reset again when loading tasks (just in case)
+    await checkAndPerformDailyResetOnLaunch();
+
     _setLoading(true);
 
     try {
@@ -345,14 +408,6 @@ class TaskProvider extends ChangeNotifier {
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
-  }
-
-  Future<void> _scheduleAllAlarms(List<TaskModel> tasks) async {
-    for (var task in tasks) {
-      if (task.alarm != null && !kIsWeb) {
-        await scheduleTaskAlarm(task);
-      }
-    }
   }
 
   // ---------------- MERGE REMOTE ----------------
@@ -450,6 +505,7 @@ class TaskProvider extends ChangeNotifier {
   // ---------------- ADD TASK ----------------
   Future<void> addTask(TaskModel task, BuildContext context) async {
     try {
+      // ✅ Validate reward
       final rewardInt = int.tryParse(task.reward.toString());
       if (rewardInt == null || rewardInt < 0) {
         _showSnackBar(context, "Reward must be a positive number");
@@ -457,6 +513,8 @@ class TaskProvider extends ChangeNotifier {
       }
 
       String actualParentId = task.parentId;
+
+      // 🔐 If therapist, resolve parent ID for child
       if (currentUser?.type == UserType.therapist) {
         final fetchedParentId = await _getParentIdForChild(task.childId);
         if (fetchedParentId != null) {
@@ -470,35 +528,38 @@ class TaskProvider extends ChangeNotifier {
         }
       }
 
+      // ✅ Create the new task
       final newTask = task.copyWith(
         reward: rewardInt,
         id: task.id.isNotEmpty ? task.id : const Uuid().v4(),
         lastUpdated: DateTime.now(),
         creatorId: currentUser?.uid ?? actualParentId,
-        creatorType: currentUser?.type.name ?? 'parent',
+        creatorType: currentUser?.type.name.toLowerCase() ?? 'parent',
         therapistId: currentUser?.type == UserType.therapist
             ? currentUser!.uid
             : null,
-        parentId: actualParentId, // Set the correct parentId
+        parentId: actualParentId,
+        // Therapist auto-accepts
+        isAccepted: currentUser?.type == UserType.therapist,
       );
 
-      final index = _tasks.indexWhere((t) => t.id == newTask.id);
-      if (index == -1) {
-        _tasks.add(newTask);
-      } else {
-        _tasks[index] = newTask;
-      }
+      // Add to local state
+      _tasks.add(newTask);
       await _taskBox?.put(newTask.id, newTask);
-
       notifyListeners();
+
+      // Save to repository
       await _taskRepo.saveTask(newTask);
 
+      // Schedule alarm if not web
       if (!kIsWeb) {
         await scheduleTaskAlarm(newTask);
       }
 
-      _showSnackBar(context, "Task added successfully!");
+      // Show success
+      _showSnackBar(context, "Task submitted successfully!");
 
+      // Sync to Firestore
       await _syncToFirestore(newTask, parentIdOverride: actualParentId);
     } catch (e) {
       debugPrint("⚠️ Error adding task: $e");
@@ -560,6 +621,66 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> rejectTaskWithMessage({
+    required String taskId,
+    required String childId,
+    required String reason,
+    required String reminder,
+  }) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    final task = _tasks[index];
+
+    // Update task locally
+    final updatedTask = task.copyWith(
+      isDone: false,
+      verified: false,
+      rejectionReason: reason.isNotEmpty ? reason : "No reason provided",
+      reminderMessage: reminder.isNotEmpty
+          ? reminder
+          : "Task was not verified. Reason: ${reason.isNotEmpty ? reason : 'No reason provided'}",
+      lastUpdated: DateTime.now(),
+    );
+
+    _tasks[index] = updatedTask;
+
+    // Save locally
+    await _taskBox?.put(updatedTask.id, updatedTask);
+
+    // Update backend / Firestore
+    await _taskRepo.updateTask(updatedTask);
+    await _syncToFirestore(updatedTask);
+
+    notifyListeners();
+
+    debugPrint("❌ Task '${task.name}' rejected and updated in Firestore");
+  }
+
+  Future<void> acceptTask(String taskId, String childId) async {
+    try {
+      final index = _tasks.indexWhere(
+        (t) => t.id == taskId && t.childId == childId,
+      );
+      if (index == -1) return;
+
+      final task = _tasks[index];
+
+      // ✅ Create a new TaskModel with therapist acceptance
+      final updatedTask = task.copyWith(
+        isAccepted: true,
+        lastUpdated: DateTime.now(),
+      );
+
+      // ✅ Use the centralized updateTask method
+      await updateTask(updatedTask);
+
+      debugPrint('✅ Task accepted by therapist: ${task.name}');
+    } catch (e) {
+      debugPrint("⚠️ Error accepting task: $e");
+    }
+  }
+
   // ---------------- UPDATE TASK ----------------
   Future<void> updateTask(TaskModel updatedFields) async {
     final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
@@ -567,9 +688,17 @@ class TaskProvider extends ChangeNotifier {
 
     final oldTask = _tasks[index];
 
+    // 🔐 Permission check
     if (!canManageTask(oldTask)) {
       debugPrint('⚠️ User not allowed to update task ${oldTask.id}');
       return;
+    }
+
+    bool? updatedAcceptance = oldTask.isAccepted;
+
+    // ✅ ONLY therapist can approve
+    if (currentUser?.type == UserType.therapist) {
+      updatedAcceptance = updatedFields.isAccepted;
     }
 
     final mergedTask = oldTask.copyWith(
@@ -578,15 +707,17 @@ class TaskProvider extends ChangeNotifier {
       reward: updatedFields.reward,
       routine: updatedFields.routine,
       alarm: updatedFields.alarm,
+      isAccepted: updatedAcceptance,
       lastUpdated: DateTime.now(),
     );
 
     _tasks[index] = mergedTask;
+
     await _taskBox?.put(mergedTask.id, mergedTask);
     await _taskRepo.updateTask(mergedTask);
 
-    // ✅ Get actual parent ID for sync
     String actualParentId = mergedTask.parentId;
+
     if (currentUser?.type == UserType.therapist) {
       final fetchedParentId = await _getParentIdForChild(mergedTask.childId);
       if (fetchedParentId != null) {
@@ -600,7 +731,10 @@ class TaskProvider extends ChangeNotifier {
 
     if (!kIsWeb) {
       await cancelTaskAlarm(oldTask);
-      if (mergedTask.alarm != null) await scheduleTaskAlarm(mergedTask);
+
+      if (mergedTask.alarm != null) {
+        await scheduleTaskAlarm(mergedTask);
+      }
     }
 
     debugPrint('📝 Task updated: ${mergedTask.name}');
@@ -903,7 +1037,7 @@ class TaskProvider extends ChangeNotifier {
 
     // 🧮 Calculate XP BASED ON DIFFICULTY (single source of truth)
     final levelCalculator = LevelCalculator();
-    final earnedXP = levelCalculator.xpFromTask(task.difficulty ?? 'easy');
+    final earnedXP = levelCalculator.xpFromTask(task.difficulty);
 
     // ✅ Update task: verified = true
     final verifiedTask = task.copyWith(verified: true, lastUpdated: now);
@@ -1089,12 +1223,12 @@ class TaskProvider extends ChangeNotifier {
     if (updated) notifyListeners();
   }
 
-  // Helper method to compare days (ignoring time)
-  bool _isSameDay(DateTime? date1, DateTime? date2) {
-    if (date1 == null || date2 == null) return false;
-    return date1.year == date2.year &&
-        date1.month == date2.month &&
-        date1.day == date2.day;
+  bool _isResetting = false;
+
+  Box get _settingsBox => Hive.box('appSettings');
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   // ---------------- AUTO RESET CHECK ----------------
@@ -1117,16 +1251,12 @@ class TaskProvider extends ChangeNotifier {
         lastReset.day,
       );
 
-      // Check if we've crossed midnight since last reset
       if (lastResetDay.isBefore(today)) {
         debugPrint(
-          '🔄 Auto-reset triggered — last reset was ${lastResetDay.toLocal()}, today is ${today.toLocal()}.',
+          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.',
         );
         await resetDailyTasks();
         await setLastResetDate(today);
-
-        // Also check and reset streaks for all children
-        await _resetStreaksIfNeeded();
       } else {
         debugPrint(
           '✅ Daily tasks already reset today (${lastResetDay.toLocal()}).',
@@ -1138,96 +1268,24 @@ class TaskProvider extends ChangeNotifier {
     }
   }
 
-  // Optional: Add streak reset logic
-  Future<void> _resetStreaksIfNeeded() async {
-    try {
-      // Group tasks by child
-      final Map<String, List<TaskModel>> childTasks = {};
-      for (final task in _tasks) {
-        childTasks.putIfAbsent(task.childId, () => []).add(task);
-      }
-
-      // For each child, check if any tasks need streak reset
-      for (final entry in childTasks.entries) {
-        final tasks = entry.value;
-        final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
-
-        for (final task in tasks) {
-          if (task.isDone) {
-            final lastDone = task.lastCompletedDate;
-            if (lastDone != null) {
-              final lastDoneDate = DateTime(
-                lastDone.year,
-                lastDone.month,
-                lastDone.day,
-              );
-              final yesterday = today.subtract(const Duration(days: 1));
-
-              // Reset streak if last done was more than 1 day ago
-              if (!_isSameDay(lastDoneDate, yesterday) &&
-                  !_isSameDay(lastDoneDate, today)) {
-                // This task's streak should be reset
-                final updatedTask = task.copyWith(
-                  activeStreak: 0,
-                  lastUpdated: now,
-                );
-
-                final index = _tasks.indexWhere((t) => t.id == task.id);
-                if (index != -1) {
-                  _tasks[index] = updatedTask;
-                  await _taskBox?.put(updatedTask.id, updatedTask);
-
-                  // Update in Firestore
-                  if (await NetworkHelper.isOnline()) {
-                    await _firestore
-                        .collection('users')
-                        .doc(updatedTask.parentId)
-                        .collection('children')
-                        .doc(updatedTask.childId)
-                        .collection('tasks')
-                        .doc(updatedTask.id)
-                        .set(updatedTask.toMap(), SetOptions(merge: true));
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('⚠️ Error resetting streaks: $e');
-    }
-  }
-
+  // ---------------- DAILY RESET SCHEDULER ----------------
   void startDailyResetScheduler() {
-    // Cancel any existing timer
     _midnightTimer?.cancel();
 
     final now = DateTime.now();
-    // Next midnight (start of next day)
-    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
-
-    // Duration until next midnight
+    final tomorrow = now.add(const Duration(days: 1));
+    final nextMidnight = DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
     final durationUntilMidnight = nextMidnight.difference(now);
 
     _midnightTimer = Timer(durationUntilMidnight, () async {
-      try {
-        debugPrint('🌙 Midnight reached, resetting daily tasks...');
-        await resetDailyTasks(); // reset tasks
-        await setLastResetDate(DateTime.now()); // update last reset record
-      } catch (e, stack) {
-        debugPrint('⚠️ Error during daily reset: $e');
-        debugPrint(stack.toString());
-      } finally {
-        // Schedule next reset
-        startDailyResetScheduler();
-      }
+      await resetDailyTasks();
+      await setLastResetDate(DateTime.now());
+
+      // Schedule again for the next day
+      startDailyResetScheduler();
     });
 
-    debugPrint(
-      '⏰ Daily reset scheduled in ${durationUntilMidnight.inSeconds} seconds for ${nextMidnight.toLocal()}',
-    );
+    debugPrint('⏰ Daily reset scheduled for ${nextMidnight.toLocal()}');
   }
 
   void stopDailyResetScheduler() {
@@ -1242,22 +1300,14 @@ class TaskProvider extends ChangeNotifier {
     notifyListeners();
   }
 
- Future<DateTime?> getLastResetDate() async {
-  final box = await Hive.openBox('appSettings');
-  final millis = box.get('lastResetDate');
-  if (millis is int) {
-    return DateTime.fromMillisecondsSinceEpoch(millis);
+  Future<DateTime?> getLastResetDate() async {
+    final millis = _settingsBox.get('lastResetDate') as int?;
+    return millis != null ? DateTime.fromMillisecondsSinceEpoch(millis) : null;
   }
-  return null;
-}
 
-Future<void> setLastResetDate(DateTime date) async {
-  final box = await Hive.openBox('appSettings');
-  await box.put('lastResetDate', date.millisecondsSinceEpoch);
-}
-
-
-
+  Future<void> setLastResetDate(DateTime date) async {
+    await _settingsBox.put('lastResetDate', date.millisecondsSinceEpoch);
+  }
 
   // ---------------- FCM PARENT ----------------
   Future<void> notifyParentCompletion({

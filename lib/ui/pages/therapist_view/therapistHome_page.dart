@@ -119,19 +119,30 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final now = TimeOfDay.fromDateTime(DateTime.now());
 
     for (var task in tasks) {
-      if (task.isDone) {
+      // FIX: Check both isDone and verified (with null safety)
+      if (task.isDone == true && task.verified == true) {
         done++;
       } else {
         notDone++;
+
+        // Check for missed tasks (only if not done)
         final routineKey = (task.routine).toLowerCase().trim();
         final end = routineEndTimes[routineKey];
+
         if (end != null && routineKey != 'anytime') {
-          if (_timeOfDayToDouble(now) > _timeOfDayToDouble(end)) {
+          final currentTimeDouble = _timeOfDayToDouble(now);
+          final endTimeDouble = _timeOfDayToDouble(end);
+
+          if (currentTimeDouble > endTimeDouble) {
             missed++;
           }
         }
       }
     }
+
+    // Adjust notDone to exclude missed tasks (since we added them to notDone first)
+    notDone = notDone - missed;
+
     return {'done': done, 'notDone': notDone, 'missed': missed};
   }
 
@@ -1360,7 +1371,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     _notifiedTaskIds.add(taskId);
 
     final snackBar = SnackBar(
-      content: Text('$childName has completed "$taskName" ✅'),
+      content: Text('$childName has completed "$taskName" ✅, check to verify!'),
       duration: const Duration(seconds: 3),
       behavior: SnackBarBehavior.floating,
       backgroundColor: Colors.deepPurpleAccent,
@@ -4131,8 +4142,9 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final notDoneWithoutMissed = notDone - missed;
     final weeklyTopMood = _getWeeklyTopMood(journalProv, activeChild['cid']);
 
+    // Replace the existing snackbar check with this:
     for (var task in childTasks) {
-      if (task.isDone && !task.verified != true) {
+      if (task.isDone && task.verified != true) {
         Future.microtask(() {
           _showTaskCompletionSnackBar(
             childName: activeChild['name'] ?? 'Child',
