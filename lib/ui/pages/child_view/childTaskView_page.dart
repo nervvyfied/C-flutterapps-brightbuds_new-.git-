@@ -136,59 +136,100 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         .collection('tasks')
         .snapshots();
 
-    _notificationSubscription = stream.listen((snapshot) async {
-      if (!mounted) return;
-
-      for (final change in snapshot.docChanges) {
-        if (change.type != DocumentChangeType.modified) continue;
-
-        final doc = change.doc;
-        final data = doc.data();
-        if (data == null) continue;
-
-        final rejectionReason = (data['rejectionReason'] ?? '').toString();
-
-        if (rejectionReason.isEmpty) continue;
-
-        final taskName = (data['name'] ?? '').toString();
-
-        final reminderMessage = (data['reminderMessage'] ?? '').toString();
-
+    _notificationSubscription = stream.listen(
+      (snapshot) async {
         if (!mounted) return;
 
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => AlertDialog(
-            title: const Text("Message from your therapist/parent"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (taskName.isNotEmpty) Text("📌 Task Name: $taskName"),
-                Text("📝 Reason: $rejectionReason"),
-                if (reminderMessage.isNotEmpty)
-                  Text("⏰ Reminder: $reminderMessage"),
-              ],
-            ),
-            actions: [
-              Center(
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("OK"),
-                ),
-              ),
-            ],
-          ),
-        );
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          if (data == null) continue;
 
-        // 🔥 CRITICAL: Clear the rejection so it never shows again
-        await doc.reference.update({
-          'rejectionReason': '',
-          'reminderMessage': '',
-        });
-      }
-    });
+          final rejectionReason = (data['rejectionReason'] ?? '').toString();
+          if (rejectionReason.isEmpty) continue;
+
+          final taskId = doc.id;
+
+          // 🛑 Prevent duplicate dialogs
+          final rawShown =
+              _settingsBox.get(
+                    'shown_rejections_${widget.childId}',
+                    defaultValue: [],
+                  )
+                  as List<dynamic>;
+
+          final shownIds = rawShown.whereType<String>().toList();
+
+          if (shownIds.contains(taskId)) continue;
+
+          shownIds.add(taskId);
+          await _settingsBox.put(
+            'shown_rejections_${widget.childId}',
+            shownIds,
+          );
+
+          final taskName = (data['name'] ?? '').toString();
+          final reminderMessage = (data['reminderMessage'] ?? '').toString();
+
+          // 🔊 Play notification sound (same as XP)
+          try {
+            if (kIsWeb) {
+              await _audioPlayer.play(
+                UrlSource('assets/audios/notification/ding.mp3'),
+              );
+            } else {
+              await _audioPlayer.play(
+                AssetSource('audios/notification/ding.mp3'),
+              );
+            }
+          } catch (e) {
+            debugPrint('⚠️ Audio error (rejection): $e');
+          }
+
+          // ⚠️ Show dialog AFTER frame builds
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            if (!mounted) return;
+
+            await showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => AlertDialog(
+                title: const Text("Message from your therapist/parent"),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (taskName.isNotEmpty) Text("📌 Task Name: $taskName"),
+                    const SizedBox(height: 6),
+                    Text("📝 Reason: $rejectionReason"),
+                    if (reminderMessage.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text("⏰ Reminder: $reminderMessage"),
+                    ],
+                  ],
+                ),
+                actions: [
+                  Center(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("OK"),
+                    ),
+                  ),
+                ],
+              ),
+            );
+
+            // 🔥 Clear rejection so it never shows again
+            await doc.reference.update({
+              'rejectionReason': '',
+              'reminderMessage': '',
+            });
+          });
+        }
+      },
+      onError: (e) {
+        debugPrint('❌ Rejection stream error: $e');
+      },
+    );
   }
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
