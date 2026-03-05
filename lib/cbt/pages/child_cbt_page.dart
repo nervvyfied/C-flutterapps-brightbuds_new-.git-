@@ -196,28 +196,9 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                                   );
 
                                   final isCompleted = cbtProvider.isCompleted(
-                                          widget.childId,
-                                          exercise.id,
-                                        );
-
-                                  // 🔹 Auto-start exercise if already confirmed
-                                  final confirmed =
-                                      assigned.isConfirmed ?? false;
-                                  if (confirmed &&
-                                      !_isNavigating &&
-                                      exercise != null) {
-                                    WidgetsBinding.instance
-                                        .addPostFrameCallback((_) async {
-                                          if (!mounted) return;
-                                          final stillConfirmed =
-                                              assigned.isConfirmed ?? false;
-                                          if (!stillConfirmed) return;
-                                          await _openExercise(
-                                            exercise,
-                                            assigned.id,
-                                          );
-                                        });
-                                  }
+                                    widget.childId,
+                                    exercise.id,
+                                  );
 
                                   return CBTCard(
                                     exercise: exercise,

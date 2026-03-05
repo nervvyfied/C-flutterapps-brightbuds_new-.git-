@@ -377,7 +377,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     // ✅ Load cached Hive value immediately
     final cached = _settingsBox.get(cachedKey, defaultValue: 0);
     if (mounted) setState(() => _xp = cached);
-    debugPrint('📦 Loaded cached XP: $cached');
+   
 
     // ✅ Fetch latest from Firestore if online
     if (await NetworkHelper.isOnline()) {
@@ -410,22 +410,22 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
               if (child != null) {
                 final updatedChild = child.copyWith(xp: fetched);
                 await childBox.put(widget.childId, updatedChild);
-                debugPrint('💾 Hive childBox XP refreshed: $fetched');
+              
               }
             } catch (e) {
-              debugPrint('⚠️ Failed to update Hive child XP: $e');
+            
             }
           } else {
-            debugPrint('⚠️ childBox not open yet, skipping Hive update.');
+           
           }
 
-          debugPrint('🟢 XP refreshed Firestore → Hive: $fetched');
+        
         }
       } catch (e) {
-        debugPrint('⚠️ Error fetching XP from Firestore: $e');
+      
       }
     } else {
-      debugPrint('📴 Offline mode — using cached Hive XP.');
+    
     }
   }
 
@@ -603,7 +603,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
                                   await _fetchXP();
                                 } catch (e) {
-                                  debugPrint('⚠️ Error updating task: $e');
+                            
                                 }
                               },
                               checkColor: Colors.white,

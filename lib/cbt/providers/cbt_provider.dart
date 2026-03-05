@@ -78,9 +78,7 @@ class CBTProvider with ChangeNotifier {
           return parts[1];
         }
       }
-    } catch (e) {
-  
-    }
+    } catch (e) {}
     return null;
   }
 
@@ -97,67 +95,62 @@ class CBTProvider with ChangeNotifier {
         .doc(childId)
         .collection('CBT')
         .snapshots()
-        .listen(
-          (snapshot) async {
-            await initHive();
-            bool hasChanges = false;
+        .listen((snapshot) async {
+          await initHive();
+          bool hasChanges = false;
 
-            for (final docChange in snapshot.docChanges) {
-              final data = docChange.doc.data();
-              if (data == null) continue;
+          for (final docChange in snapshot.docChanges) {
+            final data = docChange.doc.data();
+            if (data == null) continue;
 
-              final assigned = AssignedCBT.fromMap(data);
+            final assigned = AssignedCBT.fromMap(data);
 
-              switch (docChange.type) {
-                case DocumentChangeType.added:
-                  if (!_assigned.any((a) => a.id == assigned.id)) {
-                    _assigned.add(assigned);
-                    await _cbtBox?.put(assigned.id, assigned);
-                    hasChanges = true;
-                  }
-                  break;
-                case DocumentChangeType.modified:
-                  final idx = _assigned.indexWhere((a) => a.id == assigned.id);
-                  if (idx != -1) {
-                    _assigned[idx] = assigned;
-                    await _cbtBox?.put(assigned.id, assigned);
-                    hasChanges = true;
-                  } else {
-                    _assigned.add(assigned);
-                    await _cbtBox?.put(assigned.id, assigned);
-                    hasChanges = true;
-                  }
-                  break;
-                case DocumentChangeType.removed:
-                  final existed = _assigned.any((a) => a.id == assigned.id);
-                  _assigned.removeWhere((a) => a.id == assigned.id);
-                  if (existed) {
-                    await _cbtBox?.delete(assigned.id);
-                    hasChanges = true;
-                  }
-                  break;
-              }
+            switch (docChange.type) {
+              case DocumentChangeType.added:
+                if (!_assigned.any((a) => a.id == assigned.id)) {
+                  _assigned.add(assigned);
+                  await _cbtBox?.put(assigned.id, assigned);
+                  hasChanges = true;
+                }
+                break;
+              case DocumentChangeType.modified:
+                final idx = _assigned.indexWhere((a) => a.id == assigned.id);
+                if (idx != -1) {
+                  _assigned[idx] = assigned;
+                  await _cbtBox?.put(assigned.id, assigned);
+                  hasChanges = true;
+                } else {
+                  _assigned.add(assigned);
+                  await _cbtBox?.put(assigned.id, assigned);
+                  hasChanges = true;
+                }
+                break;
+              case DocumentChangeType.removed:
+                final existed = _assigned.any((a) => a.id == assigned.id);
+                _assigned.removeWhere((a) => a.id == assigned.id);
+                if (existed) {
+                  await _cbtBox?.delete(assigned.id);
+                  hasChanges = true;
+                }
+                break;
             }
+          }
 
-            if (hasChanges) {
-              final localCBTs = _cbtBox!.values
-                  .where(
-                    (a) =>
-                        a.childId == childId &&
-                        !_assigned.any((e) => e.id == a.id),
-                  )
-                  .toList();
-              if (localCBTs.isNotEmpty) {
-                _assigned.addAll(localCBTs);
-              }
-              await normalizeAssignedStatusesAndCleanup();
-              notifyListeners();
+          if (hasChanges) {
+            final localCBTs = _cbtBox!.values
+                .where(
+                  (a) =>
+                      a.childId == childId &&
+                      !_assigned.any((e) => e.id == a.id),
+                )
+                .toList();
+            if (localCBTs.isNotEmpty) {
+              _assigned.addAll(localCBTs);
             }
-          },
-          onError: (e) {
-         
-          },
-        );
+            await normalizeAssignedStatusesAndCleanup();
+            notifyListeners();
+          }
+        }, onError: (e) {});
   }
 
   // ===== Merge local Hive CBTs =====
@@ -227,8 +220,6 @@ class CBTProvider with ChangeNotifier {
   // In CBTProvider class, add this helper method:
   Future<String> _findRealParentId(String childId) async {
     try {
-  
-
       // METHOD 1: Search through ALL users to find which parent has this child
       final usersSnapshot = await FirebaseFirestore.instance
           .collection('users')
@@ -248,13 +239,10 @@ class CBTProvider with ChangeNotifier {
 
           final childSnap = await childRef.get();
           if (childSnap.exists) {
-          
             return userDoc.id; // This is the ACTUAL parent ID
           }
         }
       }
-
-     
 
       // Check if child has a parentId reference in some other collection
       final childDoc = await FirebaseFirestore.instance
@@ -264,32 +252,31 @@ class CBTProvider with ChangeNotifier {
 
       if (childDoc.exists && childDoc.data()?['parentId'] != null) {
         final parentId = childDoc.data()!['parentId'] as String;
-     
+
         return parentId;
       }
 
-   
       return ''; // Couldn't find parent
     } catch (e) {
-    
       return '';
     }
   }
 
-Future<void> updateAssignedCBT(AssignedCBT assigned) async {
-  if (_cbtBox == null) await initHive();
-  await _cbtBox?.put(assigned.id, assigned);
+  Future<void> updateAssignedCBT(AssignedCBT assigned) async {
+    if (_cbtBox == null) await initHive();
+    await _cbtBox?.put(assigned.id, assigned);
 
-  // Update local list too
-  final index = _assigned.indexWhere((a) => a.id == assigned.id);
-  if (index != -1) {
-    _assigned[index] = assigned;
-  } else {
-    _assigned.add(assigned);
+    // Update local list too
+    final index = _assigned.indexWhere((a) => a.id == assigned.id);
+    if (index != -1) {
+      _assigned[index] = assigned;
+    } else {
+      _assigned.add(assigned);
+    }
+
+    notifyListeners();
   }
 
-  notifyListeners();
-}
   Future<void> assignManualCBT(
     String therapistId,
     String childId,
@@ -371,7 +358,6 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
         : await _findRealParentId(childId);
 
     if (parentId.isEmpty) {
-   
       return;
     }
 
@@ -387,7 +373,6 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
     final docSnap = await docRef.get();
     if (docSnap.exists) {
       await docRef.delete();
-   
     }
 
     // 3️⃣ Remove locally
@@ -438,10 +423,8 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
 
       await docRef.update({'isApproved': true});
 
-  
       return true;
     } catch (e) {
-    
       return false;
     }
   }
@@ -454,7 +437,6 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
     final parentId = await _findParentIdForChild(childId);
 
     if (parentId == null) {
-   
       return;
     }
 
@@ -574,26 +556,21 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
 
   Future<void> syncPendingCompletions(String parentId, String childId) async {
     if (_pendingSync.isEmpty) {
-  
       return;
     }
 
     if (!await NetworkHelper.isOnline()) {
-  
       return;
     }
 
     _syncBox ??= await Hive.openBox('cbtSync');
     await loadLocalCBT(childId);
 
-  
-
     for (final id in List<String>.from(_pendingSync)) {
       AssignedCBT? assigned =
           _assigned.firstWhereOrNull((c) => c.id == id) ?? _cbtBox?.get(id);
 
       if (assigned == null) {
-    
         _pendingSync.remove(id);
         await _syncBox!.put('pendingSync', _pendingSync.toList());
         continue;
@@ -609,7 +586,6 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
 
       final docSnap = await docRef.get();
       if (!docSnap.exists) {
-       
         await docRef.set(assigned.toMap());
       }
 
@@ -617,7 +593,6 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
 
       _pendingSync.remove(id);
       await _syncBox!.put('pendingSync', _pendingSync.toList());
-   
     }
   }
 
@@ -629,7 +604,6 @@ Future<void> updateAssignedCBT(AssignedCBT assigned) async {
     ) async {
       if (result != ConnectivityResult.none) {
         if (_lastParentId != null && _lastChildId != null) {
-        
           await syncPendingCompletions(_lastParentId!, _lastChildId!);
         }
       }
