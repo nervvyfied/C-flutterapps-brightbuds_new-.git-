@@ -7,8 +7,8 @@ import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 class ParentTaskListScreen extends StatefulWidget {
@@ -74,7 +74,8 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
       listen: false,
     );
     _taskProvider = Provider.of<TaskProvider>(context, listen: false);
-
+    _taskProvider.removeListener(_checkForRejectedTasks);
+    _taskProvider.addListener(_checkForRejectedTasks);
     // Listen for changes in selected child
     _selectedChildProv.removeListener(_loadTasksForSelectedChild);
     _selectedChildProv.addListener(_loadTasksForSelectedChild);
@@ -83,24 +84,145 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
     _loadTasksForSelectedChild();
   }
 
+  List<String> _shownRejectedTaskIds = [];
+  TextEditingController reasonController = TextEditingController();
+
+  void _showRejectedTasksModal(List<TaskModel> rejectedTasks) {
+    if (!mounted || rejectedTasks.isEmpty) return;
+
+    _isRejectModalShowing = true; // mark modal as showing
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Rejected Quests"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: rejectedTasks.length,
+            itemBuilder: (context, index) {
+              final task = rejectedTasks[index];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "📌 Task Name: ${task.name}",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "Reason: ${task.rejectionReason ?? 'No reason provided'}",
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              if (!mounted) return;
+
+              // Close modal immediately
+              Navigator.pop(context);
+              _isRejectModalShowing = false;
+
+              // Clear rejection asynchronously
+              for (var task in rejectedTasks) {
+                FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(task.parentId)
+                    .collection('children')
+                    .doc(task.childId)
+                    .collection('tasks')
+                    .doc(task.id)
+                    .update({'rejectionReason': '', 'reminderMessage': ''})
+                    .catchError((e) {
+                  
+                    });
+              }
+            },
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    ).then((_) {
+      // Ensure flag is reset if modal dismissed by tapping outside
+      _isRejectModalShowing = false;
+    });
+  }
+
+  bool _isRejectModalShowing = false;
+  void _checkForRejectedTasks() {
+    if (!mounted) return;
+
+    final childId = _selectedChildProv.selectedChild?['cid'];
+    if (childId == null) return;
+
+    final rejectedTasks = _taskProvider.tasks
+        .where(
+          (t) =>
+              t.childId == childId &&
+              t.isAccepted == false &&
+              t.rejectionReason != null &&
+              t.rejectionReason!.isNotEmpty &&
+              !_shownRejectedTaskIds.contains(t.id),
+        )
+        .toList();
+
+    if (rejectedTasks.isNotEmpty && !_isRejectModalShowing) {
+      _isRejectModalShowing = true;
+
+      // Mark as shown
+      _shownRejectedTaskIds.addAll(rejectedTasks.map((t) => t.id));
+
+      // 🔥 SHOW MODAL IN NEXT FRAME (prevents context errors)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showRejectedTasksModal(rejectedTasks);
+      });
+    }
+  }
+
+  // Then, call this inside didChangeDependencies after loading tasks:
   void _loadTasksForSelectedChild() {
     if (!mounted) return;
 
     final childId = _selectedChildProv.selectedChild?['cid'];
     if (childId == null) return;
 
-    final taskProvider =
-        _taskProvider; // already cached in didChangeDependencies
-
     Future.microtask(() async {
       if (!mounted) return;
       try {
-        await taskProvider.loadTasks(
+        await _taskProvider.loadTasks(
           parentId: widget.parentId,
-          childId: childId, // <-- important
+          childId: childId,
         );
+
+        // Show rejected tasks modal if any
+        final rejectedTasks = _taskProvider.tasks
+            .where(
+              (t) =>
+                  t.childId == childId &&
+                  t.isAccepted == false &&
+                  t.rejectionReason != null &&
+                  t.rejectionReason!.isNotEmpty,
+            )
+            .toList();
+
+        if (rejectedTasks.isNotEmpty) {
+          _showRejectedTasksModal(rejectedTasks);
+        }
       } catch (e) {
-        if (mounted) debugPrint("Error loading tasks: $e");
+        if (mounted){
+          
+        }
       }
     });
   }
@@ -365,6 +487,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                           childId: task.childId,
                           reason: reason,
                           reminder: reminder,
+                          showToChild: true,
                         );
 
                         Navigator.pop(context); // close reject modal
@@ -478,7 +601,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
               } else if (task.isDone) {
                 cardColor = const Color.fromARGB(255, 255, 234, 141); // Yellow
               } else if (task.isAccepted == false) {
-                cardColor = const Color.fromARGB(255, 255, 182, 182); // Red
+                cardColor = const Color.fromARGB(255, 255, 255, 255); // White
               }
 
               final auth = context.read<AuthProvider>();
@@ -570,9 +693,9 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                         )
                       else if (task.isAccepted == false)
                         const Text(
-                          "❌ Not Accepted",
+                          "⏳ For Review",
                           style: TextStyle(
-                            color: Colors.red,
+                            color: Colors.blue,
                             fontWeight: FontWeight.bold,
                           ),
                         )
@@ -1045,7 +1168,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               : widget
                                     .therapistId; // keep existing if parent creates
 
-                          final task = TaskModel(
+                          final _ = TaskModel(
                             id:
                                 widget.task?.id ??
                                 DateTime.now().millisecondsSinceEpoch

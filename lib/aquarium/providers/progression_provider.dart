@@ -3,10 +3,8 @@ import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
 import 'package:brightbuds_new/aquarium/progression/unlock_resolver.dart';
 import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../models/fish_definition.dart';
 import '../models/decor_definition.dart';
 

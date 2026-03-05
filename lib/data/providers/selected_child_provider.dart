@@ -25,15 +25,13 @@ class SelectedChildProvider extends ChangeNotifier {
   }
 
    void setSelectedChild(Map<String, dynamic>? child) {
-    debugPrint(
-      "👶 Setting selected child: ${child?['name']} (${child?['cid']})",
-    );
+  
 
     // Validate the child data
     if (child != null) {
       final childId = child['cid']?.toString();
       if (childId == null || childId.isEmpty) {
-        debugPrint("⚠️ Invalid child ID in setSelectedChild");
+      
         _selectedChild = null;
       } else {
         _selectedChild = child;
@@ -53,7 +51,7 @@ class SelectedChildProvider extends ChangeNotifier {
   /// Update specific fields of the selected child
   void updateSelectedChild(Map<String, dynamic> updatedFields) {
     if (_selectedChild == null) {
-      debugPrint('⚠️ updateSelectedChild called but no child selected');
+     
       return;
     }
   }

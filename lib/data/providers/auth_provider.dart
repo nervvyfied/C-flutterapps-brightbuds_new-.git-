@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/services/firestore_service.dart';
 import 'package:brightbuds_new/main.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistVerification_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -47,8 +45,6 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _init() async {
     if (_isInitialized) return;
 
-    debugPrint('=== AuthProvider Initializing ===');
-
     try {
       // 1️⃣ Ensure Hive boxes are open
       await _ensureBoxesOpen();
@@ -63,9 +59,7 @@ class AuthProvider extends ChangeNotifier {
       await _setupFcm();
 
       _isInitialized = true;
-      debugPrint('✅ AuthProvider initialized successfully');
     } catch (e, st) {
-      debugPrint('❌ AuthProvider initialization failed: $e\n$st');
       _safeSetLoading(false);
     }
   }
@@ -92,10 +86,7 @@ class AuthProvider extends ChangeNotifier {
       } else {
         _therapistBox = Hive.box<TherapistUser>('therapistBox');
       }
-
-      debugPrint('✅ Hive boxes opened successfully');
     } catch (e) {
-      debugPrint('❌ Error opening Hive boxes: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -123,27 +114,23 @@ class AuthProvider extends ChangeNotifier {
       if (cachedTherapist != null) {
         currentUserModel = cachedTherapist;
         firebaseUser = null;
-        debugPrint(
-          '👨‍⚕️ Loaded therapist from cache: ${cachedTherapist.name}',
-        );
+
         _safeNotifyListeners();
       } else if (cachedParent != null) {
         currentUserModel = cachedParent;
         firebaseUser = null;
-        debugPrint('👤 Loaded parent from cache: ${cachedParent.name}');
+
         _safeNotifyListeners();
       } else if (cachedChild != null) {
         currentUserModel = cachedChild;
         firebaseUser = null;
-        debugPrint('📱 Loaded child from cache: ${cachedChild.name}');
+
         _safeNotifyListeners();
       }
 
       // 2️⃣ Check Firebase auth state (async, won't block UI)
       final fbUser = _auth.currentUser;
       if (fbUser != null) {
-        debugPrint('🔥 Firebase user found: ${fbUser.uid}');
-
         WidgetsBinding.instance.addPostFrameCallback((_) async {
           try {
             // Fetch Therapist first
@@ -155,7 +142,7 @@ class AuthProvider extends ChangeNotifier {
               firebaseUser = fbUser;
               // Clear other boxes to prevent conflicts
               await _clearAllCacheExcept('therapist', therapist.uid);
-              debugPrint('✅ Restored therapist session: ${therapist.name}');
+
               _safeNotifyListeners();
               await _safeSaveFcmToken();
               return;
@@ -168,18 +155,15 @@ class AuthProvider extends ChangeNotifier {
               firebaseUser = fbUser;
               // Clear other boxes to prevent conflicts
               await _clearAllCacheExcept('parent', parent.uid);
-              debugPrint('✅ Restored parent session: ${parent.name}');
+
               _safeNotifyListeners();
               await _safeSaveFcmToken();
               return;
             }
 
-            // No user found
-            debugPrint('⚠️ No user found in Firestore for UID: ${fbUser.uid}');
             currentUserModel = null;
             await _auth.signOut();
           } catch (e) {
-            debugPrint('⚠️ Background session restore failed: $e');
           } finally {
             _safeSetLoading(false);
           }
@@ -188,7 +172,6 @@ class AuthProvider extends ChangeNotifier {
         _safeSetLoading(false);
       }
     } catch (e, st) {
-      debugPrint("❌ Error loading initial state: $e\n$st");
       currentUserModel = null;
       firebaseUser = null;
       _safeSetLoading(false);
@@ -233,9 +216,7 @@ class AuthProvider extends ChangeNotifier {
           await _parentBox?.clear();
           break;
       }
-    } catch (e) {
-      debugPrint('⚠️ Error clearing cache: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> _onAuthStateChanged(User? user) async {
@@ -244,14 +225,8 @@ class AuthProvider extends ChangeNotifier {
     _trackOperation(operationId);
 
     try {
-      debugPrint('=== Auth State Changed ===');
-      debugPrint('Previous firebaseUser: ${firebaseUser?.uid}');
-      debugPrint('New firebaseUser: ${user?.uid}');
-      debugPrint('Current user model type: ${currentUserModel?.runtimeType}');
-
       // If same user, skip
       if (user?.uid == firebaseUser?.uid && currentUserModel != null) {
-        debugPrint('⚠️ Same user, skipping update');
         return;
       }
 
@@ -269,8 +244,6 @@ class AuthProvider extends ChangeNotifier {
 
       // If signed in, fetch the new user's data
       if (user != null) {
-        debugPrint('🔥 User signed in: ${user.uid}');
-
         // Fetch Therapist first
         final therapist = await _userRepo.fetchTherapistAndCache(user.uid);
         if (therapist != null) {
@@ -292,14 +265,11 @@ class AuthProvider extends ChangeNotifier {
         }
 
         // No user found in Firestore
-        debugPrint('⚠️ No user found in Firestore for UID: ${user.uid}');
+
         currentUserModel = null;
         _safeNotifyListeners();
-      } else {
-        debugPrint('👋 User signed out');
-      }
+      } else {}
     } catch (e, st) {
-      debugPrint("❌ Auth state handling failed: $e\n$st");
       currentUserModel = null;
       _safeNotifyListeners();
     } finally {
@@ -313,27 +283,18 @@ class AuthProvider extends ChangeNotifier {
       await _parentBox?.clear();
       await _childBox?.clear();
       await _therapistBox?.clear();
-      debugPrint('✅ All caches cleared');
-    } catch (e) {
-      debugPrint('⚠️ Error clearing caches: $e');
-    }
+    } catch (e) {}
   }
 
   // ---------------- SAFE STATE MANAGEMENT ----------------
   void _trackOperation(String operationId) {
     if (_isDisposed) return;
     _activeOperations.add(operationId);
-    debugPrint(
-      '▶️ Started operation: $operationId (Active: ${_activeOperations.length})',
-    );
   }
 
   void _untrackOperation(String operationId) {
     if (_isDisposed) return;
     _activeOperations.remove(operationId);
-    debugPrint(
-      '⏹️ Finished operation: $operationId (Active: ${_activeOperations.length})',
-    );
   }
 
   void _safeSetLoading(bool value) {
@@ -349,34 +310,34 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       // Ignore errors when notifying disposed listeners
-      debugPrint('⚠️ Failed to notify listeners (may be disposed): $e');
     }
   }
 
-  // ---------------- PARENT METHODS ----------------
   Future<void> signUpParent(String name, String email, String password) async {
     final operationId = 'signUpParent';
     _trackOperation(operationId);
 
-    debugPrint('=== Signing up parent: $email ===');
     try {
       final parent = await _auth.signUpParent(name, email, password);
+
       if (parent != null) {
         firebaseUser = _auth.currentUser;
 
         if (firebaseUser != null && !firebaseUser!.emailVerified) {
           await firebaseUser!.sendEmailVerification();
-          currentUserModel = parent;
-          await _clearAllCacheExcept('parent', parent.uid);
+
+          await _auth.signOut();
+
+          firebaseUser = null;
+          currentUserModel = null;
+
           _safeNotifyListeners();
-          debugPrint('✅ Parent signed up, verification email sent');
           return;
         }
 
         await _saveParentSession(parent);
       }
     } catch (e) {
-      debugPrint('❌ Parent signup failed: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -388,8 +349,6 @@ class AuthProvider extends ChangeNotifier {
     _trackOperation(operationId);
 
     try {
-      debugPrint('=== Logging in parent: $email ===');
-
       final parent = await _auth.loginParent(email, password);
       firebaseUser = _auth.currentUser;
 
@@ -405,10 +364,8 @@ class AuthProvider extends ChangeNotifier {
         }
 
         await _saveParentSession(parent);
-        debugPrint('✅ Parent logged in: ${parent.name}');
       }
     } catch (e) {
-      debugPrint('❌ Parent login failed: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -420,8 +377,6 @@ class AuthProvider extends ChangeNotifier {
     _trackOperation(operationId);
 
     try {
-      debugPrint('=== Parent Google sign-in ===');
-
       final parent = await _auth.signInParentWithGoogle();
       firebaseUser = _auth.currentUser;
 
@@ -433,10 +388,8 @@ class AuthProvider extends ChangeNotifier {
         }
 
         await _saveParentSession(parent);
-        debugPrint('✅ Parent Google sign-in successful: ${parent.name}');
       }
     } catch (e) {
-      debugPrint('❌ Parent Google sign-in failed: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -447,7 +400,6 @@ class AuthProvider extends ChangeNotifier {
     final operationId = 'saveParentSession';
     _trackOperation(operationId);
 
-    debugPrint('=== Saving parent session ===');
     currentUserModel = parent;
     firebaseUser = _auth.currentUser;
     await _clearAllCacheExcept('parent', parent.uid);
@@ -456,7 +408,6 @@ class AuthProvider extends ChangeNotifier {
     await _safeSaveFcmToken();
 
     _safeNotifyListeners();
-    debugPrint('✅ Parent session saved: ${parent.name}');
 
     _untrackOperation(operationId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -473,7 +424,6 @@ class AuthProvider extends ChangeNotifier {
     final operationId = 'signUpTherapist';
     _trackOperation(operationId);
 
-    debugPrint('=== Signing up therapist: $email ===');
     try {
       final therapist = await _auth.signUpTherapist(name, email, password);
       if (therapist != null) {
@@ -484,14 +434,13 @@ class AuthProvider extends ChangeNotifier {
           currentUserModel = therapist;
           await _clearAllCacheExcept('therapist', therapist.uid);
           _safeNotifyListeners();
-          debugPrint('✅ Therapist signed up, verification email sent');
+
           return;
         }
 
         await _saveTherapistSession(therapist);
       }
     } catch (e) {
-      debugPrint('❌ Therapist signup failed: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -499,13 +448,11 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // In your existing loginTherapist method (around line 420), update it:
-   Future<void> loginTherapist(String email, String password) async {
+  Future<void> loginTherapist(String email, String password) async {
     final operationId = 'loginTherapist';
     _trackOperation(operationId);
 
     try {
-      debugPrint('=== Logging in therapist: $email ===');
-
       // Login via AuthService
       final therapist = await _auth.loginTherapist(email, password);
       firebaseUser = _auth.currentUser;
@@ -516,30 +463,28 @@ class AuthProvider extends ChangeNotifier {
             .collection('therapists')
             .doc(firebaseUser!.uid)
             .get();
-      // 🔒 Only allow login if therapist.isVerified is true
-      if (therapist != null && therapist.isVerified != true) {
-        await _auth.signOut();
-        throw Exception(
-          "Your therapist account is pending verification. Please wait for approval.",
-        );
-      }
-
-      if (therapist != null) {
-        // Role check
-        final isActuallyTherapist = await _userRepo.isTherapist(
-          firebaseUser!.uid,
-        );
-        if (!isActuallyTherapist) {
+        // 🔒 Only allow login if therapist.isVerified is true
+        if (therapist != null && therapist.isVerified != true) {
           await _auth.signOut();
-          throw Exception("This account is not a therapist account.");
+          throw Exception(
+            "Your therapist account is pending verification. Please wait for approval.",
+          );
         }
 
-        await _saveTherapistSession(therapist);
-        debugPrint('✅ Therapist logged in: ${therapist.name}');
+        if (therapist != null) {
+          // Role check
+          final isActuallyTherapist = await _userRepo.isTherapist(
+            firebaseUser!.uid,
+          );
+          if (!isActuallyTherapist) {
+            await _auth.signOut();
+            throw Exception("This account is not a therapist account.");
+          }
+
+          await _saveTherapistSession(therapist);
+        }
       }
-    } 
-    }catch (e) {
-      debugPrint('❌ Therapist login failed: $e');
+    } catch (e) {
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -551,8 +496,6 @@ class AuthProvider extends ChangeNotifier {
     _trackOperation(operationId);
 
     try {
-      debugPrint('=== Therapist Google sign-in ===');
-
       final therapist = await _auth.signInTherapistWithGoogle();
       firebaseUser = _auth.currentUser;
 
@@ -589,10 +532,8 @@ class AuthProvider extends ChangeNotifier {
         }
 
         await _saveTherapistSession(therapist);
-        debugPrint('✅ Therapist Google sign-in successful: ${therapist.name}');
       }
     } catch (e) {
-      debugPrint('❌ Therapist Google sign-in failed: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -614,7 +555,6 @@ class AuthProvider extends ChangeNotifier {
         await updateCurrentUserModel(therapist);
       }
     } catch (e) {
-      debugPrint('Link failed: $e');
       rethrow;
     }
   }
@@ -631,8 +571,6 @@ class AuthProvider extends ChangeNotifier {
 
       await _safeSaveFcmToken();
       _safeNotifyListeners();
-
-      debugPrint('✅ Therapist session saved: ${therapist.name}');
     } finally {
       _untrackOperation(operationId);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -646,10 +584,8 @@ class AuthProvider extends ChangeNotifier {
     final operationId = 'addChild';
     _trackOperation(operationId);
 
-    debugPrint('=== Adding child: $name ===');
     try {
       if (currentUserModel == null || currentUserModel is! ParentUser) {
-        debugPrint('❌ Cannot add child: Not logged in as parent');
         return null;
       }
 
@@ -678,8 +614,6 @@ class AuthProvider extends ChangeNotifier {
           currentUserModel = updatedParent;
           await _clearAllCacheExcept('parent', updatedParent.uid);
         }
-
-        debugPrint('✅ Child added: ${createdChild.name}, Code: $code');
       }
 
       return createdChild;
@@ -692,7 +626,6 @@ class AuthProvider extends ChangeNotifier {
     final operationId = 'loginChild';
     _trackOperation(operationId);
 
-    debugPrint('=== Logging in child with code: $accessCode ===');
     try {
       final child = await _auth.childLogin(accessCode);
       currentUserModel = child;
@@ -707,9 +640,7 @@ class AuthProvider extends ChangeNotifier {
       await _safeSaveFcmToken();
 
       _safeNotifyListeners();
-      debugPrint('✅ Child logged in: ${child.name}');
     } catch (e) {
-      debugPrint('❌ Child login failed: $e');
       rethrow;
     } finally {
       _untrackOperation(operationId);
@@ -723,8 +654,6 @@ class AuthProvider extends ChangeNotifier {
     _isSigningOut = true;
 
     try {
-      debugPrint('=== Signing out user ===');
-
       // Save reference to current user for FCM removal
       final userToSignOut = currentUserModel;
 
@@ -732,15 +661,12 @@ class AuthProvider extends ChangeNotifier {
       try {
         if (userToSignOut != null) {
           await _safeRemoveFcmToken(userToSignOut);
-          debugPrint('✅ FCM token removed');
         }
-      } catch (e) {
-        debugPrint('⚠️ Failed to remove FCM token: $e');
-      }
+      } catch (e) {}
 
       // 2. Clear ALL local caches before Firebase operations
       await _clearAllCaches();
-      debugPrint('✅ Local caches cleared');
+
       try {
         final context = navigatorKey.currentContext;
         if (context != null) {
@@ -752,36 +678,26 @@ class AuthProvider extends ChangeNotifier {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.clear();
-        debugPrint('✅ SharedPreferences cleared');
-      } catch (e) {
-        debugPrint('⚠️ Failed to clear SharedPreferences: $e');
-      }
+      } catch (e) {}
 
       // 4. Sign out Google if needed
       try {
         final googleSignIn = GoogleSignIn();
         if (await googleSignIn.isSignedIn()) {
           await googleSignIn.signOut();
-          debugPrint('✅ Signed out from Google');
         }
-      } catch (e) {
-        debugPrint('⚠️ Google sign-out failed: $e');
-      }
+      } catch (e) {}
 
       // 5. Sign out Firebase - DO NOT clear persistence, just sign out
       try {
         await _auth.signOut();
-        debugPrint('✅ Signed out from Firebase Auth');
-      } catch (e) {
-        debugPrint('⚠️ Firebase sign-out failed: $e');
-      }
+      } catch (e) {}
 
       // 6. Reset all state variables
       currentUserModel = null;
       firebaseUser = null;
 
       _safeNotifyListeners();
-      debugPrint('✅ Sign-out completed fully');
     } finally {
       _isSigningOut = false;
     }
@@ -812,10 +728,6 @@ class AuthProvider extends ChangeNotifier {
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null) return;
 
-      debugPrint(
-        '🗑️ Removing FCM token: $token for ${currentUser.runtimeType}',
-      );
-
       if (currentUser is ParentUser) {
         await FirebaseFirestore.instance
             .collection('users')
@@ -840,10 +752,7 @@ class AuthProvider extends ChangeNotifier {
               'fcmTokens': FieldValue.arrayRemove([token]),
             });
       }
-
-      debugPrint('✅ FCM token removed successfully');
     } catch (e, stack) {
-      debugPrint('⚠️ Failed to remove FCM token: $e\n$stack');
     } finally {
       _untrackOperation(operationId);
     }
@@ -854,23 +763,17 @@ class AuthProvider extends ChangeNotifier {
     final operationId = 'updateCurrentUserModel';
     _trackOperation(operationId);
 
-    debugPrint('=== Updating user model ===');
-
     try {
       if (updatedUser is ParentUser) {
         currentUserModel = updatedUser;
         await _clearAllCacheExcept('parent', updatedUser.uid);
-        debugPrint('✅ Updated parent: ${updatedUser.name}');
       } else if (updatedUser is ChildUser) {
         currentUserModel = updatedUser;
         await _clearAllCacheExcept('child', updatedUser.cid);
-        debugPrint('✅ Updated child: ${updatedUser.name}');
       } else if (updatedUser is TherapistUser) {
         currentUserModel = updatedUser;
         await _clearAllCacheExcept('therapist', updatedUser.uid);
-        debugPrint('✅ Updated therapist: ${updatedUser.name}');
       } else {
-        debugPrint('⚠️ Unknown user type for update');
         return;
       }
 
@@ -893,7 +796,6 @@ class AuthProvider extends ChangeNotifier {
       _fcmTokenRefreshSub = FirebaseMessaging.instance.onTokenRefresh.listen((
         newToken,
       ) async {
-        debugPrint('🔄 FCM token refreshed: $newToken');
         if (isLoggedIn && !_isDisposed) {
           await _safeSaveFcmToken();
         }
@@ -903,10 +805,7 @@ class AuthProvider extends ChangeNotifier {
       if (isLoggedIn) {
         await _safeSaveFcmToken();
       }
-
-      debugPrint('✅ FCM setup completed');
     } catch (e, stack) {
-      debugPrint('❌ FCM setup failed: $e\n$stack');
     } finally {
       _untrackOperation(operationId);
     }
@@ -921,13 +820,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null) {
-        debugPrint('⚠️ No FCM token available');
         return;
       }
-
-      debugPrint(
-        '📱 Saving FCM token: $token for ${currentUserModel?.runtimeType}',
-      );
 
       final timestamp = FieldValue.serverTimestamp();
 
@@ -942,7 +836,6 @@ class AuthProvider extends ChangeNotifier {
               'fcmTokenUpdatedAt': timestamp,
               'lastSeen': timestamp,
             });
-        debugPrint('✅ Parent FCM token saved: $token');
       } else if (currentUserModel is ChildUser) {
         final child = currentUserModel as ChildUser;
         await FirebaseFirestore.instance
@@ -956,7 +849,6 @@ class AuthProvider extends ChangeNotifier {
               'fcmTokenUpdatedAt': timestamp,
               'lastSeen': timestamp,
             }, SetOptions(merge: true));
-        debugPrint('✅ Child FCM token saved: $token');
       } else if (currentUserModel is TherapistUser) {
         final therapist = currentUserModel as TherapistUser;
         await FirebaseFirestore.instance
@@ -968,12 +860,8 @@ class AuthProvider extends ChangeNotifier {
               'fcmTokenUpdatedAt': timestamp,
               'lastSeen': timestamp,
             });
-        debugPrint('✅ Therapist FCM token saved: $token');
-      } else {
-        debugPrint('⚠️ Unknown user type, cannot save FCM token');
-      }
+      } else {}
     } catch (e, stack) {
-      debugPrint('❌ Failed to save FCM token: $e\n$stack');
     } finally {
       _untrackOperation(operationId);
     }
@@ -1064,9 +952,7 @@ class AuthProvider extends ChangeNotifier {
       if (refreshedTherapist != null) {
         await updateCurrentUserModel(refreshedTherapist);
       }
-    } catch (e) {
-      debugPrint('Error refreshing therapist data: $e');
-    }
+    } catch (e) {}
   }
 
   Future<void> saveParentAfterVerification(ParentUser parent) async {
@@ -1094,9 +980,6 @@ class AuthProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    debugPrint('=== Disposing AuthProvider ===');
-    debugPrint('Active operations on dispose: ${_activeOperations.length}');
-
     _isDisposed = true;
 
     // Cancel all listeners

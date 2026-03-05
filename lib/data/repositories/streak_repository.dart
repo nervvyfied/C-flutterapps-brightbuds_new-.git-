@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 
 class StreakRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -18,7 +17,7 @@ class StreakRepository {
       final snapshot = await transaction.get(taskRef);
 
       if (!snapshot.exists) {
-        debugPrint("Task $taskId does not exist for child $childId.");
+     
         return;
       }
 
@@ -56,7 +55,7 @@ class StreakRepository {
         'lastUpdated': Timestamp.fromDate(today),
       });
     }).catchError((e) {
-      debugPrint("Failed to update streak for task $taskId: $e");
+     
     });
   }
 }

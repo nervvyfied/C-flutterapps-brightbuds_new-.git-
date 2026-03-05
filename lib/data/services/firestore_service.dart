@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
 import '/data/models/therapist_model.dart';
@@ -186,7 +185,7 @@ class FirestoreService {
   Future<Map<String, dynamic>?> findParentAndChildByAccessCode(
     String accessCode,
   ) async {
-    debugPrint('🔍 Finding parent and child by access code: $accessCode');
+  
 
     try {
       // Query all parents
@@ -198,7 +197,7 @@ class FirestoreService {
           parentData['childrenAccessCodes'] ?? {},
         );
 
-        debugPrint('Checking parent ${parentDoc.id}: $childrenAccessCodes');
+    
 
         // Look for the access code in this parent's children
         String? foundChildId;
@@ -230,10 +229,10 @@ class FirestoreService {
         }
       }
 
-      debugPrint('❌ No parent or child found for access code: $accessCode');
+    
       return null;
     } catch (e) {
-      debugPrint('❌ Error finding parent and child by access code: $e');
+    
       return null;
     }
   }
@@ -243,9 +242,7 @@ class FirestoreService {
     required String accessCode,
     required String therapistUid,
   }) async {
-    debugPrint(
-      '🔗 Linking child with access code: $accessCode to therapist: $therapistUid',
-    );
+   
 
     try {
       // 1️⃣ Find parent and child using the access code
@@ -261,7 +258,7 @@ class FirestoreService {
       final foundChildId = parentChildInfo['childId'] as String;
       final childData = parentChildInfo['childData'] as Map<String, dynamic>?;
 
-      debugPrint('✅ Found child: $foundChildId under parent: $foundParentUid');
+    
 
       // 2️⃣ Check if child is already linked to another therapist
       if (childData != null) {
@@ -284,8 +281,7 @@ class FirestoreService {
       }
 
       final childName = childData['name']?.toString() ?? 'Unknown';
-      debugPrint('📋 Child details: $childName ($foundChildId)');
-
+    
       // 4️⃣ Update child document with therapist UID
       final childRef = _db
           .collection('users')
@@ -297,7 +293,7 @@ class FirestoreService {
         'therapistUid': therapistUid,
         'linkedAt': FieldValue.serverTimestamp(),
       });
-      debugPrint('✅ Updated child with therapist UID');
+   
 
       // 5️⃣ Update therapist document - GET current data first
       final therapistRef = _db.collection('therapists').doc(therapistUid);
@@ -320,11 +316,9 @@ class FirestoreService {
           await therapistRef.update({
             'childrenAccessCodes': existingAccessCodes,
           });
-          debugPrint('✅ Added access code $accessCode to therapist\'s array');
+      
         } else {
-          debugPrint(
-            'ℹ️ Access code $accessCode already exists in therapist\'s array',
-          );
+         
         }
       } else {
         // CASE 2: It's a map with child data (backward compatibility)
@@ -343,12 +337,10 @@ class FirestoreService {
         await therapistRef.set({
           'childrenAccessCodes': existingTherapistChildren,
         }, SetOptions(merge: true));
-        debugPrint('✅ Added child $foundChildId to therapist\'s map structure');
+     
       }
 
-      debugPrint(
-        '✅ Successfully linked child "$childName" ($foundChildId) to therapist $therapistUid',
-      );
+     
 
       // 6️⃣ Optional: Send notification to parent
       await _sendLinkNotificationToParent(
@@ -357,7 +349,7 @@ class FirestoreService {
         therapistUid,
       );
     } catch (e) {
-      debugPrint('❌ Failed to link child: $e');
+  
       rethrow;
     }
   }
@@ -392,7 +384,7 @@ class FirestoreService {
       }
       return false;
     } catch (e) {
-      debugPrint('❌ Error checking if access code is linked: $e');
+  
       return false;
     }
   }
@@ -431,9 +423,9 @@ class FirestoreService {
         'read': false,
       });
 
-      debugPrint('📬 Sent link notification to parent: $parentUid');
+   
     } catch (e) {
-      debugPrint('⚠️ Failed to send notification to parent: $e');
+ 
     }
   }
 
@@ -523,7 +515,7 @@ Future<List<Map<String, dynamic>>> getTherapistAssignedChildren(
           .doc(therapistUid)
           .get();
       if (!therapistDoc.exists) {
-        debugPrint('❌ Therapist document not found: $therapistUid');
+    
         return [];
       }
 
@@ -610,12 +602,10 @@ Future<List<Map<String, dynamic>>> getTherapistAssignedChildren(
         }
       }
 
-      debugPrint(
-        '✅ Found ${childrenWithDetails.length} children for therapist',
-      );
+     
       return childrenWithDetails;
     } catch (e, st) {
-      debugPrint('❌ Error getting therapist children with details: $e\n$st');
+ 
       return [];
     }
   }
@@ -669,11 +659,9 @@ Future<List<Map<String, dynamic>>> getTherapistAssignedChildren(
         }
       });
 
-      debugPrint(
-        '✅ Successfully unlinked child $childId from therapist $therapistUid',
-      );
+    
     } catch (e) {
-      debugPrint('❌ Error unlinking child: $e');
+
       rethrow;
     }
   }
@@ -708,7 +696,7 @@ Future<List<Map<String, dynamic>>> getTherapistAssignedChildren(
       }
       return [];
     } catch (e) {
-      debugPrint('❌ Error getting therapist access codes: $e');
+    
       return [];
     }
   }
@@ -739,7 +727,7 @@ Future<List<Map<String, dynamic>>> getTherapistAssignedChildren(
         'linkedTherapistUid': childData?['therapistUid']?.toString(),
       };
     } catch (e) {
-      debugPrint('❌ Error getting child by access code: $e');
+     
       return null;
     }
   }

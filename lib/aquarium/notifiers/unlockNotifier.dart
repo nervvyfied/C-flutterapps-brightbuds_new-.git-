@@ -1,7 +1,4 @@
 import 'package:flutter/material.dart';
-import '../models/fish_definition.dart';
-import '../models/decor_definition.dart';
-import '../models/achievement_definition.dart';
 
 /// Holds the latest unlocked item (Fish, Decor, or Achievement) for dialogs
 class UnlockNotifier extends ChangeNotifier {

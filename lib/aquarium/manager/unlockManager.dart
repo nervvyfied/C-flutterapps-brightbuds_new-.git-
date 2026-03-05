@@ -2,7 +2,6 @@ import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
 import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
 import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:brightbuds_new/data/repositories/user_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -83,7 +82,7 @@ class UnlockManager extends ChangeNotifier {
       });
 
       notifyListeners();
-      debugPrint('✅ Unlock triggered: ${_lastFishUnlocked?.name ?? _lastDecorUnlocked?.name}');
+   
     }
   }
 

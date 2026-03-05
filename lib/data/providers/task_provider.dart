@@ -8,9 +8,7 @@ import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
 import 'package:brightbuds_new/notifications/fcm_service.dart';
 import 'package:brightbuds_new/notifications/notification_service.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/utils/network_helper.dart';
-import 'package:brightbuds_new/utils/xp_calculator.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show ScaffoldMessenger, Text, BuildContext, SnackBar, TimeOfDay;
@@ -79,7 +77,7 @@ class TaskProvider extends ChangeNotifier {
 
   void setCurrentUser(String uid, UserType type) {
     currentUser = CurrentUser(uid: uid, type: type);
-    debugPrint('👤 Current user set: $uid (${type.name})');
+  
   }
 
   void clearCurrentUser() {
@@ -143,7 +141,7 @@ class TaskProvider extends ChangeNotifier {
       notDone++;
 
       try {
-        final routineKey = (task.routine ?? 'anytime').toLowerCase().trim();
+        final routineKey = (task.routine).toLowerCase().trim();
         final end = routineEndTimes[routineKey];
 
         if (end != null && routineKey != 'anytime') {
@@ -186,9 +184,7 @@ class TaskProvider extends ChangeNotifier {
       if (fetchedParentId != null) {
         actualParentId = fetchedParentId;
       } else {
-        debugPrint(
-          '⚠️ Cannot subscribe: parentId not found for child $childId',
-        );
+      
         return;
       }
     }
@@ -258,13 +254,11 @@ class TaskProvider extends ChangeNotifier {
             ),
           );
           notifyListeners();
-          debugPrint(
-            '🔄 Tasks updated from Firestore. Count: ${_tasks.length}',
-          );
+         
         }
       },
       onError: (e) {
-        debugPrint('⚠️ Firestore subscription error: $e');
+      
       },
     );
   }
@@ -278,18 +272,16 @@ class TaskProvider extends ChangeNotifier {
     if (_hasCheckedDailyReset) return;
 
     try {
-      debugPrint('🚀 Checking for daily reset on app launch...');
+    
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final lastReset = await getLastResetDate();
 
-      debugPrint('📅 Last reset date: $lastReset');
-      debugPrint('📅 Today: $today');
-
+    
       // Case 1: First time ever running the app
       if (lastReset == null) {
-        debugPrint('🆕 First app launch - performing initial reset');
+       
         await resetDailyTasks();
         await setLastResetDate(today);
         _hasCheckedDailyReset = true;
@@ -304,23 +296,18 @@ class TaskProvider extends ChangeNotifier {
       );
 
       if (lastResetDay.isBefore(today)) {
-        debugPrint(
-          '🔄 New day detected! Last reset: $lastResetDay, Today: $today',
-        );
-        debugPrint('🔄 Performing daily reset on app launch...');
-
+      
         await resetDailyTasks();
         await setLastResetDate(today);
 
-        debugPrint('✅ Daily reset completed on app launch');
+      
       } else {
-        debugPrint('✅ Already reset today, no action needed');
+      
       }
 
       _hasCheckedDailyReset = true;
     } catch (e, stack) {
-      debugPrint('⚠️ Error in checkAndPerformDailyResetOnLaunch: $e');
-      debugPrint(stack.toString());
+     
     }
   }
 
@@ -333,7 +320,7 @@ class TaskProvider extends ChangeNotifier {
     // Check for daily reset immediately when Hive is initialized
     await checkAndPerformDailyResetOnLaunch();
 
-    debugPrint('📦 Hive initialized and daily reset checked');
+ 
   }
 
   // Also check when loading tasks (backup check)
@@ -364,9 +351,7 @@ class TaskProvider extends ChangeNotifier {
         if (fetchedParentId != null) {
           actualParentId = fetchedParentId;
         } else {
-          debugPrint(
-            '⚠️ Cannot load tasks: parentId not found for child $childId',
-          );
+        
           return;
         }
       }
@@ -398,10 +383,10 @@ class TaskProvider extends ChangeNotifier {
     try {
       currentChild = await _userRepo.fetchChildAndCacheById(childId);
       if (currentChild != null) {
-        debugPrint('👶 Current child loaded: ${currentChild!.name}');
+     
       }
     } catch (e) {
-      debugPrint('⚠️ Failed to load current child: $e');
+   
     }
   }
 
@@ -424,9 +409,7 @@ class TaskProvider extends ChangeNotifier {
         if (fetchedParentId != null) {
           actualParentId = fetchedParentId;
         } else {
-          debugPrint(
-            '⚠️ Cannot merge remote tasks: parentId not found for child $childId',
-          );
+         
           return;
         }
       }
@@ -465,9 +448,9 @@ class TaskProvider extends ChangeNotifier {
       _tasks = merged.values.toList();
       if (updated) notifyListeners();
 
-      debugPrint('✅ Remote tasks merged: ${remoteTasks.length}');
+    
     } catch (e) {
-      debugPrint('⚠️ Firestore fetch failed: $e');
+    
     }
   }
 
@@ -496,7 +479,7 @@ class TaskProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint('⚠️ Failed to fetch parentUid from therapist map: $e');
+     
     }
 
     return null;
@@ -562,7 +545,7 @@ class TaskProvider extends ChangeNotifier {
       // Sync to Firestore
       await _syncToFirestore(newTask, parentIdOverride: actualParentId);
     } catch (e) {
-      debugPrint("⚠️ Error adding task: $e");
+    
       _showSnackBar(context, "Failed to add task: ${e.toString()}");
     }
   }
@@ -611,13 +594,10 @@ class TaskProvider extends ChangeNotifier {
             actualParentId; // Ensure correct parentId in document
 
         await docRef.set(data, SetOptions(merge: true));
-        debugPrint(
-          '✅ Task synced to Firestore by $actorType ($actorId) under parent $actualParentId',
-        );
+       
       }
     } catch (e, stack) {
-      debugPrint('⚠️ Failed to sync task to Firestore: $e');
-      debugPrint(stack.toString());
+     
     }
   }
 
@@ -626,6 +606,7 @@ class TaskProvider extends ChangeNotifier {
     required String childId,
     required String reason,
     required String reminder,
+    required bool showToChild,
   }) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
     if (index == -1) return;
@@ -640,6 +621,7 @@ class TaskProvider extends ChangeNotifier {
       reminderMessage: reminder.isNotEmpty
           ? reminder
           : "Task was not verified. Reason: ${reason.isNotEmpty ? reason : 'No reason provided'}",
+      showToChild: true,
       lastUpdated: DateTime.now(),
     );
 
@@ -654,7 +636,40 @@ class TaskProvider extends ChangeNotifier {
 
     notifyListeners();
 
-    debugPrint("❌ Task '${task.name}' rejected and updated in Firestore");
+   
+  }
+
+  Future<void> rejectTaskWithMessageForParent({
+    required String taskId,
+    required String childId,
+    required String reason,
+    required bool showToChild,
+  }) async {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+
+    final task = _tasks[index];
+
+    // Update task locally
+    final updatedTask = task.copyWith(
+      isDone: false,
+      verified: false,
+      rejectionReason: reason.isNotEmpty ? reason : "No reason provided",
+      lastUpdated: DateTime.now(),
+      showToChild: false,
+    );
+
+    _tasks[index] = updatedTask;
+
+    // Save locally
+    await _taskBox?.put(updatedTask.id, updatedTask);
+
+    // Update backend / Firestore
+    await _taskRepo.updateTask(updatedTask);
+    await _syncToFirestore(updatedTask);
+
+    notifyListeners();
+
   }
 
   Future<void> acceptTask(String taskId, String childId) async {
@@ -668,6 +683,7 @@ class TaskProvider extends ChangeNotifier {
 
       // ✅ Create a new TaskModel with therapist acceptance
       final updatedTask = task.copyWith(
+        therapistId: currentUser?.uid,
         isAccepted: true,
         lastUpdated: DateTime.now(),
       );
@@ -675,39 +691,40 @@ class TaskProvider extends ChangeNotifier {
       // ✅ Use the centralized updateTask method
       await updateTask(updatedTask);
 
-      debugPrint('✅ Task accepted by therapist: ${task.name}');
+    
     } catch (e) {
-      debugPrint("⚠️ Error accepting task: $e");
+     
     }
   }
 
   // ---------------- UPDATE TASK ----------------
-  Future<void> updateTask(TaskModel updatedFields) async {
-    final index = _tasks.indexWhere((t) => t.id == updatedFields.id);
+  Future<void> updateTask(TaskModel updatedTask) async {
+    final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
     if (index == -1) return;
 
     final oldTask = _tasks[index];
 
-    // 🔐 Permission check
     if (!canManageTask(oldTask)) {
-      debugPrint('⚠️ User not allowed to update task ${oldTask.id}');
+     
       return;
     }
 
-    bool? updatedAcceptance = oldTask.isAccepted;
-
-    // ✅ ONLY therapist can approve
-    if (currentUser?.type == UserType.therapist) {
-      updatedAcceptance = updatedFields.isAccepted;
-    }
-
+    // 🔥 Merge properly — preserve everything unless explicitly changed
     final mergedTask = oldTask.copyWith(
-      name: updatedFields.name,
-      difficulty: updatedFields.difficulty,
-      reward: updatedFields.reward,
-      routine: updatedFields.routine,
-      alarm: updatedFields.alarm,
-      isAccepted: updatedAcceptance,
+      name: updatedTask.name,
+      difficulty: updatedTask.difficulty,
+      reward: updatedTask.reward,
+      routine: updatedTask.routine,
+      alarm: updatedTask.alarm ?? oldTask.alarm,
+      isAccepted: updatedTask.isAccepted ?? oldTask.isAccepted,
+      therapistId: updatedTask.therapistId,
+      verified: updatedTask.verified,
+      isDone: updatedTask.isDone,
+      rejectionReason: updatedTask.rejectionReason ?? oldTask.rejectionReason,
+      reminderMessage: updatedTask.reminderMessage ?? oldTask.reminderMessage,
+      parentId: oldTask.parentId,
+      creatorId: oldTask.creatorId,
+      creatorType: oldTask.creatorType,
       lastUpdated: DateTime.now(),
     );
 
@@ -737,7 +754,7 @@ class TaskProvider extends ChangeNotifier {
       }
     }
 
-    debugPrint('📝 Task updated: ${mergedTask.name}');
+
   }
 
   // ---------------- DELETE TASK ----------------
@@ -752,7 +769,7 @@ class TaskProvider extends ChangeNotifier {
     final task = _tasks[index];
 
     if (!canManageTask(task)) {
-      debugPrint('⚠️ User not allowed to delete task ${task.id}');
+   
       return;
     }
 
@@ -785,9 +802,9 @@ class TaskProvider extends ChangeNotifier {
           .collection('tasks')
           .doc(taskId)
           .delete();
-      debugPrint('🗑 Task deleted from Firestore: ${task.name}');
+     
     } catch (e) {
-      debugPrint('⚠️ Firestore deleteTask failed: $e');
+  
     }
 
     notifyListeners();
@@ -852,7 +869,7 @@ class TaskProvider extends ChangeNotifier {
     try {
       await _taskRepo.saveTask(updatedTask);
     } catch (e) {
-      debugPrint('⚠️ _taskRepo.saveTask failed (mark done): $e');
+   
     }
 
     notifyListeners();
@@ -873,14 +890,14 @@ class TaskProvider extends ChangeNotifier {
             childId: updatedTask.childId,
           );
         } catch (e) {
-          debugPrint('⚠️ syncAllPendingChanges failed (after mark done): $e');
+      
         }
-        debugPrint('✅ Task marked done and synced: ${updatedTask.name}');
+       
       } catch (e) {
-        debugPrint('⚠️ Firestore sync failed (mark done): $e');
+      
       }
     } else {
-      debugPrint('⚠️ Offline: will sync later (mark done).');
+     
     }
 
     // ✅ Update streak
@@ -950,7 +967,7 @@ class TaskProvider extends ChangeNotifier {
     try {
       await _taskRepo.saveTask(updatedTask);
     } catch (e) {
-      debugPrint('⚠️ _taskRepo.saveTask failed (mark undone): $e');
+    
     }
 
     notifyListeners();
@@ -966,14 +983,14 @@ class TaskProvider extends ChangeNotifier {
             childId: updatedTask.childId,
           );
         } catch (e) {
-          debugPrint('⚠️ syncAllPendingChanges failed (after mark undone): $e');
+        
         }
-        debugPrint('↩️ Task marked as undone and synced: ${updatedTask.name}');
+      
       } catch (e) {
-        debugPrint('⚠️ Failed to sync undone task: $e');
+    
       }
     } else {
-      debugPrint('⚠️ Offline: will sync undone task later.');
+    
     }
 
     // ✅ Clean duplicates and re-sort by lastUpdated
@@ -1010,7 +1027,7 @@ class TaskProvider extends ChangeNotifier {
         type: 'task_completed',
       );
     } catch (e) {
-      debugPrint('⚠️ Failed to notify parent: $e');
+    
     }
   }
 
@@ -1023,13 +1040,13 @@ class TaskProvider extends ChangeNotifier {
 
     // 🔒 Guard 1: Already verified → do nothing
     if (task.verified) {
-      debugPrint('⚠️ Task already verified, skipping XP grant');
+   
       return;
     }
 
     // 🔒 Guard 2: Task must be done first
     if (!task.isDone) {
-      debugPrint('⚠️ Cannot verify task that is not done');
+    
       return;
     }
 
@@ -1073,12 +1090,12 @@ class TaskProvider extends ChangeNotifier {
           childId: verifiedTask.childId,
         );
       } catch (e) {
-        debugPrint('⚠️ Firestore sync failed after verification: $e');
+       
       }
     }
     _checkAchievements(currentChild!);
 
-    debugPrint('✅ Task verified: ${verifiedTask.name}, XP granted: $earnedXP');
+ 
   }
 
   // ---------------- ALARMS ----------------
@@ -1111,9 +1128,7 @@ class TaskProvider extends ChangeNotifier {
       payload: task.id,
     );
 
-    debugPrint(
-      '✅ Alarm scheduled for "${task.name}" at ${scheduledDate.hour}:${scheduledDate.minute}',
-    );
+   
 
     await _sendFcmAlarm(task);
   }
@@ -1139,10 +1154,10 @@ class TaskProvider extends ChangeNotifier {
             'taskName': task.name,
           },
         );
-        debugPrint('📨 FCM alarm sent to child: ${task.name}');
+     
       }
     } catch (e) {
-      debugPrint('⚠️ Failed to send FCM alarm: $e');
+    
     }
   }
 
@@ -1239,7 +1254,7 @@ class TaskProvider extends ChangeNotifier {
       final lastReset = await getLastResetDate();
 
       if (lastReset == null) {
-        debugPrint('🆕 No last reset found — performing first daily reset...');
+      
         await resetDailyTasks();
         await setLastResetDate(today);
         return;
@@ -1252,19 +1267,14 @@ class TaskProvider extends ChangeNotifier {
       );
 
       if (lastResetDay.isBefore(today)) {
-        debugPrint(
-          '🔄 Auto-reset triggered — last reset was $lastResetDay, today is $today.',
-        );
+       
         await resetDailyTasks();
         await setLastResetDate(today);
       } else {
-        debugPrint(
-          '✅ Daily tasks already reset today (${lastResetDay.toLocal()}).',
-        );
+       
       }
     } catch (e, stack) {
-      debugPrint('❌ autoResetIfNeeded() failed: $e');
-      debugPrint(stack.toString());
+      
     }
   }
 
@@ -1285,13 +1295,13 @@ class TaskProvider extends ChangeNotifier {
       startDailyResetScheduler();
     });
 
-    debugPrint('⏰ Daily reset scheduled for ${nextMidnight.toLocal()}');
+   
   }
 
   void stopDailyResetScheduler() {
     _midnightTimer?.cancel();
     _midnightTimer = null;
-    debugPrint('⏹ Daily reset scheduler stopped');
+  
   }
 
   // ---------------- SYNC ----------------
@@ -1331,10 +1341,10 @@ class TaskProvider extends ChangeNotifier {
           token: parentToken,
           data: {'type': type, 'childName': childName, 'itemName': itemName},
         );
-        debugPrint('📨 FCM sent to parent: $childName completed $itemName');
+      
       }
     } catch (e) {
-      debugPrint('⚠️ Failed to send FCM to parent: $e');
+     
     }
   }
 

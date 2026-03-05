@@ -27,13 +27,16 @@ class AssignedCBTAdapter extends TypeAdapter<AssignedCBT> {
       source: fields[9] as String,
       completed: fields[5] as bool,
       lastCompleted: fields[6] as DateTime?,
+      isApproved: fields[10] as bool?,
+      isRequested: fields[11] as bool?,
+      isConfirmed: fields[12] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, AssignedCBT obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +56,13 @@ class AssignedCBTAdapter extends TypeAdapter<AssignedCBT> {
       ..writeByte(8)
       ..write(obj.assignedBy)
       ..writeByte(9)
-      ..write(obj.source);
+      ..write(obj.source)
+      ..writeByte(10)
+      ..write(obj.isApproved)
+      ..writeByte(11)
+      ..write(obj.isRequested)
+      ..writeByte(12)
+      ..write(obj.isConfirmed);
   }
 
   @override

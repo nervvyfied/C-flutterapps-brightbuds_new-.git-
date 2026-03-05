@@ -1,5 +1,4 @@
 import '../models/decor_definition.dart';
-import 'package:flutter/material.dart';
 
 class DecorCatalog {
   static final List<DecorDefinition> all = [

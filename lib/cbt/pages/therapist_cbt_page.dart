@@ -36,12 +36,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
   void initState() {
     super.initState();
 
-    // DEBUG: Verify we have the correct IDs
-    print('🎯 TherapistCBTPage initialized:');
-    print('   Therapist ID: ${widget.therapistId}');
-    print('   Child ID: ${widget.childId}');
-    print('   Parent ID from parameter: ${widget.parentId}');
-
+   
     // Set initial parent ID from parameter
     _actualParentId = widget.parentId;
 
@@ -56,9 +51,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
     try {
       // Verify that the parentId is NOT the therapistId
       if (widget.parentId == widget.therapistId) {
-        print('🚨 ERROR: Parent ID equals Therapist ID!');
-        print('🚨 widget.parentId: ${widget.parentId}');
-        print('🚨 widget.therapistId: ${widget.therapistId}');
+     
 
         // Try to find the real parent ID
         _actualParentId = await _getRealParentIdForChild(widget.childId);
@@ -67,12 +60,11 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
           throw Exception('❌ Cannot find valid parent for child');
         }
 
-        print('✅ Found real parent ID: $_actualParentId');
+     
       } else {
         _actualParentId = widget.parentId;
       }
 
-      print('📥 Loading CBT from parent: $_actualParentId');
 
       // Load CBT from the CORRECT parent's collection
       await context.read<CBTProvider>().loadRemoteCBT(
@@ -80,7 +72,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
         widget.childId,
       );
     } catch (e) {
-      print('❌ Error loading CBT: $e');
+   
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error loading CBT: $e'),
@@ -93,11 +85,10 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
   }
 
   // SIMPLE method to get the real parent ID for a child
-  // SIMPLE method to get the real parent ID for a child
   Future<String> _getRealParentIdForChild(String childId) async {
     if (childId.isEmpty) return '';
 
-    print('🔍 Finding real parent for child: $childId');
+  
 
     try {
       // 1. Check therapist's children collection for parentUID
@@ -115,8 +106,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
         if (parentUID != null && parentUID is String && parentUID.isNotEmpty) {
           // CRITICAL: Check this is NOT the therapist ID
           if (parentUID != widget.therapistId) {
-            print('✅ Found parentUID in therapist collection: $parentUID');
-
+        
             // Verify this parent exists in users collection
             final parentDoc = await FirebaseFirestore.instance
                 .collection('users')
@@ -124,13 +114,13 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                 .get();
 
             if (parentDoc.exists) {
-              print('✅ Parent $parentUID exists in users collection');
+           
               return parentUID;
             } else {
-              print('⚠️ Parent $parentUID NOT found in users collection');
+            
             }
           } else {
-            print('🚨 WARNING: parentUID equals therapistId!');
+           
           }
         }
       }
@@ -148,7 +138,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
 
         // SKIP if this user is a therapist
         if (userRole == 'therapist') {
-          print('⏭️ Skipping therapist user: $userId');
+      
           continue;
         }
 
@@ -161,7 +151,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
               .get();
 
           if (childDoc.exists) {
-            print('✅ Found child in user $userId children collection');
+           
             return userId;
           }
         } catch (e) {
@@ -169,10 +159,10 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
         }
       }
 
-      print('❌ Could not find parent for child: $childId');
+   
       return '';
     } catch (e) {
-      print('❌ Error finding parent: $e');
+    
       return '';
     }
   }
@@ -400,11 +390,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                             assigningSet.add(exercise.id);
 
                             try {
-                              print('🎯 Assigning CBT with:');
-                              print('   Therapist: ${widget.therapistId}');
-                              print('   Child: ${widget.childId}');
-                              print('   Parent ID to use: $_actualParentId');
-
+                           
                               await cbtProvider.assignManualCBT(
                                 widget.therapistId,
                                 widget.childId,
@@ -419,7 +405,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                                 ),
                               );
                             } catch (e) {
-                              print('❌ Error assigning CBT: $e');
+                         
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text('Failed to assign: $e'),
@@ -443,7 +429,7 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                               await cbtProvider.unassignCBT(
                                 widget.therapistId,
                                 widget.childId,
-                                assignedEntry!.id,
+                                assignedEntry.id,
                                 overrideParentId:
                                     _actualParentId, // PASS THE SAME PARENT ID HERE
                               );

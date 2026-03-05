@@ -47,7 +47,7 @@ class JournalProvider extends ChangeNotifier {
       result,
     ) async {
       if (result != ConnectivityResult.none) {
-        debugPrint("🌐 Reconnected — pushing pending journal changes...");
+      
 
         for (final childId in _entries.keys) {
           final parentId = _parentForChild[childId];
@@ -57,13 +57,9 @@ class JournalProvider extends ChangeNotifier {
             // Push all local entries for this child
             await _journalRepo.pushPendingLocalChanges(parentId, childId);
             await _syncService.syncAllPendingChanges(childId: childId);
-            debugPrint(
-              "✅ Pending journals pushed for child $childId (parent: $parentId)",
-            );
+           
           } catch (e) {
-            debugPrint(
-              "⚠️ Failed to push pending journals for child $childId: $e",
-            );
+           
           }
         }
 
@@ -115,24 +111,20 @@ class JournalProvider extends ChangeNotifier {
                   // Always save to Hive locally
                   await _journalRepo.saveEntryLocal(entry);
                 } catch (e) {
-                  debugPrint(
-                    "⚠️ Failed to parse or save journal ${doc.id}: $e",
-                  );
+                  
                 }
               }
 
               _entries[childId] = remoteEntries;
-              debugPrint(
-                "📡 Realtime sync: ${remoteEntries.length} journal entries for child $childId",
-              );
+             
               notifyListeners();
             },
             onError: (e) {
-              debugPrint("⚠️ Firestore journal snapshots error: $e");
+           
             },
           );
     } catch (e) {
-      debugPrint("❌ Error loading entries: $e");
+   
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -246,7 +238,7 @@ class JournalProvider extends ChangeNotifier {
       notifyListeners();
       return merged;
     } catch (e) {
-      debugPrint("⚠️ Error fetching merged journal entries: $e");
+   
       return [];
     }
   }
@@ -258,7 +250,7 @@ class JournalProvider extends ChangeNotifier {
       await _syncService.syncAllPendingChanges(childId: childId);
       notifyListeners();
     } catch (e) {
-      debugPrint("⚠️ Failed to push pending journal changes: $e");
+   
     }
   }
 

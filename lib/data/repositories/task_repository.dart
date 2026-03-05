@@ -1,7 +1,6 @@
 import 'package:brightbuds_new/data/repositories/streak_repository.dart';
 import 'package:brightbuds_new/data/repositories/user_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 
@@ -22,7 +21,7 @@ class TaskRepository {
     try {
       await _taskBox.put(task.id, task);
     } catch (e) {
-      debugPrint('Error saving task to Hive: $e');
+    
       rethrow;
     }
   }
@@ -51,9 +50,7 @@ class TaskRepository {
   Future<void> saveTaskRemote(TaskModel task) async {
     try {
       if (task.parentId.isEmpty || task.childId.isEmpty) {
-        debugPrint(
-          "❌ Cannot save task remotely: parentId or childId is empty. Task ID: ${task.id}",
-        );
+      
         return;
       }
 
@@ -61,20 +58,16 @@ class TaskRepository {
 
       final data = task.toFirestore();
       if (data.isEmpty) {
-        debugPrint(
-          "❌ Task ${task.id} toFirestore() returned empty map. Skipping Firestore save.",
-        );
+      
         return;
       }
 
-      debugPrint("➡️ Saving task to Firestore at path: ${ref.path}");
-      debugPrint("➡️ Data: $data");
-
+   
       await ref.set(data, SetOptions(merge: true));
 
-      debugPrint("✅ Task ${task.id} saved remotely.");
+    
     } catch (e, st) {
-      debugPrint("❌ Error saving task remotely: $e\n$st");
+     
     }
   }
 
@@ -154,9 +147,7 @@ class TaskRepository {
     await saveTaskLocal(updatedTask);
     await saveTaskRemote(updatedTask);
 
-    debugPrint(
-      "Task ${updatedTask.id} saved locally and remotely under parent $parentId.",
-    );
+
   }
 
   Future<void> updateTask(TaskModel task) async {
@@ -175,9 +166,9 @@ class TaskRepository {
     // ✅ LOCAL ONLY
     await saveTaskLocal(updatedTask);
 
-    debugPrint("✅ Task ${updatedTask.id} updated locally.");
+ 
   } catch (e) {
-    debugPrint("❌ Error in updateTask (local only): $e");
+ 
     rethrow;
   }
 }
@@ -254,14 +245,12 @@ class TaskRepository {
   Future<void> pushPendingLocalChanges() async {
     final localTasks = getAllTasksLocal();
 
-    debugPrint("🔄 Pushing ${localTasks.length} local tasks to Firestore...");
+    
 
     for (final task in localTasks) {
       try {
         if (task.parentId.isEmpty || task.childId.isEmpty) {
-          debugPrint(
-            "⚠️ Skipping task ${task.id}: parentId or childId is empty.",
-          );
+        
           continue;
         }
 
@@ -276,25 +265,23 @@ class TaskRepository {
         final remoteUpdated =
             remote?.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
 
-        debugPrint(
-          "Task ${task.id} - Local updated: ${localUpdated.toIso8601String()}, Remote updated: ${remoteUpdated.toIso8601String()}",
-        );
+      
 
         if (remote == null) {
-          debugPrint("📌 Task ${task.id} does not exist remotely. Saving...");
+        
           await saveTaskRemote(task);
         } else if (localUpdated.isAfter(remoteUpdated)) {
-          debugPrint("📌 Task ${task.id} is newer locally. Updating remote...");
+         
           await saveTaskRemote(task);
         } else {
-          debugPrint("📌 Task ${task.id} is up-to-date remotely. Skipping.");
+        
         }
       } catch (e, st) {
-        debugPrint("❌ Error pushing task ${task.id}: $e\n$st");
+       
       }
     }
 
-    debugPrint("✅ Finished pushing local tasks to Firestore.");
+   
   }
 
   /// Merge remote tasks into local Hive (respecting lastUpdated)
@@ -323,13 +310,13 @@ class TaskRepository {
       // 1️⃣ Get local task
       final localTask = getTaskLocal(taskId);
       if (localTask == null) {
-        debugPrint("Task $taskId not found locally.");
+       
         return;
       }
 
       // 2️⃣ Check childId validity
       if (childId.isEmpty) {
-        debugPrint("Cannot mark task as done: childId is empty.");
+       
         return;
       }
 
@@ -342,15 +329,15 @@ class TaskRepository {
 
       // 4️⃣ Save locally first
       await saveTaskLocal(updatedTask);
-      debugPrint("Task $taskId marked as done locally.");
+     
 
       // 5️⃣ Save remotely
       final parentId = localTask.parentId;
       if (parentId.isEmpty) {
-        debugPrint("Cannot push task to remote: parentId is empty.");
+      
       } else {
         await saveTaskRemote(updatedTask);
-        debugPrint("Task $taskId marked as done remotely.");
+       
       }
 
       // 6️⃣ Update streak (safe check for child existence)
@@ -362,12 +349,12 @@ class TaskRepository {
 
       if (child != null) {
         await _streakRepo.updateStreak(child.cid, parentId, taskId);
-        debugPrint("Streak updated for child ${child.cid}.");
+      
       } else {
-        debugPrint("Cannot update streak: child $childId not found.");
+       
       }
     } catch (e, st) {
-      debugPrint('Error in markTaskAsDone: $e\n$st');
+    
       rethrow;
     }
   }
@@ -377,20 +364,18 @@ class TaskRepository {
     // 1️⃣ Get local task
     final localTask = getTaskLocal(taskId);
     if (localTask == null) {
-      debugPrint("Task $taskId not found locally.");
+    
       return;
     }
 
     if (localTask.verified) {
-      debugPrint("Task $taskId is already verified.");
+     
       return;
     }
 
     final parentId = localTask.parentId;
     if (parentId.isEmpty || childId.isEmpty) {
-      debugPrint(
-        "Cannot verify task: parentId or childId is empty. parentId='$parentId', childId='$childId'",
-      );
+     
       return;
     }
 
@@ -398,7 +383,7 @@ class TaskRepository {
     final updatedTask = localTask.copyWith(verified: true);
     await saveTask(updatedTask);
 
-    debugPrint("✅ Task $taskId marked as verified.");
+  
 
     // 3️⃣ Get or fetch child
     final userRepo = UserRepository();
@@ -407,13 +392,13 @@ class TaskRepository {
     if (child == null) {
       child = await userRepo.fetchChildAndCache(parentId, childId);
       if (child == null) {
-        debugPrint("Child $childId under parent $parentId not found.");
+       
         return;
       }
     }
 
   } catch (e, st) {
-    debugPrint('❌ Error in verifyTask: $e\n$st');
+  
     rethrow;
   }
 }

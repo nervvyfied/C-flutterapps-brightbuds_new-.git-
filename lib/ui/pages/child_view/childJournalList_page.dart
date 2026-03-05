@@ -88,7 +88,7 @@ class _JournalListPageState extends State<JournalListPage> {
           childId: widget.childId,
         );
       } catch (e) {
-        debugPrint('⚠️ Journal sync failed: $e');
+      
       }
     }
 

@@ -4,10 +4,10 @@ import 'dart:async';
 
 import 'package:brightbuds_new/ui/pages/parent_view/parentForgotPass_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
+import 'package:brightbuds_new/ui/pages/parent_view/parentVerification_page.dart';
 import 'package:brightbuds_new/ui/pages/role_page.dart';
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show PlatformException;
 import 'package:provider/provider.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '/data/providers/auth_provider.dart';
@@ -42,165 +42,162 @@ class _ParentAuthPageState extends State<ParentAuthPage> {
   int _cooldownSeconds = 0; // Track countdown
 
   void _handleAuth() async {
-  if (_isWaiting) return; // Prevent login during cooldown
+    if (_isWaiting) return; // Prevent login during cooldown
 
-  final auth = context.read<AuthProvider>();
-  setState(() => isLoading = true);
+    final auth = context.read<AuthProvider>();
+    setState(() => isLoading = true);
 
-  try {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    try {
+      final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
 
-    if (isLogin) {
-      if (email.isEmpty || password.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please enter both email and password")),
+      if (isLogin) {
+        await auth.loginParent(email, password);
+
+        _failedLoginAttempts = 0;
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Login successful")));
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
         );
-        return;
-      }
-      if (!email.contains('@')) {
+      } else {
+        final name = _nameController.text.trim();
+        final confirmPassword = _confirmPasswordController.text.trim();
+
+        if (name.isEmpty || email.isEmpty || password.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("All fields are required")),
+          );
+          return;
+        }
+
+        if (password != confirmPassword) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Passwords do not match")),
+          );
+          return;
+        }
+
+        await auth.signUpParent(name, email, password);
+
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please enter a valid email")),
+          const SnackBar(
+            content: Text("Account created! Please verify your email."),
+          ),
         );
-        return;
+
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => VerifyEmailScreen(email: email)),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      _failedLoginAttempts++;
+
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = "No account found with this email.";
+          break;
+        case 'wrong-password':
+          message = "Incorrect password. Please try again.";
+          break;
+        case 'invalid-email':
+          message = "Invalid email address.";
+          break;
+        default:
+          message = "Login failed. Please check your credentials.";
       }
 
-      await auth.loginParent(email, password);
-     
-
-      _failedLoginAttempts = 0; // reset failed attempts
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Login successful")));
-
-      Navigator.pushReplacement(
+      ScaffoldMessenger.of(
         context,
-        MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
-      );
-    } else {
-      // Sign-up
-      final name = _nameController.text.trim();
-      final confirmPassword = _confirmPasswordController.text.trim();
+      ).showSnackBar(SnackBar(content: Text(message)));
 
-      if (name.isEmpty || email.isEmpty || password.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("All fields are required")),
-        );
-        return;
-      }
-      if (password != confirmPassword) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Passwords do not match")),
-        );
-        return;
-      }
+      // Cooldown
+      if (_failedLoginAttempts >= 5 && !_isWaiting) {
+        _isWaiting = true;
+        _cooldownSeconds = ((_failedLoginAttempts - 4) * 5).clamp(5, 30);
 
-      await auth.signUpParent(name, email, password);
-     
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Account created successfully")));
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
-      );
-    }
-  } on FirebaseAuthException catch (e) {
-    _failedLoginAttempts++;
-
-    String message;
-    switch (e.code) {
-      case 'user-not-found':
-        message = "No account found with this email.";
-        break;
-      case 'wrong-password':
-        message = "Incorrect password. Please try again.";
-        break;
-      case 'invalid-email':
-        message = "Invalid email address.";
-        break;
-      default:
-        message = "Login failed. Please check your credentials.";
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-
-    // Cooldown
-    if (_failedLoginAttempts >= 5 && !_isWaiting) {
-      _isWaiting = true;
-      _cooldownSeconds = ((_failedLoginAttempts - 4) * 5).clamp(5, 30);
-
-      Timer.periodic(const Duration(seconds: 1), (timer) {
-        setState(() {
-          if (_cooldownSeconds > 0) {
-            _cooldownSeconds--;
-          } else {
-            _isWaiting = false;
-            timer.cancel();
-          }
+        Timer.periodic(const Duration(seconds: 1), (timer) {
+          setState(() {
+            if (_cooldownSeconds > 0) {
+              _cooldownSeconds--;
+            } else {
+              _isWaiting = false;
+              timer.cancel();
+            }
+          });
         });
-      });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Unexpected error: $e")));
+    } finally {
+      setState(() => isLoading = false);
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text("Unexpected error: $e")));
-  } finally {
-    setState(() => isLoading = false);
   }
-}
 
-Future<void> signInWithGoogle() async {
-  final auth = context.read<AuthProvider>();
-  setState(() => isLoading = true);
+  Future<void> signInWithGoogle() async {
+    final auth = context.read<AuthProvider>();
+    setState(() => isLoading = true);
 
-  try {
-    final googleUser = await _googleSignIn.signIn();
-    if (googleUser == null) return;
+    try {
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return;
 
-    // 🔧 FIX: do NOT assign result (method returns void)
-    await auth.signInParentWithGoogle();
+      // 🔧 FIX: do NOT assign result (method returns void)
+      await auth.signInParentWithGoogle();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Google sign-in successful')),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Google sign-in successful')),
+      );
 
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
-    );
-  } on FirebaseAuthException catch (e) {
-    String message;
-    switch (e.code) {
-      case 'account-exists-with-different-credential':
-        message =
-            'An account already exists with a different sign-in method for this email.';
-        break;
-      case 'invalid-credential':
-        message = 'Invalid Google credentials. Please try again.';
-        break;
-      case 'user-disabled':
-        message = 'This account has been disabled.';
-        break;
-      case 'operation-not-allowed':
-        message = 'Google sign-in is not enabled for this project.';
-        break;
-      case 'network-request-failed':
-        message = 'Network error. Please check your connection.';
-        break;
-      default:
-        message = 'Unhandled FirebaseAuthException code: ${e.code}';
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const ParentNavigationShell()),
+      );
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          message =
+              'An account already exists with a different sign-in method for this email.';
+          break;
+        case 'invalid-credential':
+          message = 'Invalid Google credentials. Please try again.';
+          break;
+        case 'user-disabled':
+          message = 'This account has been disabled.';
+          break;
+        case 'operation-not-allowed':
+          message = 'Google sign-in is not enabled for this project.';
+          break;
+        case 'network-request-failed':
+          message = 'Network error. Please check your connection.';
+          break;
+        default:
+          message = 'Unhandled FirebaseAuthException code: ${e.code}';
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unexpected error: $e')));
+    } finally {
+      setState(() => isLoading = false);
     }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-  } catch (e) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Unexpected error: $e')));
-  } finally {
-    setState(() => isLoading = false);
   }
-}
-
 
   void _goToForgotPassword() {
     Navigator.push(
@@ -208,8 +205,6 @@ Future<void> signInWithGoogle() async {
       MaterialPageRoute(builder: (_) => const ParentForgotPassPage()),
     );
   }
-
-  
 
   @override
   Widget build(BuildContext context) {

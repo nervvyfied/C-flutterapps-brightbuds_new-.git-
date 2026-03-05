@@ -79,7 +79,7 @@ class CBTProvider with ChangeNotifier {
         }
       }
     } catch (e) {
-      debugPrint('Error finding parent for child $childId: $e');
+  
     }
     return null;
   }
@@ -155,7 +155,7 @@ class CBTProvider with ChangeNotifier {
             }
           },
           onError: (e) {
-            debugPrint('CBTProvider: realtime listener error: $e');
+         
           },
         );
   }
@@ -181,41 +181,53 @@ class CBTProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // ===== Load Remote CBT =====
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
+
+  // Update your loadRemoteCBT method to set loading state
   Future<void> loadRemoteCBT(String parentId, String childId) async {
-    _lastParentId = parentId;
-    _lastChildId = childId;
-    await initHive();
-    await _repository.syncFromFirestore(parentId, childId);
-    final remote = _repository.getLocalCBTs(childId);
-
-    final Map<String, AssignedCBT> merged = {for (var a in _assigned) a.id: a};
-    for (var r in remote) {
-      if (merged.containsKey(r.id)) {
-        final local = merged[r.id]!;
-        if (local.lastCompleted != null &&
-            (r.lastCompleted == null ||
-                local.lastCompleted!.isAfter(r.lastCompleted!))) {
-          r.completed = local.completed;
-          r.lastCompleted = local.lastCompleted;
-        }
-      }
-      merged[r.id] = r;
-    }
-
-    _assigned = merged.values.toList();
-    for (var a in _assigned) {
-      await _cbtBox?.put(a.id, a);
-    }
-
-    await normalizeAssignedStatusesAndCleanup();
+    _isLoading = true;
     notifyListeners();
+
+    try {
+      _lastParentId = parentId;
+      _lastChildId = childId;
+      await initHive();
+      await _repository.syncFromFirestore(parentId, childId);
+      final remote = _repository.getLocalCBTs(childId);
+
+      final Map<String, AssignedCBT> merged = {
+        for (var a in _assigned) a.id: a,
+      };
+      for (var r in remote) {
+        if (merged.containsKey(r.id)) {
+          final local = merged[r.id]!;
+          if (local.lastCompleted != null &&
+              (r.lastCompleted == null ||
+                  local.lastCompleted!.isAfter(r.lastCompleted!))) {
+            r.completed = local.completed;
+            r.lastCompleted = local.lastCompleted;
+          }
+        }
+        merged[r.id] = r;
+      }
+
+      _assigned = merged.values.toList();
+      for (var a in _assigned) {
+        await _cbtBox?.put(a.id, a);
+      }
+
+      await normalizeAssignedStatusesAndCleanup();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   // In CBTProvider class, add this helper method:
   Future<String> _findRealParentId(String childId) async {
     try {
-      debugPrint('🔍 Looking for REAL parent of child: $childId');
+  
 
       // METHOD 1: Search through ALL users to find which parent has this child
       final usersSnapshot = await FirebaseFirestore.instance
@@ -236,18 +248,13 @@ class CBTProvider with ChangeNotifier {
 
           final childSnap = await childRef.get();
           if (childSnap.exists) {
-            debugPrint(
-              '✅ Found REAL parent: ${userDoc.id} for child: $childId',
-            );
+          
             return userDoc.id; // This is the ACTUAL parent ID
           }
         }
       }
 
-      // METHOD 2: If the above doesn't work, check if there's a direct reference somewhere
-      debugPrint(
-        '⚠️ Could not find parent in users collection, trying alternative...',
-      );
+     
 
       // Check if child has a parentId reference in some other collection
       final childDoc = await FirebaseFirestore.instance
@@ -257,23 +264,40 @@ class CBTProvider with ChangeNotifier {
 
       if (childDoc.exists && childDoc.data()?['parentId'] != null) {
         final parentId = childDoc.data()!['parentId'] as String;
-        debugPrint('✅ Found parentId in children collection: $parentId');
+     
         return parentId;
       }
 
-      debugPrint('❌ Could not find any parent for child: $childId');
+   
       return ''; // Couldn't find parent
     } catch (e) {
-      debugPrint('Error finding REAL parent for child $childId: $e');
+    
       return '';
     }
   }
 
+Future<void> updateAssignedCBT(AssignedCBT assigned) async {
+  if (_cbtBox == null) await initHive();
+  await _cbtBox?.put(assigned.id, assigned);
+
+  // Update local list too
+  final index = _assigned.indexWhere((a) => a.id == assigned.id);
+  if (index != -1) {
+    _assigned[index] = assigned;
+  } else {
+    _assigned.add(assigned);
+  }
+
+  notifyListeners();
+}
   Future<void> assignManualCBT(
     String therapistId,
     String childId,
     CBTExercise exercise, {
     String? overrideParentId,
+    bool? isApproved,
+    bool? isRequested,
+    bool? isConfirmed,
   }) async {
     await initHive();
 
@@ -282,7 +306,6 @@ class CBTProvider with ChangeNotifier {
     // Use overrideParentId if provided
     if (overrideParentId != null && overrideParentId.isNotEmpty) {
       parentId = overrideParentId;
-      print('✅ Using provided parentId: $parentId');
     } else {
       // Try to find it (fallback)
       parentId = await _findRealParentId(childId);
@@ -290,14 +313,6 @@ class CBTProvider with ChangeNotifier {
         throw Exception('No parent found for child');
       }
     }
-
-    // CRITICAL CHECK
-    if (parentId == therapistId) {
-      throw Exception('❌ FATAL: Parent ID equals Therapist ID!');
-    }
-
-    print('🎯 FINAL: Using parentId: $parentId');
-    print('🎯 TherapistId: $therapistId (should be different!)');
 
     final weekOfYear = getCurrentWeekNumber(DateTime.now());
     if (_assigned.any(
@@ -317,12 +332,16 @@ class CBTProvider with ChangeNotifier {
       weekOfYear: weekOfYear,
       assignedBy: therapistId,
       source: "therapist_assigned",
+      isApproved:
+          false, // Therapist-assigned CBTs start as unapproved by parent
+      isRequested: false, // Requested by child to start
+      isConfirmed: false, // Confirmed by parent to start
     );
 
     _assigned.add(assigned);
     await _cbtBox?.put(assigned.id, assigned);
 
-    try {
+    {
       // 🔥 THIS IS THE KEY LINE - USE parentId, NOT therapistId
       await FirebaseFirestore.instance
           .collection('users')
@@ -332,17 +351,6 @@ class CBTProvider with ChangeNotifier {
           .collection('CBT')
           .doc(assigned.id)
           .set(assigned.toMap());
-
-      print('✅ CBT stored in parent $parentId collection');
-    } catch (e) {
-      print('❌ Firestore error: $e');
-      // Check the actual error
-      if (e.toString().contains('permission-denied')) {
-        print(
-          '🚨 PERMISSION ERROR: Cannot write to parent $parentId collection',
-        );
-      }
-      rethrow;
     }
 
     await loadLocalCBT(childId);
@@ -355,58 +363,86 @@ class CBTProvider with ChangeNotifier {
     String assignedId, {
     String? overrideParentId,
   }) async {
+    await initHive();
+
+    // 1️⃣ Determine the correct parent
+    final parentId = (overrideParentId != null && overrideParentId.isNotEmpty)
+        ? overrideParentId
+        : await _findRealParentId(childId);
+
+    if (parentId.isEmpty) {
+   
+      return;
+    }
+
+    // 2️⃣ Remove from Firestore (parent's CBT collection)
+    final docRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('CBT')
+        .doc(assignedId);
+
+    final docSnap = await docRef.get();
+    if (docSnap.exists) {
+      await docRef.delete();
+   
+    }
+
+    // 3️⃣ Remove locally
+    _assigned.removeWhere((a) => a.id == assignedId);
+
+    // 4️⃣ Remove from Hive
+    if (_cbtBox != null && _cbtBox!.containsKey(assignedId)) {
+      await _cbtBox!.delete(assignedId);
+    }
+
+    // 5️⃣ Ensure remaining assignments are saved
+    for (var a in _assigned) {
+      await _cbtBox!.put(a.id, a); // Save actual AssignedCBT object, not Map
+    }
+
+    notifyListeners();
+  }
+
+  Future<bool> approveCBT(
+    String parentId,
+    String childId,
+    String assignedId,
+  ) async {
     try {
-      String parentId;
+      // Find the assignment locally
+      final index = _assigned.indexWhere((a) => a.id == assignedId);
+      if (index == -1) return false;
 
-      // Use overrideParentId if provided
-      if (overrideParentId != null && overrideParentId.isNotEmpty) {
-        parentId = overrideParentId;
-        print('✅ Using provided parentId for unassign: $parentId');
-      } else {
-        // Use the EXACT SAME method as assignManualCBT
-        parentId = await _findRealParentId(childId);
-        if (parentId.isEmpty) {
-          throw Exception('Cannot find parent for this child');
-        }
-      }
+      final assignment = _assigned[index];
 
-      // DEBUG: Show what IDs we have
-      print('🔍 Unassign CBT Debug:');
-      print('   Therapist ID: $therapistId');
-      print('   Parent ID to use: $parentId');
-      print('   Child ID: $childId');
-      print('   Assigned ID: $assignedId');
+      // ✅ Remove the "must be requested" condition
+      // Now any assignment (requested or not) can be approved
+      assignment.isApproved = true;
 
-      // Check if parentId equals therapistId (shouldn't happen if _findRealParentId works)
-      if (parentId == therapistId) {
-        print('🚨 ERROR: parentId ($parentId) equals therapistId!');
-        print('🚨 This means _findRealParentId returned therapist ID');
-        throw Exception('❌ Cannot unassign: parentId equals therapistId');
-      }
+      // Update locally
+      _assigned[index] = assignment;
+      await _cbtBox?.put(assignedId, assignment);
+      notifyListeners();
 
-      print(
-        '🗑️ Removing CBT from path: users/$parentId/children/$childId/CBT/$assignedId',
-      );
-
-      // Remove from PARENT'S collection
-      await FirebaseFirestore.instance
+      // Sync to Firestore / remote DB
+      final docRef = FirebaseFirestore.instance
           .collection('users')
           .doc(parentId)
           .collection('children')
           .doc(childId)
           .collection('CBT')
-          .doc(assignedId)
-          .delete();
+          .doc(assignedId);
 
-      // Also remove locally
-      _assigned.removeWhere((a) => a.id == assignedId);
-      await _cbtBox?.delete(assignedId);
-      notifyListeners();
+      await docRef.update({'isApproved': true});
 
-      print('✅ Successfully removed from parent $parentId');
+  
+      return true;
     } catch (e) {
-      debugPrint('Error unassigning CBT: $e');
-      rethrow;
+    
+      return false;
     }
   }
 
@@ -418,12 +454,91 @@ class CBTProvider with ChangeNotifier {
     final parentId = await _findParentIdForChild(childId);
 
     if (parentId == null) {
-      debugPrint('⚠️ Could not find parent for child $childId');
+   
       return;
     }
 
     // Load from parent's collection using existing method
     await loadRemoteCBT(parentId, childId);
+  }
+
+  Future<void> requestStartApproval(
+    String parentId,
+    String childId,
+    String assignedId,
+  ) async {
+    await initHive();
+
+    final docRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('CBT') // ✅ Correct collection
+        .doc(assignedId);
+
+    await docRef.update({'isRequested': true, 'isConfirmed': false});
+
+    // ✅ Update locally
+    final index = _assigned.indexWhere((a) => a.id == assignedId);
+    if (index != -1) {
+      _assigned[index].isRequested = true;
+      _assigned[index].isConfirmed = false;
+      await _cbtBox?.put(assignedId, _assigned[index]);
+      notifyListeners();
+    }
+  }
+
+  Future<void> confirmStart(
+    String parentId,
+    String childId,
+    String assignedId,
+  ) async {
+    await initHive();
+
+    final docRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('CBT')
+        .doc(assignedId);
+
+    await docRef.update({'isConfirmed': true, 'isRequested': false});
+
+    final index = _assigned.indexWhere((a) => a.id == assignedId);
+    if (index != -1) {
+      _assigned[index].isConfirmed = true;
+      _assigned[index].isRequested = false;
+      await _cbtBox?.put(assignedId, _assigned[index]);
+      notifyListeners();
+    }
+  }
+
+  Future<void> resetStartSession(
+    String parentId,
+    String childId,
+    String assignedId,
+  ) async {
+    await initHive();
+
+    final docRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('CBT')
+        .doc(assignedId);
+
+    await docRef.update({'isConfirmed': false, 'isRequested': false});
+
+    final index = _assigned.indexWhere((a) => a.id == assignedId);
+    if (index != -1) {
+      _assigned[index].isConfirmed = false;
+      _assigned[index].isRequested = false;
+      await _cbtBox?.put(assignedId, _assigned[index]);
+      notifyListeners();
+    }
   }
 
   // ===== Completion =====
@@ -459,26 +574,26 @@ class CBTProvider with ChangeNotifier {
 
   Future<void> syncPendingCompletions(String parentId, String childId) async {
     if (_pendingSync.isEmpty) {
-      debugPrint('🟢 No pending CBTs to sync.');
+  
       return;
     }
 
     if (!await NetworkHelper.isOnline()) {
-      debugPrint('⛔ Offline - skipping sync.');
+  
       return;
     }
 
     _syncBox ??= await Hive.openBox('cbtSync');
     await loadLocalCBT(childId);
 
-    debugPrint('🔁 Syncing ${_pendingSync.length} pending CBT completions...');
+  
 
     for (final id in List<String>.from(_pendingSync)) {
       AssignedCBT? assigned =
           _assigned.firstWhereOrNull((c) => c.id == id) ?? _cbtBox?.get(id);
 
       if (assigned == null) {
-        debugPrint('⚠️ CBT $id not found locally. Removing from pending list.');
+    
         _pendingSync.remove(id);
         await _syncBox!.put('pendingSync', _pendingSync.toList());
         continue;
@@ -494,7 +609,7 @@ class CBTProvider with ChangeNotifier {
 
       final docSnap = await docRef.get();
       if (!docSnap.exists) {
-        debugPrint('🆕 Creating missing CBT ${assigned.id} before update...');
+       
         await docRef.set(assigned.toMap());
       }
 
@@ -502,7 +617,7 @@ class CBTProvider with ChangeNotifier {
 
       _pendingSync.remove(id);
       await _syncBox!.put('pendingSync', _pendingSync.toList());
-      debugPrint('✅ Synced CBT ${assigned.id}');
+   
     }
   }
 
@@ -514,7 +629,7 @@ class CBTProvider with ChangeNotifier {
     ) async {
       if (result != ConnectivityResult.none) {
         if (_lastParentId != null && _lastChildId != null) {
-          debugPrint('CBTProvider: connectivity regained → sync pending.');
+        
           await syncPendingCompletions(_lastParentId!, _lastChildId!);
         }
       }

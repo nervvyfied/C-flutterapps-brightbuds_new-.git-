@@ -1,8 +1,5 @@
 import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
@@ -54,9 +51,9 @@ class UserRepository {
         await cacheTherapist(therapist);
       }
 
-      debugPrint('✅ Child linked successfully to therapist $therapistUid');
+    
     } catch (e) {
-      debugPrint('❌ Error linking child by access code: $e');
+   
       rethrow;
     }
   }
@@ -75,7 +72,7 @@ class UserRepository {
       await cacheParent(parent);
       return parent;
     } catch (e) {
-      debugPrint('Error fetching parent $parentUid: $e');
+    
       return null;
     }
   }
@@ -113,7 +110,7 @@ class UserRepository {
 
       return parents;
     } catch (e) {
-      debugPrint('Error fetching parents by therapist: $e');
+     
       return [];
     }
   }
@@ -138,7 +135,7 @@ class UserRepository {
 
       return children;
     } catch (e) {
-      debugPrint('Error fetching children for parent $parentUid: $e');
+     
       return [];
     }
   }
@@ -188,7 +185,7 @@ class UserRepository {
       await cacheTherapist(therapist);
       return therapist;
     } catch (e) {
-      debugPrint('Error fetching therapist $therapistUid: $e');
+     
       return null;
     }
   }
@@ -200,7 +197,7 @@ class UserRepository {
     try {
       return await _firestore.getTherapistChildrenWithDetails(therapistUid);
     } catch (e) {
-      debugPrint('Error getting therapist children with details: $e');
+    
       return [];
     }
   }
@@ -227,9 +224,9 @@ class UserRepository {
         await cacheTherapist(therapist);
       }
 
-      debugPrint('✅ Child $childId unlinked from therapist $therapistUid');
+   
     } catch (e) {
-      debugPrint('Error unlinking child: $e');
+   
       rethrow;
     }
   }
@@ -270,7 +267,7 @@ class UserRepository {
           .map((doc) => ChildUser.fromMap(doc.data(), doc.id))
           .toList();
     } catch (e) {
-      debugPrint('Error fetching children for parent $parentUid: $e');
+   
       return [];
     }
   }
@@ -327,7 +324,7 @@ class UserRepository {
 
       return {'parent': parent, 'child': child};
     } catch (e) {
-      debugPrint('Error fetching parent/child by accessCode: $e');
+     
       return null;
     }
   }
@@ -354,7 +351,7 @@ class UserRepository {
 
       return null;
     } catch (e) {
-      debugPrint('Error fetching child by ID $childId: $e');
+   
       return null;
     }
   }

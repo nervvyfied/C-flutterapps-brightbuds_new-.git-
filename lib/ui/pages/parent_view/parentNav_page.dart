@@ -1,7 +1,6 @@
 // ignore_for_file: file_names
 
-import 'package:brightbuds_new/data/models/parent_model.dart'; // <- make sure this is the parent model
-import 'package:brightbuds_new/data/models/therapist_model.dart';
+import 'package:brightbuds_new/data/models/parent_model.dart'; 
 import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentHome_page.dart';
 import 'package:brightbuds_new/ui/pages/parent_view/parentTaskList_page.dart';

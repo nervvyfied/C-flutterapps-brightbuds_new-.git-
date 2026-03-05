@@ -36,6 +36,15 @@ class AssignedCBT {
   @HiveField(9)
   final String source; // "auto" or "manual"
 
+  @HiveField(10)
+  bool? isApproved;
+
+  @HiveField(11)
+  bool? isRequested;
+
+  @HiveField(12)
+  bool? isConfirmed;
+
   AssignedCBT({
     required this.id,
     required this.exerciseId,
@@ -47,6 +56,9 @@ class AssignedCBT {
     this.source = "auto",
     this.completed = false,
     this.lastCompleted,
+    this.isApproved,
+    this.isRequested,
+    this.isConfirmed,
   });
 
   // Factory from Firestore map
@@ -70,6 +82,9 @@ class AssignedCBT {
       weekOfYear: map['weekOfYear'] ?? 0,
       assignedBy: map['assignedBy'] ?? 'unknown',
       source: map['source'] ?? 'manual',
+      isApproved: map['isApproved'], // can be null
+      isRequested: map['isRequested'], // can be null
+      isConfirmed: map['isConfirmed'], // can be null
     );
   }
 
@@ -82,6 +97,9 @@ class AssignedCBT {
     required String assignedBy,
     String? recurrence, // use exercise.recurrence by default
     String source = "auto",
+    bool? isApproved,
+    bool? isRequested,
+    bool? isConfirmed,
   }) {
     return AssignedCBT(
       id: id,
@@ -94,20 +112,27 @@ class AssignedCBT {
       source: source,
       completed: false,
       lastCompleted: null,
+      isApproved: isApproved,
+      isRequested: isRequested,
+      isConfirmed: isConfirmed,
     );
   }
 
   Map<String, dynamic> toMap() => {
-      'id': id,
-      'exerciseId': exerciseId,
-      'childId': childId,
-      'assignedDate': Timestamp.fromDate(assignedDate),
-      'recurrence': recurrence,
-      'completed': completed,
-      'lastCompleted': lastCompleted != null ? Timestamp.fromDate(lastCompleted!) : null,
-      'weekOfYear': weekOfYear,
-      'assignedBy': assignedBy,
-      'source': source,
-    };
-    
+    'id': id,
+    'exerciseId': exerciseId,
+    'childId': childId,
+    'assignedDate': Timestamp.fromDate(assignedDate),
+    'recurrence': recurrence,
+    'completed': completed,
+    'lastCompleted': lastCompleted != null
+        ? Timestamp.fromDate(lastCompleted!)
+        : null,
+    'weekOfYear': weekOfYear,
+    'assignedBy': assignedBy,
+    'source': source,
+    'isApproved': isApproved,
+    'isRequested': isRequested,
+    'isConfirmed': isConfirmed,
+  };
 }

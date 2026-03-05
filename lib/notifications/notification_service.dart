@@ -1,5 +1,4 @@
 import 'package:brightbuds_new/notifications/fcm_service.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -31,7 +30,7 @@ class NotificationService {
 
   Future<void> init() async {
     if (kIsWeb) {
-      debugPrint('🌐 Web mode: Skipping native notification init.');
+    
       return;
     }
     // Initialize timezone
@@ -46,7 +45,7 @@ class NotificationService {
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
       onDidReceiveNotificationResponse: (response) {
-        debugPrint('🔔 Notification tapped: ${response.payload}');
+     
       },
     );
 
@@ -59,7 +58,7 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(generalChannel);
 
-    debugPrint('✅ Local notification service initialized');
+ 
   }
 
   Future<void> scheduleNotification({
@@ -70,14 +69,14 @@ class NotificationService {
     required String payload,
   }) async {
     if (kIsWeb) {
-      debugPrint('⚠️ Skipping alarm scheduling on web for $title');
+     
       return;
     }
 
-    debugPrint('⏰ Attempting to schedule alarm: $title at $scheduledDate');
+  
 
     if (scheduledDate.isBefore(DateTime.now())) {
-      debugPrint('❌ Alarm not scheduled: scheduledDate is in the past');
+    
       return;
     }
 
@@ -100,9 +99,9 @@ class NotificationService {
         matchDateTimeComponents: DateTimeComponents.time,
         payload: payload,
       );
-      debugPrint('✅ Alarm scheduled successfully for $title at $scheduledDate');
+   
     } catch (e) {
-      debugPrint('❌ Failed to schedule alarm for $title: $e');
+   
     }
   }
 
@@ -116,7 +115,7 @@ class NotificationService {
   String? payload,
 }) async {
   if (kIsWeb) {
-    debugPrint('🌐 [SIMULATION] Would schedule $title at $hour:$minute');
+  
     return;
   }
 
@@ -144,13 +143,13 @@ class NotificationService {
     payload: payload,
   );
 
-  debugPrint('✅ Scheduled $title for $scheduledDate');
+ 
 }
 
 
   Future<void> cancelNotification(int id) async {
     await flutterLocalNotificationsPlugin.cancel(id);
-    debugPrint('❌ Cancelled notification with id $id');
+ 
   }
 
   // NOTIFICATIONS
@@ -197,8 +196,7 @@ Future<void> scheduleChildTaskNotification({
   void startWebAlarmSimulation(List<TaskModel> tasks) {
     if (!kIsWeb) return;
 
-    debugPrint('🌐 [SIMULATION] Starting alarm trigger watcher...');
-
+   
     Future.doWhile(() async {
       final now = DateTime.now();
       for (final task in tasks) {
@@ -212,7 +210,7 @@ Future<void> scheduleChildTaskNotification({
           );
 
           if (now.difference(alarmTime).inSeconds.abs() <= 5) {
-            debugPrint('🔔 [SIMULATION] Triggered "${task.name}" at ${now.hour}:${now.minute}');
+        
           }
         }
       }
@@ -224,7 +222,7 @@ Future<void> scheduleChildTaskNotification({
 
   // Add this method in NotificationService
 Future<void> debugTestNotification(String title, String body) async {
-  debugPrint('🧩 [DEBUG] Notification triggered: Title="$title", Body="$body"');
+ 
 
   // Only show a local notification if not web
   if (!kIsWeb) {
@@ -243,8 +241,8 @@ Future<void> debugTestNotification(String title, String body) async {
       ),
     );
   } else {
-    // Simulate what would happen
-    debugPrint('🌐 [WEB SIMULATION] This would show a notification.');
+   
+    
   }
 }
 

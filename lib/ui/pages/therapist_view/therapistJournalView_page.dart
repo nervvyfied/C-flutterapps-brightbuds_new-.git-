@@ -87,7 +87,7 @@ class _TherapistJournalListPageState extends State<TherapistJournalListPage> {
           childId: widget.childId,
         );
       } catch (e) {
-        debugPrint('⚠️ Journal sync failed: $e');
+       
       }
     }
 

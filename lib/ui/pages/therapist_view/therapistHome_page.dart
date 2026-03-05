@@ -37,7 +37,7 @@ class TherapistDashboardPage extends StatefulWidget {
 class TaskHistoryService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  Future<void> saveDailyTaskProgress({
+   Future<void> saveDailyTaskProgress({
     required String parentId,
     required String therapistId,
     required String childId,
@@ -67,11 +67,8 @@ class TaskHistoryService {
         'savedBy': 'therapist',
       });
 
-      print(
-        "✅ Daily progress saved for $childId on $dateKey in parent collection ($parentId)",
-      );
     } catch (e) {
-      print("❌ Failed to save daily task progress: $e");
+   
     }
   }
 }
@@ -152,14 +149,14 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     BuildContext context,
     String childId,
   ) async {
-    print('Showing task history for child: $childId');
+ 
 
     try {
       // Get the actual parent ID from the child
       final parentId = await _getParentIdFromChild(childId);
 
       if (parentId == null || parentId.isEmpty) {
-        print('Parent ID not found for child: $childId');
+    
         if (!mounted) return;
         showDialog(
           context: context,
@@ -262,7 +259,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               }
 
               final historyDocs = historySnapshot.data!.docs;
-              print('Found ${historyDocs.length} history records');
+        
 
               // Process history data
               final Map<String, Map<String, dynamic>> allHistoryData = {};
@@ -346,7 +343,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
               return StatefulBuilder(
                 builder: (context, setState) {
-                  List<Map<String, dynamic>> _getDisplayedData() {
+                  List<Map<String, dynamic>> getDisplayedData() {
                     if (viewMode == 'Weekly') {
                       if (weeklyGroups.isEmpty) return [];
                       final weekData = weeklyGroups[currentWeekIndex];
@@ -383,7 +380,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     }
                   }
 
-                  final displayedData = _getDisplayedData();
+                  final displayedData = getDisplayedData();
 
                   // Determine if arrows should be disabled
                   final isPrevDisabled = viewMode == 'Weekly'
@@ -392,7 +389,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                   final isNextDisabled = currentWeekIndex == 0;
 
-                  void _prev() {
+                  void prev() {
                     setState(() {
                       currentWeekIndex = (currentWeekIndex + 1).clamp(
                         0,
@@ -403,7 +400,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     });
                   }
 
-                  void _next() {
+                  void next() {
                     setState(() {
                       currentWeekIndex = (currentWeekIndex - 1).clamp(0, 999);
                     });
@@ -470,7 +467,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                             children: [
                               IconButton(
                                 icon: const Icon(Icons.arrow_back_ios),
-                                onPressed: isPrevDisabled ? null : _prev,
+                                onPressed: isPrevDisabled ? null : prev,
                               ),
                               Expanded(
                                 child: SizedBox(
@@ -594,7 +591,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                               ),
                               IconButton(
                                 icon: const Icon(Icons.arrow_forward_ios),
-                                onPressed: isNextDisabled ? null : _next,
+                                onPressed: isNextDisabled ? null : next,
                               ),
                             ],
                           ),
@@ -648,7 +645,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         },
       );
     } catch (e) {
-      print('Error in _showTaskHistoryModal: $e');
+    
       if (!mounted) return;
       showDialog(
         context: context,
@@ -1064,16 +1061,12 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
     _getParentIdFromChild(childId).then((parentId) {
       if (parentId != null && parentId.isNotEmpty) {
-        print(
-          '📝 Loading journal entries for child $childId with parent $parentId',
-        );
+     
         journalProv.loadEntries(childId: childId, parentId: parentId);
 
         _loadParentDataFromChild(childId);
       } else {
-        print(
-          '⚠️ Cannot load journal entries: No parent found for child $childId',
-        );
+     
       }
     });
   }
@@ -1094,12 +1087,20 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final parentId = await _getParentIdFromChild(childId);
 
     if (parentId == null || parentId.isEmpty) {
-      print('⚠️ Cannot load CBT: No parent found for child $childId');
+   
       return;
     }
 
-    print('✅ Found parent $parentId for child $childId, loading CBT...');
+ 
+
+    // Initialize Hive first
     await cbtProv.initHive();
+
+    cbtProv.startRealtimeCBTUpdates(parentId, childId);
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadTherapistData() async {
@@ -1132,7 +1133,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           });
         }
       } catch (e) {
-        debugPrint('Error fetching therapist: $e');
+    
       }
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1157,10 +1158,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         final childId = child['cid'] as String;
         await _loadParentDataFromChild(childId);
       } else {
-        print('⚠️ No child selected yet, skipping parent data load');
+     
       }
     } catch (e) {
-      print('Error loading parent data in init: $e');
+   
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1175,7 +1176,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
   Future<void> _loadParentDataFromChild(String childId) async {
     if (childId.isEmpty) return;
 
-    print('🔄 Loading parent data for child: $childId');
+  
 
     final parentId = await _getParentIdFromChild(childId);
 
@@ -1183,7 +1184,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         parentId.isNotEmpty &&
         parentId != widget.therapistId) {
       try {
-        print('🔍 Fetching parent document at users/$parentId');
+     
 
         final parentDoc = await FirebaseFirestore.instance
             .collection('users')
@@ -1192,9 +1193,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
         if (parentDoc.exists) {
           final parentData = parentDoc.data()!;
-          print('✅ Found parent document!');
-          print('   Parent name: ${parentData['name']}');
-          print('   Parent email: ${parentData['email']}');
+       
 
           setState(() {
             _parent = {
@@ -1204,123 +1203,100 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             };
           });
         } else {
-          print('❌ Parent document not found at users/$parentId');
+      
           setState(() {
             _parent = {'id': parentId, 'name': 'Parent', 'email': ''};
           });
         }
       } catch (e) {
-        print('❌ Error fetching parent data: $e');
+   
         setState(() {
           _parent = {'id': parentId, 'name': 'Parent', 'email': ''};
         });
       }
     } else {
-      print('⚠️ No valid parent ID found for child: $childId');
+
     }
   }
 
   Future<String?> _getParentIdFromChild(String childId) async {
     if (childId.isEmpty) return null;
 
-    print('🔍 Looking for parent of child: $childId');
+  
 
     try {
-      try {
-        final childInTherapist = await FirebaseFirestore.instance
-            .collection('therapists')
-            .doc(widget.therapistId)
-            .collection('children')
-            .doc(childId)
-            .get();
+      // METHOD 1: Check if child document has parentUID field
+      final childDoc = await FirebaseFirestore.instance
+          .collection('children')
+          .doc(childId)
+          .get();
 
-        if (childInTherapist.exists) {
-          final data = childInTherapist.data();
-          print('📄 Child document in therapist collection: ${data?.keys}');
-
-          String? parentUID;
-          if (data != null) {
-            parentUID =
-                data['parentUID'] ?? data['parentUid'] ?? data['parentId'];
-          }
-
-          if (parentUID != null &&
-              parentUID is String &&
-              parentUID.isNotEmpty) {
-            if (parentUID != widget.therapistId) {
-              print('✅ Found parentUID in therapist/children: $parentUID');
-              return parentUID;
-            } else {
-              print('⚠️ parentUID matches therapistId, ignoring');
-            }
-          } else {
-            print(
-              '⚠️ No parentUID/parentUid/parentId field found in child document',
-            );
-            print('   Available fields: ${data?.keys}');
-          }
-        } else {
-          print('❌ Child document not found in therapist collection');
-        }
-      } catch (e) {
-        print('   Error checking therapist children: $e');
-      }
-
-      print('   Searching users collection for child...');
-      try {
-        final usersSnapshot = await FirebaseFirestore.instance
-            .collection('users')
-            .limit(50)
-            .get();
-
-        for (final userDoc in usersSnapshot.docs) {
-          final userId = userDoc.id;
-
-          if (userId == widget.therapistId) continue;
-
-          try {
-            final childDoc = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(userId)
-                .collection('children')
-                .doc(childId)
-                .get();
-
-            if (childDoc.exists) {
-              print('✅ Found child in user $userId children collection');
-              return userId;
-            }
-          } catch (e) {}
-        }
-      } catch (e) {
-        print('   Error searching users: $e');
-      }
-
-      try {
-        final childDoc = await FirebaseFirestore.instance
-            .collection('children')
-            .doc(childId)
-            .get();
-
-        if (childDoc.exists) {
-          final data = childDoc.data();
-          final parentUID =
-              data?['parentUID'] ?? data?['parentUid'] ?? data?['parentId'];
-          if (parentUID != null &&
-              parentUID is String &&
-              parentUID.isNotEmpty) {
-            print('✅ Found parentUID in child document: $parentUID');
+      if (childDoc.exists) {
+        final data = childDoc.data();
+        final parentUID =
+            data?['parentUID'] ?? data?['parentUid'] ?? data?['parentId'];
+        if (parentUID != null && parentUID is String && parentUID.isNotEmpty) {
+          if (parentUID != widget.therapistId) {
+       
             return parentUID;
           }
         }
-      } catch (e) {
-        print('   Error checking child document: $e');
       }
 
-      print('❌ Could not find parent for child: $childId');
+      // METHOD 2: Search through therapist's children collection
+      final childInTherapist = await FirebaseFirestore.instance
+          .collection('therapists')
+          .doc(widget.therapistId)
+          .collection('children')
+          .doc(childId)
+          .get();
+
+      if (childInTherapist.exists) {
+        final data = childInTherapist.data();
+        String? parentUID =
+            data?['parentUID'] ?? data?['parentUid'] ?? data?['parentId'];
+
+        if (parentUID != null && parentUID.isNotEmpty) {
+          if (parentUID != widget.therapistId) {
+       
+            return parentUID;
+          }
+        }
+      }
+
+  
+      final usersSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .limit(50)
+          .get();
+
+      for (final userDoc in usersSnapshot.docs) {
+        final userId = userDoc.id;
+
+        // Skip if this is the therapist
+        if (userId == widget.therapistId) continue;
+
+        try {
+          final childDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .collection('children')
+              .doc(childId)
+              .get();
+
+          if (childDoc.exists) {
+          
+            return userId;
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+
+  
       return null;
     } catch (e) {
-      print('❌ Error in _getParentIdFromChild: $e');
+  
       return null;
     }
   }
@@ -1346,7 +1322,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           };
         }
       } catch (e) {
-        print('   Error fetching found parent: $e');
+    
       }
     }
 
@@ -1385,7 +1361,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       ),
       // Optional: Add onVisible callback if you want to mark as notified only when shown
       onVisible: () {
-        print('Task completion snackbar shown for $taskId');
+      
       },
     );
 
@@ -1395,7 +1371,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // This prevents memory leak if you have many tasks
     Future.delayed(const Duration(seconds: 4), () {
       _notifiedTaskIds.remove(taskId);
-      print('Task $taskId removed from notification set');
+   
     });
   }
 
@@ -1408,7 +1384,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     Map<String, dynamic> parentData,
   ) async {
     if (parentId.isEmpty || parentId == therapistId) {
-      print('⚠️ Cannot generate PDF: Invalid parent ID');
+   
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Cannot generate report: Parent information not found'),
@@ -1432,16 +1408,13 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       // Calculate end of week (Sunday)
       final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-      print('📅 Today: ${DateFormat('yyyy-MM-dd').format(today)}');
-      print('📅 Week Start: ${DateFormat('yyyy-MM-dd').format(startOfWeek)}');
-      print('📅 Week End: ${DateFormat('yyyy-MM-dd').format(endOfWeek)}');
+     
 
       // Format dates for Firestore queries
       final startDate = DateFormat('yyyy-MM-dd').format(startOfWeek);
       final endDate = DateFormat('yyyy-MM-dd').format(endOfWeek);
 
-      print('📅 PDF Date Range: $startDate to $endDate');
-
+   
       // Fetch all history documents within the weekly range
       List<Map<String, dynamic>> completeWeeklyHistory = [];
 
@@ -1504,7 +1477,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           }
         }
       } catch (e) {
-        print('❌ Error fetching history: $e');
+     
         // Fallback: create weekly data up to today
         for (int i = 0; i < 7; i++) {
           final currentDate = startOfWeek.add(Duration(days: i));
@@ -2004,7 +1977,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                                 ),
                               ],
                             );
-                          }).toList(),
+                          }),
                         ],
                       ),
                     ],
@@ -2210,7 +2183,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                               ),
                             ],
                           );
-                        }).toList(),
+                        }),
                       ],
                     ),
                     pw.SizedBox(height: 8),
@@ -2350,9 +2323,9 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         onLayout: (format) async => pdf.save(),
       );
 
-      print('✅ PDF generated successfully');
+ 
     } catch (e) {
-      print('❌ Error generating PDF: $e');
+    
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to generate PDF: $e'),
@@ -2456,9 +2429,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         endDate = DateTime(targetDate.year, targetDate.month + 1, 0);
       }
 
-      print('📊 Fetching task details for period:');
-      print('   Start: ${DateFormat('yyyy-MM-dd').format(startDate)}');
-      print('   End: ${DateFormat('yyyy-MM-dd').format(endDate)}');
+   
 
       for (var doc in tasksSnap.docs) {
         final data = doc.data();
@@ -2494,7 +2465,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       return tasks;
     } catch (e) {
-      print('❌ Error fetching task details: $e');
+   
       return [];
     }
   }
@@ -2553,7 +2524,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         'totalTasksAssigned': totalDone + totalNotDone + totalMissed,
       };
     } catch (e) {
-      print('❌ Error getting task completion from history: $e');
+     
       return {
         'totalDaysWithTasks': 0,
         'totalDone': 0,
@@ -2636,7 +2607,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       // If we don't have completionDates, then we cannot determine completions in timeframe.
       return 0;
     } catch (e) {
-      print('❌ Error getting task completions in timeframe: $e');
+  
       return 0;
     }
   }
@@ -2649,7 +2620,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     try {
       final parentId = await _getParentIdFromChild(childId);
       if (parentId == null || parentId.isEmpty) {
-        print('⚠️ Parent not found for child: $childId');
+     
         return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
       }
 
@@ -2674,12 +2645,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         daysInTimeframe = endDate.day;
       }
 
-      print(
-        '📊 Analyzing tasks with history for ${isWeekly ? 'Week' : 'Month'}:',
-      );
-      print('   Start: ${DateFormat('yyyy-MM-dd').format(startDate)}');
-      print('   End: ${DateFormat('yyyy-MM-dd').format(endDate)}');
-      print('   Days: $daysInTimeframe');
+    
 
       // 1. Fetch all tasks
       final tasksSnap = await FirebaseFirestore.instance
@@ -2691,7 +2657,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           .get();
 
       if (tasksSnap.docs.isEmpty) {
-        print('⚠️ No tasks found for child: $childId');
+      
         return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
       }
 
@@ -2857,7 +2823,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         'taskPerformance': taskPerformance,
       };
     } catch (e) {
-      print('❌ Error in _analyzeTasksWithHistory: $e');
+   
       return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
     }
   }
@@ -2874,7 +2840,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       );
       return result;
     } catch (e) {
-      print('❌ Error in _getWeeklyTaskAnalysis: $e');
+    
       return _getEmptyAnalysisData('Weekly');
     }
   }
@@ -2891,7 +2857,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       );
       return result;
     } catch (e) {
-      print('❌ Error in _getMonthlyTaskAnalysis: $e');
+   
       return _getEmptyAnalysisData('Monthly');
     }
   }
@@ -2945,13 +2911,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     required Map<String, dynamic> taskData,
   }) async {
     try {
-      print(
-        '🔍 Checking days completed for task: ${taskData['name']} ($taskId)',
-      );
-      print('   Parent: $parentId, Child: $childId');
-      print(
-        '   Timeframe: ${DateFormat('yyyy-MM-dd').format(startDate)} to ${DateFormat('yyyy-MM-dd').format(endDate)}',
-      );
+    
 
       // First, check if the task has a 'done' field that might indicate completion
       if (taskData['isDone'] == true) {
@@ -2960,7 +2920,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           final completionDate = doneAt.toDate();
           if (!completionDate.isBefore(startDate) &&
               !completionDate.isAfter(endDate)) {
-            print('   ✅ Found completion in isDone field on: $completionDate');
+       
             return 1;
           }
         }
@@ -2969,9 +2929,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       // Check completion dates array
       final completionDates = taskData['completionDates'] as List?;
       if (completionDates != null && completionDates.isNotEmpty) {
-        print(
-          '   Checking completionDates array with ${completionDates.length} entries',
-        );
+     
         int count = 0;
         for (var date in completionDates) {
           if (date is Timestamp) {
@@ -2979,26 +2937,24 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             if (!completionDate.isBefore(startDate) &&
                 !completionDate.isAfter(endDate)) {
               count++;
-              print('     ✅ Found completion on: $completionDate');
+          
             }
           }
         }
         if (count > 0) {
-          print('   Total completions in completionDates: $count');
+     
           return count;
         }
       }
 
       // Try to fetch from history collection
-      print('   Checking history collection...');
+ 
       try {
         // Convert dates to string format for document ID query
         final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
         final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
 
-        print(
-          '   Looking for history documents from $startDateStr to $endDateStr',
-        );
+    
 
         final historySnap = await FirebaseFirestore.instance
             .collection('users')
@@ -3010,26 +2966,24 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             .where(FieldPath.documentId, isLessThanOrEqualTo: endDateStr)
             .get();
 
-        print('   Found ${historySnap.docs.length} history documents');
+   
 
         int completedCount = 0;
 
         for (var doc in historySnap.docs) {
           final data = doc.data();
-          print('   Checking history for ${doc.id}: ${data.keys}');
+     
 
           // Check if this task appears in the done tasks list
           if (data.containsKey('completedTasks')) {
             final completedTasks = data['completedTasks'];
-            print(
-              '     completedTasks field type: ${completedTasks.runtimeType}',
-            );
+      
 
             if (completedTasks is List<dynamic>) {
-              print('     completedTasks list: $completedTasks');
+          
               if (completedTasks.contains(taskId)) {
                 completedCount++;
-                print('     ✅ Found in completedTasks for date: ${doc.id}');
+           
               }
             }
           }
@@ -3037,15 +2991,13 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           // Check task-specific completion data
           if (data.containsKey('taskCompletions')) {
             final taskCompletions = data['taskCompletions'];
-            print(
-              '     taskCompletions field type: ${taskCompletions.runtimeType}',
-            );
+        
 
             if (taskCompletions is Map<String, dynamic>) {
-              print('     taskCompletions keys: ${taskCompletions.keys}');
+           
               if (taskCompletions[taskId] == true) {
                 completedCount++;
-                print('     ✅ Found in taskCompletions for date: ${doc.id}');
+              
               }
             }
           }
@@ -3057,16 +3009,16 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final taskData = tasksData[taskId];
               if (taskData != null && taskData['completed'] == true) {
                 completedCount++;
-                print('     ✅ Found in tasks field for date: ${doc.id}');
+             
               }
             }
           }
         }
 
-        print('   Total completions found in history: $completedCount');
+     
         return completedCount;
       } catch (e) {
-        print('   ❌ Error checking history: $e');
+    
       }
 
       // Last resort: check last completion date
@@ -3077,25 +3029,23 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       if (lastCompletedDate != null && lastCompletedDate is Timestamp) {
         latestCompletion = lastCompletedDate.toDate();
-        print(
-          '   Last completion date from lastCompletedDate: $latestCompletion',
-        );
+     
       } else if (doneAt != null && doneAt is Timestamp) {
         latestCompletion = doneAt.toDate();
-        print('   Last completion date from doneAt: $latestCompletion');
+     
       }
 
       if (latestCompletion != null &&
           !latestCompletion.isBefore(startDate) &&
           !latestCompletion.isAfter(endDate)) {
-        print('   ✅ Using last completion date: $latestCompletion');
+       
         return 1;
       }
 
-      print('   ❌ No completions found for this task in timeframe');
+  
       return 0;
     } catch (e) {
-      print('❌ Error calculating days completed: $e');
+   
       return 0;
     }
   }
@@ -3143,7 +3093,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       return dailyCompletions;
     } catch (e) {
-      print('❌ Error getting daily completion pattern for month: $e');
+   
       return dailyCompletions;
     }
   }
@@ -3216,7 +3166,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               : 0,
         });
       } catch (e) {
-        print('⚠️ Error getting week ${weeklyBreakdown.length + 1} data: $e');
+     
       }
 
       currentWeekStart = currentWeekStart.add(Duration(days: 7));
@@ -3313,11 +3263,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final parentId = await _getParentIdFromChild(childId);
 
     if (parentId == null || parentId.isEmpty) {
-      print('⚠️ Cannot save task progress: No parent found for child $childId');
+  
       return;
     }
 
-    print('✅ Saving task progress to parent $parentId for child $childId');
+ 
 
     final taskHistoryService = TaskHistoryService();
     await taskHistoryService.saveDailyTaskProgress(
@@ -3406,7 +3356,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                         ),
                       const SizedBox(height: 4),
                       Text(
-                        'Based on ${totalDaysCompleted} day${totalDaysCompleted != 1 ? 's' : ''} of tracked data',
+                        'Based on $totalDaysCompleted day${totalDaysCompleted != 1 ? 's' : ''} of tracked data',
                         style: const TextStyle(
                           fontSize: 11,
                           color: Colors.grey,
@@ -3764,7 +3714,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       ),
                     ),
                   );
-                }).toList(),
+                }),
             ],
           ),
         ],
@@ -4111,7 +4061,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
             ],
           ),
         ],
@@ -4532,7 +4482,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                                   if (_currentWeekOffset > 0) {
                                     periodText +=
-                                        ' (${_currentWeekOffset == 1 ? 'Last Week' : '${_currentWeekOffset} weeks ago'})';
+                                        ' (${_currentWeekOffset == 1 ? 'Last Week' : '$_currentWeekOffset weeks ago'})';
                                   } else {
                                     periodText += ' (This Week)';
                                   }
@@ -4543,7 +4493,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                                   if (_currentMonthOffset > 0) {
                                     periodText +=
-                                        ' (${_currentMonthOffset == 1 ? 'Last Month' : '${_currentMonthOffset} months ago'})';
+                                        ' (${_currentMonthOffset == 1 ? 'Last Month' : '$_currentMonthOffset months ago'})';
                                   } else {
                                     periodText += ' (This Month)';
                                   }
@@ -4630,7 +4580,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       }
 
                       if (snapshot.hasError) {
-                        print('Error loading analysis: ${snapshot.error}');
+                    
                         return Padding(
                           padding: const EdgeInsets.all(8.0),
                           child: Column(
@@ -4662,7 +4612,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                       // FIX: Handle null data case
                       if (!snapshot.hasData || snapshot.data == null) {
-                        print('No data received from analysis');
+                    
                         return Padding(
                           padding: const EdgeInsets.all(8.0),
                           child: Column(
@@ -4693,8 +4643,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       }
 
                       final analysis = snapshot.data!;
-                      print('Analysis data received: ${analysis.keys}');
-
+                 
                       // FIX: Check if we have valid data
                       final totalTasksAssigned =
                           (analysis['totalTasksAssigned'] as int?) ?? 0;
@@ -4933,7 +4882,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                                   if (_currentWeekOffset > 0) {
                                     periodText +=
-                                        ' (${_currentWeekOffset == 1 ? 'Last Week' : '${_currentWeekOffset} weeks ago'})';
+                                        ' (${_currentWeekOffset == 1 ? 'Last Week' : '$_currentWeekOffset weeks ago'})';
                                   } else {
                                     periodText += ' (This Week)';
                                   }
@@ -4944,7 +4893,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                                   if (_currentMonthOffset > 0) {
                                     periodText +=
-                                        ' (${_currentMonthOffset == 1 ? 'Last Month' : '${_currentMonthOffset} months ago'})';
+                                        ' (${_currentMonthOffset == 1 ? 'Last Month' : '$_currentMonthOffset months ago'})';
                                   } else {
                                     periodText += ' (This Month)';
                                   }
@@ -5090,7 +5039,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     ];
 
     // Add calendar system for week navigation
-    Widget _buildWeekCalendarNavigation(
+    Widget buildWeekCalendarNavigation(
       String timeframe,
       int offset,
       Function(int) onWeekChange,
@@ -5229,8 +5178,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final moodCounts = <String, int>{};
               final childId = activeChild['cid'] ?? '';
 
-              print('   Child ID: $childId');
-              print('   Child data: $activeChild');
+         
 
               if (childId.isNotEmpty) {
                 final entries = journalProv.getEntries(childId);
@@ -5279,9 +5227,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final parentId = await _getParentIdFromChild(childId);
 
               if (parentId == null || parentId.isEmpty) {
-                print(
-                  '⚠️ Cannot generate PDF: No parent found for child $childId',
-                );
+         
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
@@ -5310,17 +5256,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   parentData = {'id': parentId, 'name': 'Parent', 'email': ''};
                 }
               } catch (e) {
-                print('   Error fetching parent details: $e');
+            
                 parentData = {'id': parentId, 'name': 'Parent', 'email': ''};
               }
 
-              print('📄 Generating PDF with:');
-              print('   - Therapist: ${therapistData['name']}');
-              print(
-                '   - Parent: ${parentData['name']} (ID: ${parentData['id']})',
-              );
-              print('   - Child: ${activeChild['name']} (ID: $childId)');
-
+          
               await exportChildDataToPdfWithCharts(
                 widget.therapistId,
                 parentData['id'],
@@ -5912,62 +5852,122 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            assignedCBT.isEmpty
-                                ? const SizedBox(
-                                    width: double.infinity,
-                                    child: Text(
-                                      "No CBT exercises assigned this week.",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.black54,
-                                        fontStyle: FontStyle.italic,
+
+                            // Debug info
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[100],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                children: [
+                                  if (assignedCBT.isEmpty &&
+                                      activeChild['cid'] != null)
+                                    TextButton(
+                                      onPressed: () async {
+                                        final cbtProv =
+                                            Provider.of<CBTProvider>(
+                                              context,
+                                              listen: false,
+                                            );
+                                        final parentId =
+                                            await _getParentIdFromChild(
+                                              activeChild['cid'],
+                                            );
+                                        if (parentId != null) {
+                                          await cbtProv.loadRemoteCBT(
+                                            parentId,
+                                            activeChild['cid'],
+                                          );
+                                          setState(() {});
+                                        }
+                                      },
+                                      child: const Text('Retry Loading'),
+                                    ),
+                                ],
+                              ),
+                            ),
+
+                            // Show loading state or list
+                            if (assignedCBT.isEmpty)
+                              const SizedBox(
+                                width: double.infinity,
+                                child: Text(
+                                  "No CBT exercises assigned this week.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.black54,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              )
+                            else
+                              ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: assignedCBT.length,
+                                itemBuilder: (context, index) {
+                                  final assigned = assignedCBT[index];
+                                  final exercise = CBTLibrary.getById(
+                                    assigned.exerciseId,
+                                  );
+
+                                  // Status flags
+                                  final bool isCompleted = assigned.completed;
+                                  final bool isRequested =
+                                      assigned.isRequested ?? false;
+                                  final bool isApproved =
+                                      assigned.isApproved ?? false;
+
+                                  // Determine icon, color, text
+                                  IconData statusIcon;
+                                  Color statusColor;
+                                  String statusText;
+
+                                  if (isCompleted) {
+                                    statusIcon = Icons.check_circle;
+                                    statusColor = Colors.green;
+                                    statusText = "Completed ✅";
+                                  } else if (isRequested) {
+                                    statusIcon = Icons.hourglass_top;
+                                    statusColor = Colors.blue;
+                                    statusText = "Waiting For Confirmation ⏳";
+                                  } else if (!isApproved) {
+                                    statusIcon = Icons.pending;
+                                    statusColor = Colors.brown;
+                                    statusText =
+                                        "Not set as visible to child ❎";
+                                  } else {
+                                    statusIcon = Icons.pending;
+                                    statusColor = Colors.orange;
+                                    statusText = "Pending ⏳";
+                                  }
+
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      exercise.title,
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
-                                  )
-                                : ListView.builder(
-                                    shrinkWrap: true,
-                                    physics:
-                                        const NeverScrollableScrollPhysics(),
-                                    itemCount: assignedCBT.length,
-                                    itemBuilder: (context, index) {
-                                      final assigned = assignedCBT[index];
-                                      final exercise = CBTLibrary.getById(
-                                        assigned.exerciseId,
-                                      );
-
-                                      return ListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        title: Text(
-                                          exercise.title,
-                                          style: const TextStyle(
-                                            color: Colors.black,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        subtitle: assigned.completed
-                                            ? const Text(
-                                                "Completed ✅",
-                                                style: TextStyle(
-                                                  color: Colors.greenAccent,
-                                                ),
-                                              )
-                                            : const Text(
-                                                "Pending ⏳",
-                                                style: TextStyle(
-                                                  color: Colors.orangeAccent,
-                                                ),
-                                              ),
-                                        trailing: Icon(
-                                          assigned.completed
-                                              ? Icons.check_circle
-                                              : Icons.pending,
-                                          color: assigned.completed
-                                              ? Colors.greenAccent
-                                              : Colors.orangeAccent,
-                                        ),
-                                      );
-                                    },
-                                  ),
+                                    subtitle: Text(
+                                      statusText,
+                                      style: TextStyle(color: statusColor),
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Status icon
+                                        Icon(statusIcon, color: statusColor),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
                           ],
                         ),
                       ),

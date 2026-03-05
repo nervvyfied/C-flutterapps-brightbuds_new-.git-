@@ -1,8 +1,6 @@
 import 'package:brightbuds_new/aquarium/catalogs/decor_catalog.dart';
 import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
-import 'package:flutter/material.dart';
 import '../models/fish_definition.dart';
-import '../models/decor_definition.dart';
 
 class AquariumLevelComposer {
   static LevelData getLevelData({

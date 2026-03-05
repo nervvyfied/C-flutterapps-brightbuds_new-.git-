@@ -34,27 +34,24 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   }
 
   Future<void> _checkEmailVerification() async {
-    print("=== VERIFICATION PAGE: Checking email verification ===");
+ 
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      print("No user found - going to login");
+    
       _redirectToLogin();
       return;
     }
 
     // 🔥 CRITICAL: Check if email is actually verified
     isEmailVerified = user.emailVerified;
-    print("User email verified status: $isEmailVerified");
-    print("User email: ${user.email}");
-
+  
     if (isEmailVerified) {
       // Email is verified - proceed to update Firestore and go to dashboard
-      print("Email verified! Processing to dashboard...");
+     
       await _processVerifiedAccount(user);
     } else {
       // Email NOT verified - start checking periodically
-      print("Email NOT verified - starting timer to check every 3 seconds");
       timer = Timer.periodic(
         const Duration(seconds: 3),
         (_) => _verifyAndCheck(),
@@ -78,7 +75,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       final updatedUser = FirebaseAuth.instance.currentUser;
 
       if (updatedUser != null && updatedUser.emailVerified) {
-        print("✅ Email verification DETECTED!");
         setState(() => isEmailVerified = true);
         timer?.cancel();
 
@@ -86,12 +82,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         await _processVerifiedAccount(updatedUser);
       }
     } catch (e) {
-      print("Error checking verification: $e");
     }
   }
 
   Future<void> _processVerifiedAccount(User user) async {
-    print("Processing verified account for user: ${user.uid}");
 
     try {
       // 1. Update Firestore to mark as verified
@@ -121,14 +115,12 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
 
       // 3. Go to dashboard
       if (mounted) {
-        print("✅ Verification complete - navigating to dashboard");
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const TherapistNavigationShell()),
         );
       }
     } catch (e) {
-      print("Error processing verified account: $e");
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -147,7 +139,6 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
     try {
       setState(() => canResendEmail = false);
 
-      print("Sending verification email to: ${user.email}");
       await user.sendEmailVerification();
 
       ScaffoldMessenger.of(context).showSnackBar(

@@ -2,7 +2,6 @@ import '../models/fish_definition.dart';
 import '../models/decor_definition.dart';
 import '../catalogs/fish_catalog.dart';
 import '../catalogs/decor_catalog.dart';
-import 'world_progression.dart';
 
 class UnlockResolver {
   final int currentLevel;

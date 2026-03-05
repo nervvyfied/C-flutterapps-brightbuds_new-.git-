@@ -77,7 +77,8 @@ class TaskModel {
   @HiveField(23)
   final bool? isAccepted; // null = pending, true = accepted, false = rejected
 
-  
+  @HiveField(24)
+  final bool? showToChild;
 
   TaskModel({
     required this.id,
@@ -104,6 +105,7 @@ class TaskModel {
     this.rejectionReason,
     this.reminderMessage,
     this.isAccepted,
+    this.showToChild,
   });
 
   // ---------------- FIRESTORE -> MODEL ----------------
@@ -141,6 +143,7 @@ class TaskModel {
       rejectionReason: data['rejectionReason'] as String?,
       reminderMessage: data['reminderMessage'] as String?,
       isAccepted: data['isAccepted'] as bool? ?? false,
+      showToChild: data['showToChild'] as bool? ?? false,
     );
   }
 
@@ -179,40 +182,41 @@ class TaskModel {
       'rejectionReason': rejectionReason,
       'reminderMessage': reminderMessage,
       'isAccepted': isAccepted,
+      'showToChild': showToChild,
     };
   }
 
   Map<String, dynamic> toMap() => toFirestore();
 
   /// Convert TaskModel to a map safe for Hive storage (no Timestamps, only DateTime)
-Map<String, dynamic> toMapForHive() {
-  return {
-    'id': id,
-    'name': name,
-    'difficulty': difficulty,
-    'reward': reward,
-    'routine': routine,
-    'alarm': alarm,
-    'note': note,
-    'isDone': isDone,
-    'doneAt': doneAt,
-    'activeStreak': activeStreak,
-    'longestStreak': longestStreak,
-    'totalDaysCompleted': totalDaysCompleted,
-    'lastCompletedDate': lastCompletedDate,
-    'parentId': parentId,
-    'childId': childId,
-    'lastUpdated': lastUpdated,
-    'verified': verified,
-    'createdAt': createdAt,
-    'creatorId': creatorId,
-    'creatorType': creatorType,
-    'rejectionReason': rejectionReason,
-    'reminderMessage': reminderMessage,
-    'isAccepted': isAccepted,
-  };
-}
-
+  Map<String, dynamic> toMapForHive() {
+    return {
+      'id': id,
+      'name': name,
+      'difficulty': difficulty,
+      'reward': reward,
+      'routine': routine,
+      'alarm': alarm,
+      'note': note,
+      'isDone': isDone,
+      'doneAt': doneAt,
+      'activeStreak': activeStreak,
+      'longestStreak': longestStreak,
+      'totalDaysCompleted': totalDaysCompleted,
+      'lastCompletedDate': lastCompletedDate,
+      'parentId': parentId,
+      'childId': childId,
+      'lastUpdated': lastUpdated,
+      'verified': verified,
+      'createdAt': createdAt,
+      'creatorId': creatorId,
+      'creatorType': creatorType,
+      'rejectionReason': rejectionReason,
+      'reminderMessage': reminderMessage,
+      'isAccepted': isAccepted,
+      'showToChild': showToChild,
+    };
+  }
 
   // ---------------- COPYWITH ----------------
   TaskModel copyWith({
@@ -240,6 +244,7 @@ Map<String, dynamic> toMapForHive() {
     String? rejectionReason,
     String? reminderMessage,
     bool? isAccepted,
+    bool? showToChild,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -266,6 +271,7 @@ Map<String, dynamic> toMapForHive() {
       rejectionReason: rejectionReason ?? this.rejectionReason,
       reminderMessage: reminderMessage ?? this.reminderMessage,
       isAccepted: isAccepted ?? this.isAccepted,
+      showToChild: showToChild ?? this.showToChild,
     );
   }
 

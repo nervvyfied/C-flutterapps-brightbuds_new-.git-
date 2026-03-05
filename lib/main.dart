@@ -38,7 +38,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 /// ------------------ BACKGROUND HANDLER ------------------
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  debugPrint('🔹 FCM background message received: ${message.messageId}');
 }
 
 /// ------------------ LOCAL NOTIFICATIONS SETUP ------------------
@@ -62,9 +61,7 @@ Future<void> _initFlutterLocalNotifications() async {
 
   await flutterLocalNotificationsPlugin.initialize(
     initSettings,
-    onDidReceiveNotificationResponse: (NotificationResponse response) {
-      debugPrint('🔔 Local notification tapped: ${response.payload}');
-    },
+    onDidReceiveNotificationResponse: (NotificationResponse response) {},
   );
 
   // ✅ Request permission for notifications
@@ -119,10 +116,7 @@ void main() async {
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
     );
-    debugPrint('✅ Firestore offline persistence enabled');
-  } catch (e) {
-    debugPrint('⚠️ Failed to enable Firestore persistence: $e');
-  }
+  } catch (e) {}
 
   // ✅ Setup FCM background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -160,8 +154,6 @@ void main() async {
   await Hive.openBox<AssignedCBT>('assignedCBT');
   await Hive.openBox('settingsBox');
 
-  debugPrint('✅ Hive boxes opened and ready.');
-
   runApp(const MyApp());
 }
 
@@ -181,53 +173,37 @@ Future<void> _initializeFCM() async {
     sound: true,
   );
   if (settings.authorizationStatus != AuthorizationStatus.authorized) {
-    debugPrint('❌ Notifications not authorized!');
-  }
+    // Get FCM token
+    try {
+      await messaging.getToken();
+    } catch (e) {}
 
-  // Get FCM token
-  try {
-    final token = await messaging.getToken();
-    debugPrint('🔹 FCM token: $token');
-  } catch (e) {
-    debugPrint('⚠️ Failed to get FCM token: $e');
-  }
+    // Single listener for foreground messages
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      final notification = message.notification;
+      final androidDetails = AndroidNotificationDetails(
+        _androidChannel.id,
+        _androidChannel.name,
+        channelDescription: _androidChannel.description,
+        importance: Importance.high,
+        priority: Priority.high,
+      );
 
-  // Single listener for foreground messages
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-    debugPrint('📩 [FCM] Foreground message received!');
-    debugPrint('Title: ${message.notification?.title}');
-    debugPrint('Body: ${message.notification?.body}');
-    debugPrint('Data: ${message.data}');
+      // 🔔 Show local notification to confirm reception
+      await flutterLocalNotificationsPlugin.show(
+        message.hashCode,
+        notification?.title ?? 'BrightBuds',
+        notification?.body ?? 'You have a new update!',
+        NotificationDetails(android: androidDetails),
+      );
+    });
 
-    final notification = message.notification;
-    final androidDetails = AndroidNotificationDetails(
-      _androidChannel.id,
-      _androidChannel.name,
-      channelDescription: _androidChannel.description,
-      importance: Importance.high,
-      priority: Priority.high,
-    );
+    // When notification is tapped and app opens
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {});
 
-    // 🔔 Show local notification to confirm reception
-    await flutterLocalNotificationsPlugin.show(
-      message.hashCode,
-      notification?.title ?? 'BrightBuds',
-      notification?.body ?? 'You have a new update!',
-      NotificationDetails(android: androidDetails),
-    );
-  });
-
-  // When notification is tapped and app opens
-  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-    debugPrint('🔹 Notification opened app: ${message.notification?.title}');
-  });
-
-  // Handle app launch from terminated state
-  final initialMessage = await messaging.getInitialMessage();
-  if (initialMessage != null) {
-    debugPrint(
-      '🔹 App opened from terminated state: ${initialMessage.notification?.title}',
-    );
+    // Handle app launch from terminated state
+    final initialMessage = await messaging.getInitialMessage();
+    if (initialMessage != null) {}
   }
 }
 

@@ -2,7 +2,6 @@ import 'dart:math';
 import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/repositories/user_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
 import '/data/services/firestore_service.dart';
 import '/data/models/parent_model.dart';
 import '/data/models/child_model.dart';
@@ -143,7 +142,7 @@ class AuthService {
 
       return therapist;
     } catch (e) {
-      debugPrint('❌ Therapist login failed: $e');
+    
       rethrow;
     }
   }

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import '../models/journal_model.dart';
 import 'dart:io';
@@ -23,9 +22,9 @@ class JournalRepository {
   Future<void> saveEntryLocal(JournalEntry entry) async {
     try {
       await _journalBox.put(entry.jid, entry);
-      debugPrint("Journal ${entry.jid} saved locally.");
+    
     } catch (e) {
-      debugPrint("Error saving journal locally: $e");
+    
       rethrow;
     }
   }
@@ -36,13 +35,13 @@ class JournalRepository {
     final entries = _journalBox.values.where((e) => e.cid == childId).toList()
       ..sort((a, b) => b.entryDate.compareTo(a.entryDate));
 
-    debugPrint("Fetched ${entries.length} local entries for child $childId");
+   
     return entries;
   }
 
   Future<void> deleteEntryLocal(String jid) async {
     await _journalBox.delete(jid);
-    debugPrint("Journal $jid deleted locally.");
+  
   }
 
   // ---------------- FIRESTORE (REMOTE) ----------------
@@ -67,7 +66,7 @@ class JournalRepository {
       parentId,
       childId,
     ).doc(entry.jid).set(entry.toMap(), SetOptions(merge: true));
-    debugPrint("Journal ${entry.jid} saved remotely under child $childId.");
+  
   }
 
   Future<List<JournalEntry>> getAllEntriesRemote(
@@ -82,12 +81,10 @@ class JournalRepository {
           )
           .toList();
 
-      debugPrint(
-        "Fetched ${remoteEntries.length} remote entries for child $childId",
-      );
+  
       return remoteEntries;
     } catch (e) {
-      debugPrint("Error fetching remote entries: $e");
+     
       return [];
     }
   }
@@ -98,7 +95,7 @@ class JournalRepository {
     String jid,
   ) async {
     await _childJournalRef(parentId, childId).doc(jid).delete();
-    debugPrint("Journal $jid deleted remotely.");
+ 
   }
 
   // ---------------- OFFLINE-FIRST SYNC ----------------
@@ -141,19 +138,15 @@ class JournalRepository {
           await _journalBox.put(e.jid, e);
         }
 
-        debugPrint(
-          "✅ Merged ${mergedList.length} entries for child $childId (Local: ${localEntries.length}, Remote: ${remoteEntries.length}, Online: $online)",
-        );
+     
         return mergedList;
       } catch (e) {
-        debugPrint("Error merging remote entries: $e");
+     
         return localEntries;
       }
     }
 
-    debugPrint(
-      "Offline: returning local entries (${localEntries.length}) for child $childId",
-    );
+  
     return localEntries;
   }
 
@@ -172,7 +165,7 @@ class JournalRepository {
         if (!remoteSnapshot.exists) {
           // Remote doesn't exist → push local
           await saveEntryRemote(parentId, childId, entry);
-          debugPrint("⬆️ Pushed new local journal ${entry.jid} to Firestore.");
+      
         } else {
           final remoteData = remoteSnapshot.data() as Map<String, dynamic>;
           final remoteEntry = JournalEntry.fromMap(remoteData);
@@ -185,18 +178,13 @@ class JournalRepository {
 
           if (localTime.isAfter(remoteTime)) {
             await saveEntryRemote(parentId, childId, entry);
-            debugPrint(
-              "⬆️ Updated Firestore journal ${entry.jid} with newer local version.",
-            );
+          
           }
         }
       } catch (e) {
-        debugPrint("⚠️ Failed to push local journal ${entry.jid}: $e");
+       
       }
     }
 
-    debugPrint(
-      "✅ Completed pushing pending local journals for child $childId (parent $parentId).",
-    );
   }
 }

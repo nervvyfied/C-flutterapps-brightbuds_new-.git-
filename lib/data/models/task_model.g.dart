@@ -41,13 +41,14 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       rejectionReason: fields[21] as String?,
       reminderMessage: fields[22] as String?,
       isAccepted: fields[23] as bool?,
+      showToChild: fields[24] as bool?,
     );
   }
 
   @override
   void write(BinaryWriter writer, TaskModel obj) {
     writer
-      ..writeByte(24)
+      ..writeByte(25)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -95,7 +96,9 @@ class TaskModelAdapter extends TypeAdapter<TaskModel> {
       ..writeByte(22)
       ..write(obj.reminderMessage)
       ..writeByte(23)
-      ..write(obj.isAccepted);
+      ..write(obj.isAccepted)
+      ..writeByte(24)
+      ..write(obj.showToChild);
   }
 
   @override

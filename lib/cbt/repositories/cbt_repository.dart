@@ -1,5 +1,6 @@
+// ignore_for_file: empty_catches
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
 import '../models/assigned_cbt_model.dart';
 
@@ -24,9 +25,9 @@ class CBTRepository {
       await cbtRef.set(cbt.toMap());
 
       await _cbtBox.put(cbt.id, cbt);
-      debugPrint('CBT successfully added for ${cbt.childId}');
+ 
     } catch (e, st) {
-      debugPrint('Failed to add CBT: $e\n$st');
+    
     }
   }
 
@@ -60,9 +61,8 @@ class CBTRepository {
       // Remove from local Hive
       await _cbtBox.delete(cbtId);
 
-      debugPrint('CBT $cbtId removed for child $childId');
     } catch (e, st) {
-      debugPrint('Failed to remove CBT: $e\n$st');
+
     }
   }
 
@@ -118,7 +118,7 @@ Future<void> updateCompletion(String parentId, String childId, String cbtId) asy
     'lastCompleted': FieldValue.serverTimestamp(),
   });
 
-  debugPrint('🔥 Updated completion for CBT $cbtId under child $childId of parent $parentId');
+ 
 }
 
 }

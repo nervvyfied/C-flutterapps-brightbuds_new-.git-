@@ -142,10 +142,13 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
         for (final doc in snapshot.docs) {
           final data = doc.data();
-          if (data == null) continue;
 
           final rejectionReason = (data['rejectionReason'] ?? '').toString();
           if (rejectionReason.isEmpty) continue;
+
+          // ✅ Check if this rejection is meant to be shown to the child
+          final showToChild = (data['showToChild'] ?? false) as bool;
+          if (!showToChild) continue; // skip if it's for parent only
 
           final taskId = doc.id;
 
@@ -182,7 +185,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
               );
             }
           } catch (e) {
-            debugPrint('⚠️ Audio error (rejection): $e');
+       
           }
 
           // ⚠️ Show dialog AFTER frame builds
@@ -227,7 +230,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         }
       },
       onError: (e) {
-        debugPrint('❌ Rejection stream error: $e');
+     
       },
     );
   }
@@ -292,7 +295,9 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
         tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
       }
-    }, onError: (e) => debugPrint('❌ Task stream error: $e'));
+    }, onError: (e) {
+      
+    });
   }
 
   /// Listen to real-time XP updates and sync to Hive safely
@@ -332,7 +337,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
             );
           }
         } catch (e) {
-          debugPrint('⚠️ Audio error: $e');
+       
         }
       }
 
@@ -350,17 +355,19 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           if (child != null) {
             final updatedChild = child.copyWith(xp: newXP);
             await childBox.put(widget.childId, updatedChild);
-            debugPrint('💾 Hive childBox XP updated: $newXP');
+          
           }
         } catch (e) {
-          debugPrint('⚠️ Failed to persist XP to childBox: $e');
+        
         }
       } else {
-        debugPrint('⚠️ childBox not open yet, skipping XP update.');
+     
       }
 
-      debugPrint('🟢 XP synced Firestore → Hive: $newXP');
-    }, onError: (e) => debugPrint('❌ XP stream error: $e'));
+   
+    }, onError: (e) {
+      
+    });
   }
 
   /// Fetch XP from Firestore (offline-first) and sync to Hive safely

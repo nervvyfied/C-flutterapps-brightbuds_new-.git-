@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
+import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistNav_page.dart';
 import '../../../data/models/therapist_model.dart';
 import '/data/providers/auth_provider.dart' as app_auth;
 
@@ -87,12 +87,14 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
       String message = e.code == 'too-many-requests'
           ? 'Too many requests. Please wait a few minutes before trying again.'
           : 'Failed to send verification email: ${e.message}';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
       if (mounted) setState(() => canResendEmail = true);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sending email: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error sending email: $e')));
       if (mounted) setState(() => canResendEmail = true);
     }
   }
@@ -113,8 +115,11 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
               : Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.mark_email_read,
-                        size: 90, color: Colors.deepPurple),
+                    const Icon(
+                      Icons.mark_email_read,
+                      size: 90,
+                      color: Colors.deepPurple,
+                    ),
                     const SizedBox(height: 20),
                     const Text(
                       "A verification link has been sent to:",
@@ -142,7 +147,9 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                       width: 220,
                       height: 45,
                       child: ElevatedButton.icon(
-                        onPressed: canResendEmail ? sendVerificationEmail : null,
+                        onPressed: canResendEmail
+                            ? sendVerificationEmail
+                            : null,
                         icon: const Icon(Icons.refresh),
                         label: const Text("Resend Email"),
                         style: ElevatedButton.styleFrom(
@@ -163,7 +170,16 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
                     TextButton(
                       onPressed: () async {
                         await FirebaseAuth.instance.signOut();
-                        if (mounted) Navigator.pop(context);
+
+                        if (!mounted) return;
+
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ParentAuthPage(),
+                          ),
+                          (route) => false,
+                        );
                       },
                       child: const Text(
                         "Back to Login",

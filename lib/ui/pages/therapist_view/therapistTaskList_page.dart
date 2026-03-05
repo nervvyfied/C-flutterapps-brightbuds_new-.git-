@@ -8,8 +8,8 @@ import 'package:brightbuds_new/data/providers/auth_provider.dart';
 import 'package:brightbuds_new/data/providers/task_provider.dart';
 import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class TherapistTaskListScreen extends StatefulWidget {
   final String parentId;
@@ -33,10 +33,12 @@ class TherapistTaskListScreen extends StatefulWidget {
 enum TaskFilter { all, done, notDone }
 
 class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
-  TaskFilter _currentFilter = TaskFilter.all; // default: show all
+  TaskFilter _currentFilter = TaskFilter.all;
   Timer? _autoResetTimer;
   late SelectedChildProvider _selectedChildProv;
   late TaskProvider _taskProvider;
+  StreamSubscription<QuerySnapshot>? _tasksSubscription;
+  bool _isDisposed = false;
 
   int _getXPForDifficulty(String difficulty) {
     switch (difficulty.toLowerCase()) {
@@ -56,9 +58,10 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final taskProvider = context.read<TaskProvider>();
       _autoResetTimer = Timer.periodic(const Duration(minutes: 5), (_) {
-        if (mounted) {
+        if (mounted && !_isDisposed) {
           taskProvider.autoResetIfNeeded();
         }
       });
@@ -69,6 +72,8 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
+    if (_isDisposed) return;
+
     // Cache providers once
     _selectedChildProv = Provider.of<SelectedChildProvider>(
       context,
@@ -77,47 +82,92 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
     _taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
     // Listen for changes in selected child
-    _selectedChildProv.removeListener(_loadTasksForSelectedChild);
-    _selectedChildProv.addListener(_loadTasksForSelectedChild);
+    _selectedChildProv.removeListener(_onChildChanged);
+    _selectedChildProv.addListener(_onChildChanged);
 
     // Load tasks initially
     _loadTasksForSelectedChild();
   }
 
-  void _loadTasksForSelectedChild() {
-    if (!mounted) return;
+  void _onChildChanged() {
+    if (_isDisposed || !mounted) return;
+    _loadTasksForSelectedChild();
+    _setupRealtimeListener();
+  }
+
+  void _setupRealtimeListener() {
+    if (_isDisposed || !mounted) return;
 
     final childId = _selectedChildProv.selectedChild?['cid'];
     if (childId == null) return;
 
-    final taskProvider =
-        _taskProvider; // already cached in didChangeDependencies
+    // Cancel previous subscription
+    _tasksSubscription?.cancel();
+
+    // Create new subscription for real-time updates
+    _tasksSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(childId)
+        .collection('tasks')
+        .snapshots()
+        .listen(
+          (snapshot) {
+            if (_isDisposed || !mounted) return;
+
+            for (var change in snapshot.docChanges) {
+              switch (change.type) {
+                case DocumentChangeType.added:
+                case DocumentChangeType.modified:
+                case DocumentChangeType.removed:
+                  // Trigger a refresh of tasks
+                  _loadTasksForSelectedChild();
+                  break;
+              }
+            }
+          },
+          onError: (error) {
+          
+          },
+        );
+  }
+
+  void _loadTasksForSelectedChild() {
+    if (_isDisposed || !mounted) return;
+
+    final childId = _selectedChildProv.selectedChild?['cid'];
+    if (childId == null) return;
 
     Future.microtask(() async {
-      if (!mounted) return;
+      if (_isDisposed || !mounted) return;
       try {
-        await taskProvider.loadTasks(
+        await _taskProvider.loadTasks(
           parentId: widget.parentId,
-          childId: childId, // <-- important
+          childId: childId,
         );
       } catch (e) {
-        if (mounted) debugPrint("Error loading tasks: $e");
+        if (mounted && !_isDisposed) {
+          
+        }
       }
     });
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
     _autoResetTimer?.cancel();
-    _selectedChildProv.removeListener(_loadTasksForSelectedChild);
+    _tasksSubscription?.cancel();
+    _selectedChildProv.removeListener(_onChildChanged);
     super.dispose();
   }
 
   void _openTaskModal({TaskModel? task}) {
+    if (_isDisposed || !mounted) return;
+
     final childId = _selectedChildProv.selectedChild?['cid'];
     if (childId == null) return;
-
-    if (!mounted) return;
 
     showModalBottomSheet(
       context: context,
@@ -142,16 +192,18 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   }
 
   void _showVerifyModal(TaskModel task) {
+    if (_isDisposed || !mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) {
+      builder: (modalContext) {
         return Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+            bottom: MediaQuery.of(modalContext).viewInsets.bottom,
           ),
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -163,7 +215,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     decoration: BoxDecoration(
@@ -182,7 +233,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Task details
                   _buildDetailRow("Task Name", task.name),
                   _buildDetailRow(
                     "Time Completed",
@@ -207,19 +257,13 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                     "Days Completed",
                     task.totalDaysCompleted.toString(),
                   ),
-
                   const SizedBox(height: 24),
-
-                  // Confirm button
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      // ❌ Not Verified button
                       ElevatedButton(
                         onPressed: () {
-                          Provider.of<TaskProvider>(context, listen: false);
-
-                          Navigator.pop(context); // close verify modal first
+                          Navigator.pop(modalContext);
                           _showRejectReasonModal(task);
                         },
                         style: ElevatedButton.styleFrom(
@@ -238,17 +282,17 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                           style: TextStyle(fontSize: 16),
                         ),
                       ),
-
-                      // ✅ Confirm button
                       ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
                           final taskProvider = Provider.of<TaskProvider>(
-                            context,
+                            modalContext,
                             listen: false,
                           );
 
-                          taskProvider.verifyTask(task.id, task.childId);
-                          Navigator.pop(context);
+                          await taskProvider.verifyTask(task.id, task.childId);
+                          if (mounted && !_isDisposed) {
+                            Navigator.pop(modalContext);
+                          }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
@@ -279,6 +323,8 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   }
 
   void _showRejectReasonModal(TaskModel task) {
+    if (_isDisposed || !mounted) return;
+
     final reasonController = TextEditingController();
     final reminderController = TextEditingController();
 
@@ -288,10 +334,10 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) {
+      builder: (modalContext) {
         return Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+            bottom: MediaQuery.of(modalContext).viewInsets.bottom,
           ),
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -304,8 +350,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
-
-                  // Reason field
                   const Text("Reason"),
                   const SizedBox(height: 6),
                   TextField(
@@ -316,10 +360,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-
                   const SizedBox(height: 16),
-
-                  // Reminder field
                   const Text("Reminder Message (optional)"),
                   const SizedBox(height: 6),
                   TextField(
@@ -330,10 +371,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-
                   const SizedBox(height: 24),
-
-                  // Send button
                   Center(
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
@@ -348,7 +386,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         final reminder = reminderController.text.trim();
 
                         if (reason.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          ScaffoldMessenger.of(modalContext).showSnackBar(
                             const SnackBar(
                               content: Text("Please provide a reason."),
                             ),
@@ -357,7 +395,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         }
 
                         final taskProvider = Provider.of<TaskProvider>(
-                          context,
+                          modalContext,
                           listen: false,
                         );
 
@@ -366,16 +404,17 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                           childId: task.childId,
                           reason: reason,
                           reminder: reminder,
+                          showToChild: true,
                         );
 
-                        Navigator.pop(context); // close reject modal
-
-                        // Optional local confirmation
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Feedback sent to child."),
-                          ),
-                        );
+                        if (mounted && !_isDisposed) {
+                          Navigator.pop(modalContext);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Feedback sent to child."),
+                            ),
+                          );
+                        }
                       },
                       child: const Text("Send"),
                     ),
@@ -451,7 +490,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
       margin: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          // Title container
           Container(
             padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
             decoration: BoxDecoration(
@@ -470,14 +508,13 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
             ),
           ),
           const SizedBox(height: 6),
-          // Tasks
           Column(
             children: tasks.map((task) {
               Color cardColor = Colors.white;
-              if (task.verified) {
-                cardColor = const Color.fromARGB(255, 216, 248, 154); // Green
-              } else if (task.isDone) {
-                cardColor = const Color.fromARGB(255, 255, 234, 141); // Yellow
+              if (task.verified == true) {
+                cardColor = const Color.fromARGB(255, 216, 248, 154);
+              } else if (task.isDone == true) {
+                cardColor = const Color.fromARGB(255, 255, 234, 141);
               }
               final auth = context.read<AuthProvider>();
               final currentUserId = auth.currentUserModel?.uid ?? '';
@@ -539,23 +576,26 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      if (task.isAccepted !=
-                          true) // show Accept button only if not accepted
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                      if (task.isAccepted != true)
+                        Row(
+                          children: [
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                              ),
+                              onPressed: () => _showAcceptTaskModal(task),
+                              child: const Text("Accept"),
                             ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                          ),
-                          onPressed: () =>
-                              _showAcceptTaskModal(task), // ✅ only call modal
-                          child: const Text("Accept"),
+                            const SizedBox(width: 8),
+                          ],
                         )
                       else if (task.verified != true && task.isDone == true)
                         ElevatedButton(
@@ -591,7 +631,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                         ),
                     ],
                   ),
-
                   trailing: canEdit
                       ? IconButton(
                           icon: const Icon(Icons.edit),
@@ -608,16 +647,18 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
   }
 
   void _showAcceptTaskModal(TaskModel task) {
+    if (_isDisposed || !mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) {
+      builder: (modalContext) {
         return Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+            bottom: MediaQuery.of(modalContext).viewInsets.bottom,
           ),
           child: Container(
             padding: const EdgeInsets.all(16),
@@ -625,7 +666,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   "Accept Task",
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
@@ -634,24 +675,147 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                 _buildDetailRow("Difficulty", task.difficulty),
                 _buildDetailRow("Routine", task.routine),
                 const SizedBox(height: 24),
-                Center(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(modalContext);
+                        _showRejectionModal(task);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        "Reject Task",
+                        style: TextStyle(fontSize: 16),
                       ),
                     ),
-                    onPressed: () async {
-                      await _taskProvider.acceptTask(task.id, task.childId);
-                      Navigator.pop(context);
-                    },
-                    child: const Text("Accept Task"),
-                  ),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final taskProvider = Provider.of<TaskProvider>(
+                          modalContext,
+                          listen: false,
+                        );
+
+                        await taskProvider.acceptTask(task.id, task.childId);
+                        if (mounted && !_isDisposed) {
+                          Navigator.pop(modalContext);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        "Accept Task",
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
               ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showRejectionModal(TaskModel task) {
+    if (_isDisposed || !mounted) return;
+
+    final reasonController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (modalContext) {
+        final taskProvider = Provider.of<TaskProvider>(
+          modalContext,
+          listen: false,
+        );
+
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(modalContext).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Reject Task",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text("Reason for Rejection"),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      hintText: "Explain why the task is being rejected...",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Center(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                      ),
+                      onPressed: () async {
+                        final reason = reasonController.text.trim();
+
+                        await taskProvider.rejectTaskWithMessageForParent(
+                          taskId: task.id,
+                          childId: task.childId,
+                          reason: reason,
+                          showToChild: false,
+                        );
+
+                        if (mounted && !_isDisposed) {
+                          Navigator.pop(modalContext);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                "Task rejected and parent notified.",
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      child: const Text("Reject Task"),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -663,15 +827,14 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
     final selected = _currentFilter == filter;
     return GestureDetector(
       onTap: () {
-        setState(() {
-          _currentFilter = filter;
-        });
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _currentFilter = filter;
+          });
+        }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 6,
-        ), // Smaller padding
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF8657F3) : Colors.grey[300],
           borderRadius: BorderRadius.circular(8),
@@ -681,7 +844,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
           style: TextStyle(
             color: selected ? Colors.white : Colors.black87,
             fontWeight: FontWeight.bold,
-            fontSize: 14, // Smaller font size
+            fontSize: 14,
           ),
         ),
       ),
@@ -690,6 +853,8 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isDisposed) return const SizedBox.shrink();
+
     final selectedChildProv = Provider.of<SelectedChildProvider>(context);
     final childId = selectedChildProv.selectedChild?['cid'];
     final childName = selectedChildProv.selectedChild?['name'] ?? 'No Child';
@@ -706,7 +871,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
           Column(
             children: [
               const SizedBox(height: 40),
-              // Title Section
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -723,7 +887,6 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              // Filter Buttons Section
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -764,20 +927,19 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
                       switch (_currentFilter) {
                         case TaskFilter.notDone:
                           childTasks = childTasks
-                              .where((t) => !t.isDone)
+                              .where((t) => t.isDone != true)
                               .toList();
                           break;
                         case TaskFilter.done:
                           childTasks = childTasks
-                              .where((t) => t.isDone)
+                              .where((t) => t.isDone == true)
                               .toList();
                           break;
                         case TaskFilter.all:
-                          // no filter
                           break;
                       }
 
-                      if (taskProvider.isLoading) {
+                      if (taskProvider.isLoading && childTasks.isEmpty) {
                         return const Center(child: CircularProgressIndicator());
                       }
                       if (childTasks.isEmpty) {
@@ -848,6 +1010,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
   late String difficulty;
   late String routine;
   DateTime? alarmDateTime;
+  bool _isDisposed = false;
 
   @override
   void initState() {
@@ -860,6 +1023,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
 
   @override
   void dispose() {
+    _isDisposed = true;
     super.dispose();
   }
 
@@ -867,7 +1031,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
     final selected = difficulty == value;
     return GestureDetector(
       onTap: () {
-        if (!mounted) return;
+        if (!mounted || _isDisposed) return;
         setState(() {
           difficulty = value;
         });
@@ -895,7 +1059,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
     final selected = routine == value;
     return GestureDetector(
       onTap: () {
-        if (!mounted) return;
+        if (!mounted || _isDisposed) return;
         setState(() => routine = value);
       },
       child: Container(
@@ -918,6 +1082,8 @@ class _TaskFormModalState extends State<TaskFormModal> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isDisposed) return const SizedBox.shrink();
+
     final taskProvider = Provider.of<TaskProvider>(context, listen: false);
 
     return Padding(
@@ -934,10 +1100,8 @@ class _TaskFormModalState extends State<TaskFormModal> {
           child: Form(
             key: _formKey,
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.center, // center everything
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Header
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   decoration: BoxDecoration(
@@ -956,8 +1120,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   ),
                 ),
                 const SizedBox(height: 16),
-
-                // Task Name
                 TextFormField(
                   textAlign: TextAlign.center,
                   initialValue: taskName,
@@ -974,8 +1136,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   validator: (val) => val!.isEmpty ? "Enter title" : null,
                 ),
                 const SizedBox(height: 16),
-
-                // Difficulty row
                 Text(
                   "Difficulty",
                   style: TextStyle(fontWeight: FontWeight.bold),
@@ -990,8 +1150,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   ],
                 ),
                 const SizedBox(height: 16),
-
-                // Routine row
                 Text("Routine", style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 Row(
@@ -1004,27 +1162,6 @@ class _TaskFormModalState extends State<TaskFormModal> {
                   ],
                 ),
                 const SizedBox(height: 12),
-
-                // // Alarm
-                // ListTile(
-                //   contentPadding: EdgeInsets.zero,
-                //   title: const Text("Alarm Reminder"),
-                //   subtitle: Text(
-                //     alarmDateTime != null
-                //         ? "⏰ ${alarmDateTime!.hour.toString().padLeft(2, '0')}:${alarmDateTime!.minute.toString().padLeft(2, '0')}"
-                //         : "No alarm set",
-                //   ),
-                //   trailing: IconButton(
-                //     icon: const Icon(Icons.access_time),
-                //     onPressed: _pickAlarmTime,
-                //   ),
-                // ),
-                // if (alarmDateTime != null)
-                //   TextButton.icon(
-                //     icon: const Icon(Icons.delete_forever, color: Colors.red),
-                //     label: const Text("Remove Alarm"),
-                //     onPressed: () => setState(() => alarmDateTime = null),
-                //   ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -1055,13 +1192,15 @@ class _TaskFormModalState extends State<TaskFormModal> {
                               ],
                             ),
                           );
-                          if (confirm == true) {
+                          if (confirm == true && mounted && !_isDisposed) {
                             await taskProvider.deleteTask(
                               widget.task!.id,
                               widget.parentId,
                               widget.childId,
                             );
-                            Navigator.pop(context);
+                            if (mounted && !_isDisposed) {
+                              Navigator.pop(context);
+                            }
                           }
                         },
                       ),
@@ -1099,8 +1238,7 @@ class _TaskFormModalState extends State<TaskFormModal> {
 
                           final therapistId = isTherapist
                               ? creatorId
-                              : widget
-                                    .therapistId; // keep existing if parent creates
+                              : widget.therapistId;
 
                           final task = TaskModel(
                             id:
@@ -1115,9 +1253,10 @@ class _TaskFormModalState extends State<TaskFormModal> {
                             childId: widget.childId,
                             createdAt: widget.task?.createdAt ?? DateTime.now(),
                             alarm: alarmDateTime,
-                            therapistId: therapistId, // ✅ FIXED
-                            creatorId: creatorId, // ✅ REQUIRED
-                            creatorType: creatorType, // ✅ REQUIRED
+                            therapistId: therapistId,
+                            creatorId: creatorId,
+                            creatorType: creatorType,
+                            isAccepted: false,
                           );
 
                           if (widget.task == null) {
@@ -1126,7 +1265,9 @@ class _TaskFormModalState extends State<TaskFormModal> {
                             taskProvider.updateTask(task);
                           }
 
-                          Navigator.pop(context);
+                          if (mounted && !_isDisposed) {
+                            Navigator.pop(context);
+                          }
                         }
                       },
                     ),

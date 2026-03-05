@@ -27,12 +27,12 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
   bool _isOffline = false;
   bool _isSyncing = false;
   bool _isLoading = true;
+  bool _isNavigating = false;
 
   @override
   void initState() {
     super.initState();
     final cbtProvider = context.read<CBTProvider>();
-    // Start the real-time listener
     cbtProvider.startRealtimeCBTUpdates(widget.parentId, widget.childId);
     _loadCBT();
   }
@@ -49,20 +49,20 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
 
     final cbtProvider = context.read<CBTProvider>();
 
-    // Load local CBT first (offline-first)
+    // Load offline first
     await cbtProvider.loadLocalCBT(widget.childId);
 
     // Check connectivity
     await _checkConnectivity();
 
-    // If online, sync pending completions and fetch remote
+    // If online, sync and fetch remote
     if (!_isOffline) {
       if (!mounted) return;
       setState(() => _isSyncing = true);
 
-      
       await cbtProvider.loadRemoteCBT(widget.parentId, widget.childId);
-      await cbtProvider.syncPendingCompletions( widget.parentId, widget.childId);
+      await cbtProvider.syncPendingCompletions(widget.parentId, widget.childId);
+
       if (!mounted) return;
       setState(() => _isSyncing = false);
     }
@@ -71,8 +71,35 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
     setState(() => _isLoading = false);
   }
 
+  Future<void> _openExercise(exercise, String assignmentId) async {
+    if (_isNavigating) return;
+    _isNavigating = true;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CBTExerciseViewer(
+          exercise: exercise,
+          childId: widget.childId,
+          parentId: widget.parentId,
+        ),
+      ),
+    );
+
+    // Reset start session confirmation
+    await context.read<CBTProvider>().resetStartSession(
+      widget.parentId,
+      widget.childId,
+      assignmentId,
+    );
+
+    _isNavigating = false;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cbtProvider = context.watch<CBTProvider>();
+
     return Scaffold(
       body: Stack(
         children: [
@@ -83,7 +110,8 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
             child: Column(
               children: [
                 const SizedBox(height: 16),
-                // Power Boosts label
+
+                // Header
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -106,7 +134,9 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 12),
+
                 if (_isOffline)
                   Container(
                     width: double.infinity,
@@ -118,6 +148,7 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                       style: TextStyle(color: Colors.white, fontSize: 13),
                     ),
                   ),
+
                 if (_isSyncing)
                   Container(
                     width: double.infinity,
@@ -129,140 +160,291 @@ class _ChildCBTPageState extends State<ChildCBTPage> {
                       style: TextStyle(color: Colors.white, fontSize: 13),
                     ),
                   ),
-                // ------------------- REAL-TIME CBT LIST -------------------
+
                 Expanded(
                   child: _isLoading
                       ? const Center(child: CircularProgressIndicator())
-                      : Consumer<CBTProvider>(
-                          builder: (_, cbtProvider, __) {
-                            // Filter only current week's CBTs for this child
-                            final currentWeekAssignments = cbtProvider
+                      : Builder(
+                          builder: (_) {
+                            // Only show approved exercises
+                            final assignments = cbtProvider
                                 .getCurrentWeekAssignments()
-                                .where((a) => a.childId == widget.childId)
+                                .where(
+                                  (a) =>
+                                      a.childId == widget.childId &&
+                                      (a.isApproved ?? false),
+                                )
                                 .toList();
 
-                            if (currentWeekAssignments.isEmpty) {
+                            if (assignments.isEmpty) {
                               return const Center(
                                 child: Text(
-                                  "No CBT exercises assigned this week.",
+                                  "No approved CBT exercises assigned this week.",
                                 ),
                               );
                             }
 
-                            return Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: RefreshIndicator(
-                                onRefresh: _loadCBT,
-                                child: ListView.builder(
-                                  itemCount: currentWeekAssignments.length,
-                                  itemBuilder: (_, index) {
-                                    final assigned =
-                                        currentWeekAssignments[index];
-                                    final exercise = CBTLibrary.getById(
-                                      assigned.exerciseId,
-                                    );
-                                    final isCompleted = cbtProvider.isCompleted(
-                                      widget.childId,
-                                      exercise.id,
-                                    );
-                                    return CBTCard(
-                                      exercise: exercise,
-                                      isParentView: false,
-                                      isCompleted: isCompleted,
-                                      onStart: () async {
-                                        final assignedEntry = cbtProvider
-                                            .assigned
-                                            .firstWhereOrNull(
-                                              (a) =>
-                                                  a.exerciseId == exercise.id &&
-                                                  a.childId == widget.childId,
-                                            );
-                                        if (assignedEntry == null) return;
+                            return RefreshIndicator(
+                              onRefresh: _loadCBT,
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: assignments.length,
+                                itemBuilder: (_, index) {
+                                  final assigned = assignments[index];
+                                  final exercise = CBTLibrary.getById(
+                                    assigned.exerciseId,
+                                  );
 
-                                        if (!cbtProvider.canExecute(
-                                          assignedEntry,
-                                        )) {
+                                  final isCompleted = cbtProvider.isCompleted(
+                                          widget.childId,
+                                          exercise.id,
+                                        );
+
+                                  // 🔹 Auto-start exercise if already confirmed
+                                  final confirmed =
+                                      assigned.isConfirmed ?? false;
+                                  if (confirmed &&
+                                      !_isNavigating &&
+                                      exercise != null) {
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) async {
                                           if (!mounted) return;
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'You already completed this CBT for now.',
-                                              ),
-                                            ),
+                                          final stillConfirmed =
+                                              assigned.isConfirmed ?? false;
+                                          if (!stillConfirmed) return;
+                                          await _openExercise(
+                                            exercise,
+                                            assigned.id,
                                           );
-                                          return;
-                                        }
+                                        });
+                                  }
 
-                                        if (!mounted) return;
-                                        await Navigator.push(
+                                  return CBTCard(
+                                    exercise: exercise,
+                                    isParentView: false,
+                                    isCompleted: isCompleted,
+
+                                    onStart: () async {
+                                      final approved =
+                                          assigned.isApproved ?? false;
+                                      final requested =
+                                          assigned.isRequested ?? false;
+                                      final confirmed =
+                                          assigned.isConfirmed ?? false;
+
+                                      if (!approved) {
+                                        ScaffoldMessenger.of(
                                           context,
-                                          MaterialPageRoute(
-                                            builder: (_) => CBTExerciseViewer(
-                                              exercise: exercise,
-                                              childId: widget.childId,
-                                              parentId: widget.parentId,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'This CBT is not yet approved by parent.',
                                             ),
                                           ),
                                         );
-                                      },
-                                      onComplete: () async {
-                                        final assignedEntry = cbtProvider
-                                            .assigned
-                                            .firstWhereOrNull(
-                                              (a) =>
-                                                  a.exerciseId == exercise.id &&
-                                                  a.childId == widget.childId,
-                                            );
-                                        if (assignedEntry == null) return;
+                                        return;
+                                      }
 
-                                        final success = await cbtProvider
-                                            .markAsCompleted(
+                                      if (!cbtProvider.canExecute(assigned)) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'You already completed this CBT for now.',
+                                            ),
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      if (!requested && !confirmed) {
+                                        // Request parent approval first
+                                        await cbtProvider.requestStartApproval(
+                                          widget.parentId,
+                                          widget.childId,
+                                          assigned.id,
+                                        );
+                                      }
+
+                                      // At this point either requested = true, or confirmed = true
+                                      if (!confirmed) {
+                                        if (!mounted) return;
+
+                                        // Show waiting modal
+                                        showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (context) => WillPopScope(
+                                            onWillPop: () async => false,
+                                            child: AlertDialog(
+                                              content: Row(
+                                                children: const [
+                                                  CircularProgressIndicator(),
+                                                  SizedBox(width: 16),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Waiting for parent to start the exercise...',
+                                                      style: TextStyle(
+                                                        fontSize: 16,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        );
+
+                                        // Polling loop: check every second
+                                        while (true) {
+                                          await Future.delayed(
+                                            const Duration(seconds: 1),
+                                          );
+                                          await cbtProvider.loadLocalCBT(
+                                            widget.childId,
+                                          );
+                                          final updated = cbtProvider
+                                              .getCurrentWeekAssignments()
+                                              .firstWhereOrNull(
+                                                (a) => a.id == assigned.id,
+                                              );
+
+                                          final isNowConfirmed =
+                                              updated?.isConfirmed ?? false;
+                                          final isNowRequested =
+                                              updated?.isRequested ?? false;
+
+                                          // Close modal if parent confirmed or request canceled
+                                          if (!isNowRequested || isNowConfirmed)
+                                            break;
+                                          if (!mounted) return;
+                                        }
+
+                                        // Dismiss the waiting modal
+                                        if (mounted)
+                                          Navigator.of(context).pop();
+
+                                        // If parent confirmed, open exercise
+                                        if ((cbtProvider
+                                                    .getCurrentWeekAssignments()
+                                                    .firstWhereOrNull(
+                                                      (a) =>
+                                                          a.id == assigned.id,
+                                                    )
+                                                    ?.isConfirmed ??
+                                                false) &&
+                                            exercise != null) {
+                                          await _openExercise(
+                                            exercise,
+                                            assigned.id,
+                                          );
+                                        }
+
+                                        return;
+                                      }
+
+                                      // Already confirmed → short loading before opening
+                                      if (confirmed) {
+                                        if (!mounted) return;
+
+                                        showDialog(
+                                          context: context,
+                                          barrierDismissible: false,
+                                          builder: (context) => WillPopScope(
+                                            onWillPop: () async => false,
+                                            child: AlertDialog(
+                                              content: Row(
+                                                children: const [
+                                                  CircularProgressIndicator(),
+                                                  SizedBox(width: 16),
+                                                  Expanded(
+                                                    child: Text(
+                                                      'Starting exercise...',
+                                                      style: TextStyle(
+                                                        fontSize: 16,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        );
+
+                                        await Future.delayed(
+                                          const Duration(milliseconds: 500),
+                                        );
+                                        await _openExercise(
+                                          exercise,
+                                          assigned.id,
+                                        );
+
+                                        if (mounted)
+                                          Navigator.of(context).pop();
+                                      }
+                                    },
+
+                                    onComplete: () async {
+                                      final success = await cbtProvider
+                                          .markAsCompleted(
+                                            widget.parentId,
+                                            widget.childId,
+                                            assigned.id,
+                                          );
+
+                                      if (!mounted) return;
+
+                                      if (!success) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Cannot complete again within recurrence window.',
+                                            ),
+                                          ),
+                                        );
+                                        return;
+                                      }
+
+                                      // Reset request/confirmation flags
+                                      assigned.isRequested = false;
+                                      assigned.isConfirmed = false;
+                                      await cbtProvider.updateAssignedCBT(
+                                        assigned,
+                                      );
+                                      await cbtProvider.loadLocalCBT(
+                                        widget.childId,
+                                      );
+
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Well done! Exercise completed.',
+                                          ),
+                                        ),
+                                      );
+
+                                      await _checkConnectivity();
+
+                                      if (!_isOffline) {
+                                        setState(() => _isSyncing = true);
+
+                                        await cbtProvider
+                                            .syncPendingCompletions(
                                               widget.parentId,
                                               widget.childId,
-                                              assignedEntry.id,
                                             );
 
                                         if (!mounted) return;
-                                        if (!success) {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Cannot complete again within recurrence window.',
-                                              ),
-                                            ),
-                                          );
-                                        } else {
-                                          ScaffoldMessenger.of(
-                                            // ignore:
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Well done! Exercise completed.',
-                                              ),
-                                            ),
-                                          );
-
-                                          await _checkConnectivity();
-                                          if (!_isOffline) {
-                                            if (!mounted) return;
-                                            setState(() => _isSyncing = true);
-                                            await cbtProvider
-                                                .syncPendingCompletions(
-                                                  widget.childId, widget.parentId,
-                                                );
-                                            if (!mounted) return;
-                                            setState(() => _isSyncing = false);
-                                          }
-                                        }
-                                      },
-                                    );
-                                  },
-                                ),
+                                        setState(() => _isSyncing = false);
+                                      }
+                                    },
+                                  );
+                                },
                               ),
                             );
                           },

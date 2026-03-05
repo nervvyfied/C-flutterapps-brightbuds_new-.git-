@@ -1,4 +1,3 @@
-// ignore_for_file: file_names, unused_local_variable, use_build_context_synchronously, await_only_futures, avoid_print, deprecated_member_use
 
 import 'package:brightbuds_new/data/models/therapist_model.dart';
 import 'package:brightbuds_new/data/services/firestore_service.dart';
@@ -334,7 +333,7 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
               subtitle: Text("Access Code: $accessCode"),
               onTap: () async {
                 selectedChildProv.setSelectedChild(childMap);
-                await Provider.of<JournalProvider>(
+                Provider.of<JournalProvider>(
                   context,
                   listen: false,
                 ).getEntries(childMap['cid']);
@@ -362,14 +361,14 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
     final user = auth.currentUserModel;
 
     if (user == null || user is! TherapistUser) {
-      debugPrint('❌ No logged-in therapist');
+    
       if (!mounted) return;
       setState(() => isLoading = false);
       return;
     }
 
     final therapistUid = user.uid;
-    debugPrint('🔍 Fetching therapist data for UID: $therapistUid');
+   
 
     try {
       final therapistSnap = await FirebaseFirestore.instance
@@ -378,7 +377,7 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
           .get();
 
       if (!therapistSnap.exists) {
-        debugPrint('❌ Therapist document not found');
+    
         if (!mounted) return;
         setState(() {
           therapistData = null;
@@ -415,8 +414,8 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
         isLoading = false;
       });
     } catch (e, stack) {
-      debugPrint('❌ fetchTherapistData error: $e');
-      debugPrint(stack.toString());
+    
+    
       if (!mounted) return;
       setState(() {
         therapistData = null;
@@ -460,7 +459,7 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
                   listen: false,
                 );
                 selectedChildProv.setSelectedChild(childMap);
-                await Provider.of<JournalProvider>(
+                Provider.of<JournalProvider>(
                   context,
                   listen: false,
                 ).getEntries(childMap['cid']);

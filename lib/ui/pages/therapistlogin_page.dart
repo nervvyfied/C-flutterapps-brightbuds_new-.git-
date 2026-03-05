@@ -193,6 +193,7 @@ class _TherapistAuthPageState extends State<TherapistAuthPage> {
     } catch (e) {
       _showSnackBar("Unexpected error: $e");
     } finally {
+      // ignore: control_flow_in_finally
       if (!mounted) return;
       setState(() => isLoading = false);
     }

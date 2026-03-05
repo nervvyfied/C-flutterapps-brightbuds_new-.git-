@@ -1,4 +1,3 @@
-// ignore_for_file: file_names, unused_local_variable, use_build_context_synchronously, await_only_futures, avoid_print, deprecated_member_use
 
 import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
 import 'package:brightbuds_new/data/models/child_model.dart';
@@ -93,7 +92,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                   taskProvider.onXPChanged = (newXP) {
                     progression.updateXP(newXP);
                   };
-                  await Provider.of<JournalProvider>(
+                  Provider.of<JournalProvider>(
                     context,
                     listen: false,
                   ).getEntries(childMap['cid']);
@@ -180,12 +179,12 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
             progression.updateXP(newXP);
           };
 
-          await Provider.of<JournalProvider>(
+          Provider.of<JournalProvider>(
             context,
             listen: false,
           ).getEntries(firstChild['cid']);
         } else {
-          await Provider.of<JournalProvider>(
+          Provider.of<JournalProvider>(
             context,
             listen: false,
           ).getEntries(currentSelected['cid']);
@@ -200,7 +199,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         isLoading = false;
       });
     } catch (e) {
-      print("Error fetching parent data: $e");
+    
       setState(() {
         parentData = null;
         childrenList = [];
@@ -242,7 +241,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
                   listen: false,
                 );
                 selectedChildProv.setSelectedChild(childMap);
-                await Provider.of<JournalProvider>(
+                Provider.of<JournalProvider>(
                   context,
                   listen: false,
                 ).getEntries(childMap['cid']);
@@ -288,7 +287,7 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         const SnackBar(content: Text("Parent info updated successfully!")),
       );
     } catch (e) {
-      print("Error updating parent info: $e");
+   
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));

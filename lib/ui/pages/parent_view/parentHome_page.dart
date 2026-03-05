@@ -7,10 +7,7 @@ import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
 import 'package:brightbuds_new/data/models/task_model.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:pdf/pdf.dart';
 import 'package:provider/provider.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import '/data/repositories/user_repository.dart';
 import '../../../data/providers/auth_provider.dart';
 import '../../../data/providers/journal_provider.dart';
@@ -57,11 +54,7 @@ class TaskHistoryService {
         'totalTasks': done + notDone, // ✅ missed is part of notDone
         'timestamp': FieldValue.serverTimestamp(),
       });
-
-      print("✅ Daily progress saved for $childId on $dateKey");
-    } catch (e) {
-      print("❌ Failed to save daily task progress: $e");
-    }
+    } catch (e) {}
   }
 }
 
@@ -175,7 +168,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           builder: (context, setState) {
             final windowSize = viewMode == 'Daily' ? 1 : 7;
 
-            List<Map<String, dynamic>> _getDisplayedData() {
+            List<Map<String, dynamic>> getDisplayedData() {
               final start = currentIndex;
               final end = (currentIndex + windowSize).clamp(
                 0,
@@ -204,14 +197,14 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
               ];
             }
 
-            final displayedData = _getDisplayedData();
+            final displayedData = getDisplayedData();
 
             // Determine if arrows should be disabled
             final isPrevDisabled =
                 currentIndex + windowSize >= historyData.length;
             final isNextDisabled = currentIndex == 0;
 
-            void _prev() {
+            void prev() {
               setState(() {
                 currentIndex = (currentIndex + windowSize).clamp(
                   0,
@@ -220,7 +213,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
               });
             }
 
-            void _next() {
+            void next() {
               setState(() {
                 currentIndex = (currentIndex - windowSize).clamp(
                   0,
@@ -274,7 +267,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.arrow_back_ios),
-                          onPressed: isPrevDisabled ? null : _prev,
+                          onPressed: isPrevDisabled ? null : prev,
                         ),
                         Expanded(
                           child: SizedBox(
@@ -333,7 +326,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.arrow_forward_ios),
-                          onPressed: isNextDisabled ? null : _next,
+                          onPressed: isNextDisabled ? null : next,
                         ),
                       ],
                     ),
@@ -506,8 +499,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
           List<BarChartGroupData> monthlyWeekBarGroups = [];
 
           if (isMonthly && entriesToDisplay.isNotEmpty) {
-            final monthStart = monthStarts[currentMonthIndex];
-
             // Determine week number in month (1–5)
             Map<int, int> weekCounts = {};
 
@@ -770,6 +761,11 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
         _listenToJournalEntries();
         _updateCBTListenerForSelectedChild();
       });
+
+      // Also trigger initial load if a child is already selected
+      if (selectedChildProv.selectedChild != null) {
+        _updateCBTListenerForSelectedChild();
+      }
     });
   }
 
@@ -800,12 +796,17 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final parentId = _parent?.uid ?? widget.parentId;
     final childId = child['cid'];
 
+  
+
     // Initialize Hive if not yet
     await cbtProv.initHive();
 
-    // Load and sync CBTs
-    await cbtProv.loadLocalCBT(childId);
-    await cbtProv.loadRemoteCBT(parentId, childId);
+    cbtProv.startRealtimeCBTUpdates(parentId, childId);
+
+    // Force a rebuild to show the data
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadParentData() async {
@@ -822,8 +823,7 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
     final parent = await _userRepo.fetchParentAndCache(parentModel.uid);
 
     setState(() {
-      _parent = parent as ParentUser?;
-      _loading = false;
+      _parent = parent;
     });
 
     final selectedChildProv = Provider.of<SelectedChildProvider>(
@@ -831,8 +831,10 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
       listen: false,
     );
 
-    // Load CBTs for currently selected child
-    _updateCBTListenerForSelectedChild();
+    // Load CBTs for currently selected child AFTER parent data is loaded
+    if (selectedChildProv.selectedChild != null) {
+      _updateCBTListenerForSelectedChild();
+    }
 
     // Listen for child changes
     selectedChildProv.addListener(() {
@@ -842,6 +844,8 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     // Start listening to journals for current child
     _listenToJournalEntries();
+
+    setState(() => _loading = false);
   }
 
   void _listenToJournalEntries() {
@@ -1412,62 +1416,571 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            assignedCBT.isEmpty
-                                ? const SizedBox(
-                                    width: double.infinity,
-                                    child: Text(
-                                      "No CBT exercises assigned this week.",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.black54,
-                                        fontStyle: FontStyle.italic,
+
+                            // Debug / Manual Refresh (optional)
+                            if (childId.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                margin: const EdgeInsets.only(bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[100],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  children: [
+                                    if (assignedCBT.isEmpty)
+                                      TextButton(
+                                        onPressed: () async {
+                                          final cbtProv =
+                                              Provider.of<CBTProvider>(
+                                                context,
+                                                listen: false,
+                                              );
+                                          final parentId =
+                                              _parent?.uid ?? widget.parentId;
+                                          await cbtProv.loadRemoteCBT(
+                                            parentId,
+                                            childId,
+                                          );
+                                          setState(() {});
+                                        },
+                                        child: const Text('Manual Refresh'),
+                                      ),
+                                  ],
+                                ),
+                              ),
+
+                            // Loading state
+                            if (cbtProv.isLoading)
+                              const Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Center(
+                                  child: Column(
+                                    children: [
+                                      CircularProgressIndicator(),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        "Loading CBT exercises...",
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            else if (assignedCBT.isEmpty)
+                              const SizedBox(
+                                width: double.infinity,
+                                child: Text(
+                                  "No CBT exercises assigned this week.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.black54,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              )
+                            else
+                              ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: assignedCBT.length,
+                                itemBuilder: (context, index) {
+                                  final assigned = assignedCBT[index];
+                                  final exercise = CBTLibrary.getById(
+                                    assigned.exerciseId,
+                                  );
+
+                                  // Status flags
+                                  final bool isCompleted = assigned.completed;
+                                  final bool isRequested =
+                                      assigned.isRequested ?? false;
+                                  final bool isApproved =
+                                      assigned.isApproved ?? false;
+
+                                  // Determine icon, color, text
+                                  IconData statusIcon;
+                                  Color statusColor;
+                                  String statusText;
+
+                                  if (isCompleted) {
+                                    statusIcon = Icons.check_circle;
+                                    statusColor = Colors.green;
+                                    statusText = "Completed ✅";
+                                  } else if (isRequested) {
+                                    statusIcon = Icons.hourglass_top;
+                                    statusColor = Colors.blue;
+                                    statusText =
+                                        "Your child wants to do this with you ⏳";
+                                  } else if (!isApproved) {
+                                    statusIcon = Icons.pending;
+                                    statusColor = Colors.brown;
+                                    statusText = "Set visible to child ❎";
+                                  } else {
+                                    statusIcon = Icons.pending;
+                                    statusColor = Colors.orange;
+                                    statusText = "Pending ⏳";
+                                  }
+
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      exercise.title,
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
-                                  )
-                                : ListView.builder(
-                                    shrinkWrap: true,
-                                    physics:
-                                        const NeverScrollableScrollPhysics(),
-                                    itemCount: assignedCBT.length,
-                                    itemBuilder: (context, index) {
-                                      final assigned = assignedCBT[index];
-                                      final exercise = CBTLibrary.getById(
-                                        assigned.exerciseId,
-                                      );
+                                    subtitle: Text(
+                                      statusText,
+                                      style: TextStyle(color: statusColor),
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Approve button: show if not approved yet
+                                        // Approve button: show if not approved yet
+                                        if (!isApproved)
+                                          ElevatedButton(
+                                            onPressed: () async {
+                                              final cbtProv =
+                                                  Provider.of<CBTProvider>(
+                                                    context,
+                                                    listen: false,
+                                                  );
+                                              final parentId =
+                                                  _parent?.uid ??
+                                                  widget.parentId;
 
-                                      return ListTile(
-                                        contentPadding: EdgeInsets.zero,
-                                        title: Text(
-                                          exercise.title,
-                                          style: const TextStyle(
-                                            color: Colors.black,
-                                            fontWeight: FontWeight.w500,
+                                              // Show confirmation modal
+                                              final result = await showModalBottomSheet<bool>(
+                                                context: context,
+                                                isScrollControlled: true,
+                                                shape:
+                                                    const RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.vertical(
+                                                            top:
+                                                                Radius.circular(
+                                                                  16,
+                                                                ),
+                                                          ),
+                                                    ),
+                                                builder: (_) {
+                                                  return Padding(
+                                                    padding: EdgeInsets.only(
+                                                      bottom: MediaQuery.of(
+                                                        context,
+                                                      ).viewInsets.bottom,
+                                                    ),
+                                                    child: Container(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            16,
+                                                          ),
+                                                      decoration: const BoxDecoration(
+                                                        borderRadius:
+                                                            BorderRadius.vertical(
+                                                              top:
+                                                                  Radius.circular(
+                                                                    16,
+                                                                  ),
+                                                            ),
+                                                        color: Colors.white,
+                                                      ),
+                                                      child: Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Container(
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  vertical: 16,
+                                                                ),
+                                                            decoration: BoxDecoration(
+                                                              color:
+                                                                  const Color(
+                                                                    0xFF8657F3,
+                                                                  ),
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    12,
+                                                                  ),
+                                                            ),
+                                                            child: const Center(
+                                                              child: Text(
+                                                                "Set Exercise as Visible?",
+                                                                style: TextStyle(
+                                                                  fontSize: 20,
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 16,
+                                                          ),
+                                                          const Text(
+                                                            'Do you want to set this exercise as visible so the child can start?',
+                                                            textAlign: TextAlign
+                                                                .center,
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 24,
+                                                          ),
+                                                          Row(
+                                                            mainAxisAlignment:
+                                                                MainAxisAlignment
+                                                                    .spaceEvenly,
+                                                            children: [
+                                                              // ❌ No button
+                                                              ElevatedButton(
+                                                                onPressed: () {
+                                                                  Navigator.pop(
+                                                                    context,
+                                                                    false,
+                                                                  ); // NO clicked
+                                                                },
+                                                                style: ElevatedButton.styleFrom(
+                                                                  backgroundColor:
+                                                                      Colors
+                                                                          .red,
+                                                                  foregroundColor:
+                                                                      Colors
+                                                                          .white,
+                                                                  padding:
+                                                                      const EdgeInsets.symmetric(
+                                                                        horizontal:
+                                                                            24,
+                                                                        vertical:
+                                                                            12,
+                                                                      ),
+                                                                  shape: RoundedRectangleBorder(
+                                                                    borderRadius:
+                                                                        BorderRadius.circular(
+                                                                          12,
+                                                                        ),
+                                                                  ),
+                                                                ),
+                                                                child: const Text(
+                                                                  "No",
+                                                                  style:
+                                                                      TextStyle(
+                                                                        fontSize:
+                                                                            16,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                              // ✅ Yes button
+                                                              ElevatedButton(
+                                                                onPressed: () {
+                                                                  Navigator.pop(
+                                                                    context,
+                                                                    true,
+                                                                  ); // YES clicked
+                                                                },
+                                                                style: ElevatedButton.styleFrom(
+                                                                  backgroundColor:
+                                                                      Colors
+                                                                          .green,
+                                                                  foregroundColor:
+                                                                      Colors
+                                                                          .white,
+                                                                  padding:
+                                                                      const EdgeInsets.symmetric(
+                                                                        horizontal:
+                                                                            24,
+                                                                        vertical:
+                                                                            12,
+                                                                      ),
+                                                                  shape: RoundedRectangleBorder(
+                                                                    borderRadius:
+                                                                        BorderRadius.circular(
+                                                                          12,
+                                                                        ),
+                                                                  ),
+                                                                ),
+                                                                child: const Text(
+                                                                  "Yes",
+                                                                  style:
+                                                                      TextStyle(
+                                                                        fontSize:
+                                                                            16,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 16,
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              );
+
+                                              if (result == true) {
+                                                // YES clicked → approve CBT
+                                                await cbtProv.approveCBT(
+                                                  parentId,
+                                                  childId,
+                                                  assigned.id,
+                                                );
+
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Exercise is now visible! Child can now start.',
+                                                    ),
+                                                  ),
+                                                );
+
+                                                setState(() {}); // Refresh UI
+                                              }
+                                              // NO clicked → just close modal
+                                            },
+                                            child: const Text("Set as Visible"),
                                           ),
-                                        ),
-                                        subtitle: assigned.completed
-                                            ? const Text(
-                                                "Completed ✅",
-                                                style: TextStyle(
-                                                  color: Colors.greenAccent,
-                                                ),
-                                              )
-                                            : const Text(
-                                                "Pending ⏳",
-                                                style: TextStyle(
-                                                  color: Colors.orangeAccent,
-                                                ),
-                                              ),
-                                        trailing: Icon(
-                                          assigned.completed
-                                              ? Icons.check_circle
-                                              : Icons.pending,
-                                          color: assigned.completed
-                                              ? Colors.greenAccent
-                                              : Colors.orangeAccent,
-                                        ),
-                                      );
-                                    },
-                                  ),
+                                        // Confirm Start button: show if requested
+                                        if (isRequested)
+                                          ElevatedButton(
+                                            onPressed: () async {
+                                              final cbtProv =
+                                                  Provider.of<CBTProvider>(
+                                                    context,
+                                                    listen: false,
+                                                  );
+                                              final parentId =
+                                                  _parent?.uid ??
+                                                  widget.parentId;
+
+                                              // Show confirmation modal
+                                              final result = await showModalBottomSheet<bool>(
+                                                context: context,
+                                                isScrollControlled: true,
+                                                shape:
+                                                    const RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.vertical(
+                                                            top:
+                                                                Radius.circular(
+                                                                  16,
+                                                                ),
+                                                          ),
+                                                    ),
+                                                builder: (_) {
+                                                  return Padding(
+                                                    padding: EdgeInsets.only(
+                                                      bottom: MediaQuery.of(
+                                                        context,
+                                                      ).viewInsets.bottom,
+                                                    ),
+                                                    child: Container(
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                            16,
+                                                          ),
+                                                      decoration: const BoxDecoration(
+                                                        borderRadius:
+                                                            BorderRadius.vertical(
+                                                              top:
+                                                                  Radius.circular(
+                                                                    16,
+                                                                  ),
+                                                            ),
+                                                        color: Colors.white,
+                                                      ),
+                                                      child: Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Container(
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  vertical: 16,
+                                                                ),
+                                                            decoration: BoxDecoration(
+                                                              color:
+                                                                  const Color(
+                                                                    0xFF8657F3,
+                                                                  ),
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    12,
+                                                                  ),
+                                                            ),
+                                                            child: const Center(
+                                                              child: Text(
+                                                                "Start Exercise?",
+                                                                style: TextStyle(
+                                                                  fontSize: 20,
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 16,
+                                                          ),
+                                                          const Text(
+                                                            "Do you want to start this exercise now?",
+                                                            textAlign: TextAlign
+                                                                .center,
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 24,
+                                                          ),
+                                                          Row(
+                                                            mainAxisAlignment:
+                                                                MainAxisAlignment
+                                                                    .spaceEvenly,
+                                                            children: [
+                                                              // ❌ No button
+                                                              ElevatedButton(
+                                                                onPressed: () {
+                                                                  Navigator.pop(
+                                                                    context,
+                                                                    false,
+                                                                  ); // NO clicked
+                                                                },
+                                                                style: ElevatedButton.styleFrom(
+                                                                  backgroundColor:
+                                                                      Colors
+                                                                          .red,
+                                                                  foregroundColor:
+                                                                      Colors
+                                                                          .white,
+                                                                  padding:
+                                                                      const EdgeInsets.symmetric(
+                                                                        horizontal:
+                                                                            24,
+                                                                        vertical:
+                                                                            12,
+                                                                      ),
+                                                                  shape: RoundedRectangleBorder(
+                                                                    borderRadius:
+                                                                        BorderRadius.circular(
+                                                                          12,
+                                                                        ),
+                                                                  ),
+                                                                ),
+                                                                child: const Text(
+                                                                  "No",
+                                                                  style:
+                                                                      TextStyle(
+                                                                        fontSize:
+                                                                            16,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                              // ✅ Yes button
+                                                              ElevatedButton(
+                                                                onPressed: () {
+                                                                  Navigator.pop(
+                                                                    context,
+                                                                    true,
+                                                                  ); // YES clicked
+                                                                },
+                                                                style: ElevatedButton.styleFrom(
+                                                                  backgroundColor:
+                                                                      Colors
+                                                                          .green,
+                                                                  foregroundColor:
+                                                                      Colors
+                                                                          .white,
+                                                                  padding:
+                                                                      const EdgeInsets.symmetric(
+                                                                        horizontal:
+                                                                            24,
+                                                                        vertical:
+                                                                            12,
+                                                                      ),
+                                                                  shape: RoundedRectangleBorder(
+                                                                    borderRadius:
+                                                                        BorderRadius.circular(
+                                                                          12,
+                                                                        ),
+                                                                  ),
+                                                                ),
+                                                                child: const Text(
+                                                                  "Yes",
+                                                                  style:
+                                                                      TextStyle(
+                                                                        fontSize:
+                                                                            16,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 16,
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              );
+
+                                              if (result == true) {
+                                                // YES clicked → confirm and start exercise
+                                                await cbtProv.confirmStart(
+                                                  parentId,
+                                                  childId,
+                                                  assigned.id,
+                                                );
+
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Exercise confirmed! Starting now...',
+                                                    ),
+                                                  ),
+                                                );
+                                              } else {
+                                                // NO clicked → reset isRequested to false
+                                                await cbtProv.resetStartSession(
+                                                  parentId,
+                                                  childId,
+                                                  assigned.id,
+                                                );
+
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Start request cancelled.',
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+
+                                              setState(() {}); // Refresh UI
+                                            },
+                                            child: const Text("Confirm Start"),
+                                          ),
+                                        // Status icon
+                                        Icon(statusIcon, color: statusColor),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
                           ],
                         ),
                       ),
