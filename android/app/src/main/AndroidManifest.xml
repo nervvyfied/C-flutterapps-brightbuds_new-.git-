@@ -9,7 +9,6 @@
 
     <application
         android:label="Brightbuds"
-        android:name="Brightbuds"
         android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"
