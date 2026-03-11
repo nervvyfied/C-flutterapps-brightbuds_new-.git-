@@ -1,6 +1,6 @@
 {
-    "name": "brightbuds_new",
-    "short_name": "brightbuds_new",
+    "name": "com.brightbuds",
+    "short_name": "com.brightbuds",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

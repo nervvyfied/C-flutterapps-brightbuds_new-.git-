@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'package:brightbuds_new/ui/pages/therapistlogin_page.dart';
+import 'package:com.brightbuds/ui/pages/therapistlogin_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistNav_page.dart';
+import 'package:com.brightbuds/ui/pages/therapist_view/therapistNav_page.dart';
 import '../../../data/models/therapist_model.dart';
 import '/data/providers/auth_provider.dart' as app_auth;
 
@@ -34,21 +34,18 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   }
 
   Future<void> _checkEmailVerification() async {
- 
-
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-    
       _redirectToLogin();
       return;
     }
 
     // 🔥 CRITICAL: Check if email is actually verified
     isEmailVerified = user.emailVerified;
-  
+
     if (isEmailVerified) {
       // Email is verified - proceed to update Firestore and go to dashboard
-     
+
       await _processVerifiedAccount(user);
     } else {
       // Email NOT verified - start checking periodically
@@ -81,12 +78,10 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
         // Process the verified account
         await _processVerifiedAccount(updatedUser);
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   Future<void> _processVerifiedAccount(User user) async {
-
     try {
       // 1. Update Firestore to mark as verified
       await FirebaseFirestore.instance

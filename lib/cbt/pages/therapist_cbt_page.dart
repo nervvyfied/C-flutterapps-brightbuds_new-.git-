@@ -1,6 +1,6 @@
 // ignore_for_file: use_build_context_synchronously
 
-import 'package:brightbuds_new/cbt/models/assigned_cbt_model.dart';
+import 'package:com.brightbuds/cbt/models/assigned_cbt_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -36,7 +36,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
   void initState() {
     super.initState();
 
-   
     // Set initial parent ID from parameter
     _actualParentId = widget.parentId;
 
@@ -51,20 +50,15 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
     try {
       // Verify that the parentId is NOT the therapistId
       if (widget.parentId == widget.therapistId) {
-     
-
         // Try to find the real parent ID
         _actualParentId = await _getRealParentIdForChild(widget.childId);
 
         if (_actualParentId.isEmpty || _actualParentId == widget.therapistId) {
           throw Exception('❌ Cannot find valid parent for child');
         }
-
-     
       } else {
         _actualParentId = widget.parentId;
       }
-
 
       // Load CBT from the CORRECT parent's collection
       await context.read<CBTProvider>().loadRemoteCBT(
@@ -72,7 +66,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
         widget.childId,
       );
     } catch (e) {
-   
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error loading CBT: $e'),
@@ -87,8 +80,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
   // SIMPLE method to get the real parent ID for a child
   Future<String> _getRealParentIdForChild(String childId) async {
     if (childId.isEmpty) return '';
-
-  
 
     try {
       // 1. Check therapist's children collection for parentUID
@@ -106,7 +97,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
         if (parentUID != null && parentUID is String && parentUID.isNotEmpty) {
           // CRITICAL: Check this is NOT the therapist ID
           if (parentUID != widget.therapistId) {
-        
             // Verify this parent exists in users collection
             final parentDoc = await FirebaseFirestore.instance
                 .collection('users')
@@ -114,14 +104,9 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                 .get();
 
             if (parentDoc.exists) {
-           
               return parentUID;
-            } else {
-            
-            }
-          } else {
-           
-          }
+            } else {}
+          } else {}
         }
       }
 
@@ -138,7 +123,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
 
         // SKIP if this user is a therapist
         if (userRole == 'therapist') {
-      
           continue;
         }
 
@@ -151,7 +135,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
               .get();
 
           if (childDoc.exists) {
-           
             return userId;
           }
         } catch (e) {
@@ -159,10 +142,8 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
         }
       }
 
-   
       return '';
     } catch (e) {
-    
       return '';
     }
   }
@@ -390,7 +371,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                             assigningSet.add(exercise.id);
 
                             try {
-                           
                               await cbtProvider.assignManualCBT(
                                 widget.therapistId,
                                 widget.childId,
@@ -405,7 +385,6 @@ class _TherapistCBTPageState extends State<TherapistCBTPage> {
                                 ),
                               );
                             } catch (e) {
-                         
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text('Failed to assign: $e'),

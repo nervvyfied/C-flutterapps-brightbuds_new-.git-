@@ -1,4 +1,4 @@
-import 'package:brightbuds_new/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
 import '/data/models/parent_model.dart';
@@ -50,10 +50,7 @@ class UserRepository {
       if (therapist != null) {
         await cacheTherapist(therapist);
       }
-
-    
     } catch (e) {
-   
       rethrow;
     }
   }
@@ -72,7 +69,6 @@ class UserRepository {
       await cacheParent(parent);
       return parent;
     } catch (e) {
-    
       return null;
     }
   }
@@ -110,7 +106,6 @@ class UserRepository {
 
       return parents;
     } catch (e) {
-     
       return [];
     }
   }
@@ -135,7 +130,6 @@ class UserRepository {
 
       return children;
     } catch (e) {
-     
       return [];
     }
   }
@@ -185,7 +179,6 @@ class UserRepository {
       await cacheTherapist(therapist);
       return therapist;
     } catch (e) {
-     
       return null;
     }
   }
@@ -197,7 +190,6 @@ class UserRepository {
     try {
       return await _firestore.getTherapistChildrenWithDetails(therapistUid);
     } catch (e) {
-    
       return [];
     }
   }
@@ -223,10 +215,7 @@ class UserRepository {
       if (therapist != null) {
         await cacheTherapist(therapist);
       }
-
-   
     } catch (e) {
-   
       rethrow;
     }
   }
@@ -267,7 +256,6 @@ class UserRepository {
           .map((doc) => ChildUser.fromMap(doc.data(), doc.id))
           .toList();
     } catch (e) {
-   
       return [];
     }
   }
@@ -324,7 +312,6 @@ class UserRepository {
 
       return {'parent': parent, 'child': child};
     } catch (e) {
-     
       return null;
     }
   }
@@ -351,7 +338,6 @@ class UserRepository {
 
       return null;
     } catch (e) {
-   
       return null;
     }
   }

@@ -1,11 +1,11 @@
-import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
-import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
-import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/repositories/user_repository.dart';
+import 'package:com.brightbuds/aquarium/notifiers/achievement_notifier.dart';
+import 'package:com.brightbuds/aquarium/notifiers/unlockNotifier.dart';
+import 'package:com.brightbuds/aquarium/progression/world_progression.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/data/repositories/user_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
+import 'package:com.brightbuds/data/providers/selected_child_provider.dart';
 import '../progression/unlock_resolver.dart';
 import '../models/fish_definition.dart';
 import '../models/decor_definition.dart';
@@ -14,9 +14,13 @@ class UnlockManager extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
   final SelectedChildProvider childProvider;
   final UnlockNotifier unlockNotifier;
-   final AchievementNotifier achievementNotifier;
+  final AchievementNotifier achievementNotifier;
 
-  UnlockManager({required this.childProvider, required this.unlockNotifier,required this.achievementNotifier,});
+  UnlockManager({
+    required this.childProvider,
+    required this.unlockNotifier,
+    required this.achievementNotifier,
+  });
 
   /// Tracks the most recently unlocked fish or decor
   FishDefinition? _lastFishUnlocked;
@@ -33,8 +37,12 @@ class UnlockManager extends ChangeNotifier {
     final world = Worlds.getWorldForLevel(currentLevel);
 
     // Use Sets for uniqueness
-    final unlockedFishSet = Set<String>.from(selectedChild['unlockedFish'] ?? []);
-    final unlockedDecorSet = Set<String>.from(selectedChild['unlockedDecor'] ?? []);
+    final unlockedFishSet = Set<String>.from(
+      selectedChild['unlockedFish'] ?? [],
+    );
+    final unlockedDecorSet = Set<String>.from(
+      selectedChild['unlockedDecor'] ?? [],
+    );
 
     final resolver = UnlockResolver(
       currentLevel: currentLevel,
@@ -67,7 +75,8 @@ class UnlockManager extends ChangeNotifier {
       _lastFishUnlocked = fishToUnlock;
       unlockedFishSet.add(fishToUnlock.id);
       unlockNotifier.setUnlocked(fishToUnlock);
-    } else if (decorToUnlock != null && _lastDecorUnlocked?.id != decorToUnlock.id) {
+    } else if (decorToUnlock != null &&
+        _lastDecorUnlocked?.id != decorToUnlock.id) {
       _lastDecorUnlocked = decorToUnlock;
       unlockedDecorSet.add(decorToUnlock.id);
       unlockNotifier.setUnlocked(decorToUnlock);
@@ -82,7 +91,6 @@ class UnlockManager extends ChangeNotifier {
       });
 
       notifyListeners();
-   
     }
   }
 
@@ -93,7 +101,10 @@ class UnlockManager extends ChangeNotifier {
     notifyListeners();
   }
 
-Future<void> saveUnlockedAchievement(ChildUser child, String achievementId) async {
+  Future<void> saveUnlockedAchievement(
+    ChildUser child,
+    String achievementId,
+  ) async {
     if (!child.unlockedAchievements.contains(achievementId)) {
       child.unlockedAchievements.add(achievementId);
 
@@ -101,9 +112,14 @@ Future<void> saveUnlockedAchievement(ChildUser child, String achievementId) asyn
       await _userRepo.cacheChild(child);
 
       // Update Firestore
-      await _userRepo.updateChildAchievements(child.parentUid, child.cid, child.unlockedAchievements);
+      await _userRepo.updateChildAchievements(
+        child.parentUid,
+        child.cid,
+        child.unlockedAchievements,
+      );
     }
   }
+
   /// Returns the current last unlock (fish or decor)
   dynamic get lastUnlock => _lastFishUnlocked ?? _lastDecorUnlocked;
 
@@ -113,8 +129,10 @@ Future<void> saveUnlockedAchievement(ChildUser child, String achievementId) asyn
 
     // 1️⃣ Update in-memory state
     if (child['fishes'] != null) {
-      final fish = child['fishes']
-          .firstWhere((f) => f['id'] == fishId, orElse: () => null);
+      final fish = child['fishes'].firstWhere(
+        (f) => f['id'] == fishId,
+        orElse: () => null,
+      );
       if (fish != null) fish['neglected'] = value;
     }
 
@@ -129,9 +147,7 @@ Future<void> saveUnlockedAchievement(ChildUser child, String achievementId) asyn
           .collection('children')
           .doc(cid);
 
-      await docRef.update({
-        'fishes.$fishId.neglected': value,
-      });
+      await docRef.update({'fishes.$fishId.neglected': value});
     }
   }
 }

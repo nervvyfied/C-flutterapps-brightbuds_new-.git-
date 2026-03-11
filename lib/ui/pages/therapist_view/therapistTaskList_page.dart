@@ -1,12 +1,12 @@
 // ignore_for_file: file_names, deprecated_member_use, use_build_context_synchronously
 
 import 'dart:async';
-import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
+import 'package:com.brightbuds/data/models/parent_model.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/data/providers/selected_child_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -112,25 +112,20 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
         .doc(childId)
         .collection('tasks')
         .snapshots()
-        .listen(
-          (snapshot) {
-            if (_isDisposed || !mounted) return;
+        .listen((snapshot) {
+          if (_isDisposed || !mounted) return;
 
-            for (var change in snapshot.docChanges) {
-              switch (change.type) {
-                case DocumentChangeType.added:
-                case DocumentChangeType.modified:
-                case DocumentChangeType.removed:
-                  // Trigger a refresh of tasks
-                  _loadTasksForSelectedChild();
-                  break;
-              }
+          for (var change in snapshot.docChanges) {
+            switch (change.type) {
+              case DocumentChangeType.added:
+              case DocumentChangeType.modified:
+              case DocumentChangeType.removed:
+                // Trigger a refresh of tasks
+                _loadTasksForSelectedChild();
+                break;
             }
-          },
-          onError: (error) {
-          
-          },
-        );
+          }
+        }, onError: (error) {});
   }
 
   void _loadTasksForSelectedChild() {
@@ -147,9 +142,7 @@ class _TherapistTaskListScreenState extends State<TherapistTaskListScreen> {
           childId: childId,
         );
       } catch (e) {
-        if (mounted && !_isDisposed) {
-          
-        }
+        if (mounted && !_isDisposed) {}
       }
     });
   }

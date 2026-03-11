@@ -1,10 +1,10 @@
 // ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistAccount_page.dart';
+import 'package:com.brightbuds/ui/pages/therapist_view/therapistAccount_page.dart';
 import 'package:intl/intl.dart';
-import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
-import 'package:brightbuds_new/cbt/pages/therapist_cbt_page.dart';
-import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
+import 'package:com.brightbuds/cbt/catalogs/cbt_catalog.dart';
+import 'package:com.brightbuds/cbt/pages/therapist_cbt_page.dart';
+import 'package:com.brightbuds/cbt/providers/cbt_provider.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
@@ -37,7 +37,7 @@ class TherapistDashboardPage extends StatefulWidget {
 class TaskHistoryService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-   Future<void> saveDailyTaskProgress({
+  Future<void> saveDailyTaskProgress({
     required String parentId,
     required String therapistId,
     required String childId,
@@ -66,10 +66,7 @@ class TaskHistoryService {
         'timestamp': FieldValue.serverTimestamp(),
         'savedBy': 'therapist',
       });
-
-    } catch (e) {
-   
-    }
+    } catch (e) {}
   }
 }
 
@@ -149,14 +146,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     BuildContext context,
     String childId,
   ) async {
- 
-
     try {
       // Get the actual parent ID from the child
       final parentId = await _getParentIdFromChild(childId);
 
       if (parentId == null || parentId.isEmpty) {
-    
         if (!mounted) return;
         showDialog(
           context: context,
@@ -259,7 +253,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               }
 
               final historyDocs = historySnapshot.data!.docs;
-        
 
               // Process history data
               final Map<String, Map<String, dynamic>> allHistoryData = {};
@@ -645,7 +638,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         },
       );
     } catch (e) {
-    
       if (!mounted) return;
       showDialog(
         context: context,
@@ -1061,13 +1053,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
     _getParentIdFromChild(childId).then((parentId) {
       if (parentId != null && parentId.isNotEmpty) {
-     
         journalProv.loadEntries(childId: childId, parentId: parentId);
 
         _loadParentDataFromChild(childId);
-      } else {
-     
-      }
+      } else {}
     });
   }
 
@@ -1087,11 +1076,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final parentId = await _getParentIdFromChild(childId);
 
     if (parentId == null || parentId.isEmpty) {
-   
       return;
     }
-
- 
 
     // Initialize Hive first
     await cbtProv.initHive();
@@ -1132,9 +1118,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             }
           });
         }
-      } catch (e) {
-    
-      }
+      } catch (e) {}
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -1157,12 +1141,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           (child['cid'] as String).isNotEmpty) {
         final childId = child['cid'] as String;
         await _loadParentDataFromChild(childId);
-      } else {
-     
-      }
-    } catch (e) {
-   
-    }
+      } else {}
+    } catch (e) {}
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -1176,16 +1156,12 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
   Future<void> _loadParentDataFromChild(String childId) async {
     if (childId.isEmpty) return;
 
-  
-
     final parentId = await _getParentIdFromChild(childId);
 
     if (parentId != null &&
         parentId.isNotEmpty &&
         parentId != widget.therapistId) {
       try {
-     
-
         final parentDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(parentId)
@@ -1193,7 +1169,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
         if (parentDoc.exists) {
           final parentData = parentDoc.data()!;
-       
 
           setState(() {
             _parent = {
@@ -1203,26 +1178,20 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             };
           });
         } else {
-      
           setState(() {
             _parent = {'id': parentId, 'name': 'Parent', 'email': ''};
           });
         }
       } catch (e) {
-   
         setState(() {
           _parent = {'id': parentId, 'name': 'Parent', 'email': ''};
         });
       }
-    } else {
-
-    }
+    } else {}
   }
 
   Future<String?> _getParentIdFromChild(String childId) async {
     if (childId.isEmpty) return null;
-
-  
 
     try {
       // METHOD 1: Check if child document has parentUID field
@@ -1237,7 +1206,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             data?['parentUID'] ?? data?['parentUid'] ?? data?['parentId'];
         if (parentUID != null && parentUID is String && parentUID.isNotEmpty) {
           if (parentUID != widget.therapistId) {
-       
             return parentUID;
           }
         }
@@ -1258,13 +1226,11 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
         if (parentUID != null && parentUID.isNotEmpty) {
           if (parentUID != widget.therapistId) {
-       
             return parentUID;
           }
         }
       }
 
-  
       final usersSnapshot = await FirebaseFirestore.instance
           .collection('users')
           .limit(50)
@@ -1285,7 +1251,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               .get();
 
           if (childDoc.exists) {
-          
             return userId;
           }
         } catch (e) {
@@ -1293,10 +1258,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         }
       }
 
-  
       return null;
     } catch (e) {
-  
       return null;
     }
   }
@@ -1321,9 +1284,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             'email': parentDocData['email'] ?? '',
           };
         }
-      } catch (e) {
-    
-      }
+      } catch (e) {}
     }
 
     return {
@@ -1360,9 +1321,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         },
       ),
       // Optional: Add onVisible callback if you want to mark as notified only when shown
-      onVisible: () {
-      
-      },
+      onVisible: () {},
     );
 
     ScaffoldMessenger.of(context).showSnackBar(snackBar);
@@ -1371,7 +1330,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     // This prevents memory leak if you have many tasks
     Future.delayed(const Duration(seconds: 4), () {
       _notifiedTaskIds.remove(taskId);
-   
     });
   }
 
@@ -1384,7 +1342,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     Map<String, dynamic> parentData,
   ) async {
     if (parentId.isEmpty || parentId == therapistId) {
-   
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Cannot generate report: Parent information not found'),
@@ -1408,13 +1365,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       // Calculate end of week (Sunday)
       final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-     
-
       // Format dates for Firestore queries
       final startDate = DateFormat('yyyy-MM-dd').format(startOfWeek);
       final endDate = DateFormat('yyyy-MM-dd').format(endOfWeek);
 
-   
       // Fetch all history documents within the weekly range
       List<Map<String, dynamic>> completeWeeklyHistory = [];
 
@@ -1477,7 +1431,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           }
         }
       } catch (e) {
-     
         // Fallback: create weekly data up to today
         for (int i = 0; i < 7; i++) {
           final currentDate = startOfWeek.add(Duration(days: i));
@@ -2322,10 +2275,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             "child_${name}_weekly_report_${DateFormat('yyyyMMdd').format(startOfWeek)}.pdf",
         onLayout: (format) async => pdf.save(),
       );
-
- 
     } catch (e) {
-    
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to generate PDF: $e'),
@@ -2429,8 +2379,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         endDate = DateTime(targetDate.year, targetDate.month + 1, 0);
       }
 
-   
-
       for (var doc in tasksSnap.docs) {
         final data = doc.data();
         final taskId = doc.id;
@@ -2465,7 +2413,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       return tasks;
     } catch (e) {
-   
       return [];
     }
   }
@@ -2524,7 +2471,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         'totalTasksAssigned': totalDone + totalNotDone + totalMissed,
       };
     } catch (e) {
-     
       return {
         'totalDaysWithTasks': 0,
         'totalDone': 0,
@@ -2607,7 +2553,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       // If we don't have completionDates, then we cannot determine completions in timeframe.
       return 0;
     } catch (e) {
-  
       return 0;
     }
   }
@@ -2620,7 +2565,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     try {
       final parentId = await _getParentIdFromChild(childId);
       if (parentId == null || parentId.isEmpty) {
-     
         return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
       }
 
@@ -2645,8 +2589,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         daysInTimeframe = endDate.day;
       }
 
-    
-
       // 1. Fetch all tasks
       final tasksSnap = await FirebaseFirestore.instance
           .collection('users')
@@ -2657,7 +2599,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           .get();
 
       if (tasksSnap.docs.isEmpty) {
-      
         return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
       }
 
@@ -2823,7 +2764,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
         'taskPerformance': taskPerformance,
       };
     } catch (e) {
-   
       return _getEmptyAnalysisData(isWeekly ? 'Weekly' : 'Monthly');
     }
   }
@@ -2840,7 +2780,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       );
       return result;
     } catch (e) {
-    
       return _getEmptyAnalysisData('Weekly');
     }
   }
@@ -2857,7 +2796,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       );
       return result;
     } catch (e) {
-   
       return _getEmptyAnalysisData('Monthly');
     }
   }
@@ -2911,8 +2849,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     required Map<String, dynamic> taskData,
   }) async {
     try {
-    
-
       // First, check if the task has a 'done' field that might indicate completion
       if (taskData['isDone'] == true) {
         final doneAt = taskData['doneAt'];
@@ -2920,7 +2856,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           final completionDate = doneAt.toDate();
           if (!completionDate.isBefore(startDate) &&
               !completionDate.isAfter(endDate)) {
-       
             return 1;
           }
         }
@@ -2929,7 +2864,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
       // Check completion dates array
       final completionDates = taskData['completionDates'] as List?;
       if (completionDates != null && completionDates.isNotEmpty) {
-     
         int count = 0;
         for (var date in completionDates) {
           if (date is Timestamp) {
@@ -2937,24 +2871,20 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             if (!completionDate.isBefore(startDate) &&
                 !completionDate.isAfter(endDate)) {
               count++;
-          
             }
           }
         }
         if (count > 0) {
-     
           return count;
         }
       }
 
       // Try to fetch from history collection
- 
+
       try {
         // Convert dates to string format for document ID query
         final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
         final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
-
-    
 
         final historySnap = await FirebaseFirestore.instance
             .collection('users')
@@ -2966,24 +2896,18 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
             .where(FieldPath.documentId, isLessThanOrEqualTo: endDateStr)
             .get();
 
-   
-
         int completedCount = 0;
 
         for (var doc in historySnap.docs) {
           final data = doc.data();
-     
 
           // Check if this task appears in the done tasks list
           if (data.containsKey('completedTasks')) {
             final completedTasks = data['completedTasks'];
-      
 
             if (completedTasks is List<dynamic>) {
-          
               if (completedTasks.contains(taskId)) {
                 completedCount++;
-           
               }
             }
           }
@@ -2991,13 +2915,10 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
           // Check task-specific completion data
           if (data.containsKey('taskCompletions')) {
             final taskCompletions = data['taskCompletions'];
-        
 
             if (taskCompletions is Map<String, dynamic>) {
-           
               if (taskCompletions[taskId] == true) {
                 completedCount++;
-              
               }
             }
           }
@@ -3009,17 +2930,13 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final taskData = tasksData[taskId];
               if (taskData != null && taskData['completed'] == true) {
                 completedCount++;
-             
               }
             }
           }
         }
 
-     
         return completedCount;
-      } catch (e) {
-    
-      }
+      } catch (e) {}
 
       // Last resort: check last completion date
       final lastCompletedDate = taskData['lastCompletedDate'];
@@ -3029,23 +2946,18 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       if (lastCompletedDate != null && lastCompletedDate is Timestamp) {
         latestCompletion = lastCompletedDate.toDate();
-     
       } else if (doneAt != null && doneAt is Timestamp) {
         latestCompletion = doneAt.toDate();
-     
       }
 
       if (latestCompletion != null &&
           !latestCompletion.isBefore(startDate) &&
           !latestCompletion.isAfter(endDate)) {
-       
         return 1;
       }
 
-  
       return 0;
     } catch (e) {
-   
       return 0;
     }
   }
@@ -3093,7 +3005,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
       return dailyCompletions;
     } catch (e) {
-   
       return dailyCompletions;
     }
   }
@@ -3165,9 +3076,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               ? (weeklyDone / (weeklyDone + weeklyNotDone + weeklyMissed)) * 100
               : 0,
         });
-      } catch (e) {
-     
-      }
+      } catch (e) {}
 
       currentWeekStart = currentWeekStart.add(Duration(days: 7));
     }
@@ -3263,11 +3172,8 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
     final parentId = await _getParentIdFromChild(childId);
 
     if (parentId == null || parentId.isEmpty) {
-  
       return;
     }
-
- 
 
     final taskHistoryService = TaskHistoryService();
     await taskHistoryService.saveDailyTaskProgress(
@@ -4580,7 +4486,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       }
 
                       if (snapshot.hasError) {
-                    
                         return Padding(
                           padding: const EdgeInsets.all(8.0),
                           child: Column(
@@ -4612,7 +4517,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
 
                       // FIX: Handle null data case
                       if (!snapshot.hasData || snapshot.data == null) {
-                    
                         return Padding(
                           padding: const EdgeInsets.all(8.0),
                           child: Column(
@@ -4643,7 +4547,7 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                       }
 
                       final analysis = snapshot.data!;
-                 
+
                       // FIX: Check if we have valid data
                       final totalTasksAssigned =
                           (analysis['totalTasksAssigned'] as int?) ?? 0;
@@ -5178,8 +5082,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final moodCounts = <String, int>{};
               final childId = activeChild['cid'] ?? '';
 
-         
-
               if (childId.isNotEmpty) {
                 final entries = journalProv.getEntries(childId);
                 final now = DateTime.now();
@@ -5227,7 +5129,6 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
               final parentId = await _getParentIdFromChild(childId);
 
               if (parentId == null || parentId.isEmpty) {
-         
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
@@ -5256,11 +5157,9 @@ class _TherapistDashboardPageState extends State<TherapistDashboardPage> {
                   parentData = {'id': parentId, 'name': 'Parent', 'email': ''};
                 }
               } catch (e) {
-            
                 parentData = {'id': parentId, 'name': 'Parent', 'email': ''};
               }
 
-          
               await exportChildDataToPdfWithCharts(
                 widget.therapistId,
                 parentData['id'],

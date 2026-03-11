@@ -1,5 +1,5 @@
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/repositories/user_repository.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/data/repositories/user_repository.dart';
 import 'package:flutter/foundation.dart';
 
 class SelectedChildProvider extends ChangeNotifier {
@@ -19,19 +19,16 @@ class SelectedChildProvider extends ChangeNotifier {
       streak: _selectedChild!['streak'] ?? 0,
       unlockedAchievements: List<String>.from(
         _selectedChild!['unlockedAchievements'] ?? [],
-      ), 
+      ),
       therapistUid: _selectedChild!['therapistUid'] ?? '',
     );
   }
 
-   void setSelectedChild(Map<String, dynamic>? child) {
-  
-
+  void setSelectedChild(Map<String, dynamic>? child) {
     // Validate the child data
     if (child != null) {
       final childId = child['cid']?.toString();
       if (childId == null || childId.isEmpty) {
-      
         _selectedChild = null;
       } else {
         _selectedChild = child;
@@ -51,10 +48,10 @@ class SelectedChildProvider extends ChangeNotifier {
   /// Update specific fields of the selected child
   void updateSelectedChild(Map<String, dynamic> updatedFields) {
     if (_selectedChild == null) {
-     
       return;
     }
   }
+
   Future<void> fetchChildAndSet(String parentUid, String childId) async {
     final child = await _userRepo.fetchChildAndCache(parentUid, childId);
     if (child != null) {
@@ -70,8 +67,8 @@ class SelectedChildProvider extends ChangeNotifier {
       });
     }
   }
-Future loadEntries() async {}
-  /// Update specific fields of the selected child
 
-    }
-  
+  Future loadEntries() async {}
+
+  /// Update specific fields of the selected child
+}

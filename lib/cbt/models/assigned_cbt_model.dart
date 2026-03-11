@@ -1,4 +1,4 @@
-import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
+import 'package:com.brightbuds/cbt/models/cbt_exercise_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
 

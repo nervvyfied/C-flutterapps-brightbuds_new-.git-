@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import '/data/models/journal_model.dart';
 import '../../../data/providers/journal_provider.dart';
-import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:com.brightbuds/utils/network_helper.dart';
 
 class TherapistJournalListPage extends StatefulWidget {
   final String parentId;
@@ -86,9 +86,7 @@ class _TherapistJournalListPageState extends State<TherapistJournalListPage> {
           parentId: widget.parentId,
           childId: widget.childId,
         );
-      } catch (e) {
-       
-      }
+      } catch (e) {}
     }
 
     if (!mounted) return;

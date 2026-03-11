@@ -1,8 +1,8 @@
-import 'package:brightbuds_new/aquarium/manager/achievement_manager.dart';
-import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
-import 'package:brightbuds_new/aquarium/progression/unlock_resolver.dart';
-import 'package:brightbuds_new/aquarium/progression/world_progression.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:com.brightbuds/aquarium/manager/achievement_manager.dart';
+import 'package:com.brightbuds/aquarium/progression/level_calculator.dart';
+import 'package:com.brightbuds/aquarium/progression/unlock_resolver.dart';
+import 'package:com.brightbuds/aquarium/progression/world_progression.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/fish_definition.dart';
@@ -57,15 +57,15 @@ class ProgressionProvider extends ChangeNotifier {
     required ChildUser child,
     LevelCalculator? levelCalculator,
     this.achievementManager,
-  })  : _child = child,
-        _levelCalculator = levelCalculator ?? LevelCalculator(),
-        _state = ProgressionState(
-          xp: child.xp,
-          level: 1,
-          world: Worlds.getWorldForLevel(1),
-          unlockedFish: [],
-          unlockedDecor: [],
-        ) {
+  }) : _child = child,
+       _levelCalculator = levelCalculator ?? LevelCalculator(),
+       _state = ProgressionState(
+         xp: child.xp,
+         level: 1,
+         world: Worlds.getWorldForLevel(1),
+         unlockedFish: [],
+         unlockedDecor: [],
+       ) {
     _recalculateProgression();
   }
 
@@ -116,33 +116,31 @@ class ProgressionProvider extends ChangeNotifier {
     achievementManager?.checkAchievements();
   }
 
-void visitWorld(int worldId) {
-  // Find the world by ID
-  final newWorld = Worlds.all.firstWhere(
-    (w) => w.worldId == worldId,
-    orElse: () => _state.world, // fallback to current world if not found
-  );
+  void visitWorld(int worldId) {
+    // Find the world by ID
+    final newWorld = Worlds.all.firstWhere(
+      (w) => w.worldId == worldId,
+      orElse: () => _state.world, // fallback to current world if not found
+    );
 
-  // Use current level to determine unlocks
-  final currentLevel = _state.level;
+    // Use current level to determine unlocks
+    final currentLevel = _state.level;
 
-  final unlockResolver = UnlockResolver(
-    currentLevel: currentLevel,
-    currentWorld: worldId,
-  );
+    final unlockResolver = UnlockResolver(
+      currentLevel: currentLevel,
+      currentWorld: worldId,
+    );
 
-  // Update state with new world and unlocked items
-  _state = _state.copyWith(
-    world: newWorld,
-    unlockedFish: unlockResolver.unlockedFish,
-    unlockedDecor: unlockResolver.unlockedDecor,
-  );
+    // Update state with new world and unlocked items
+    _state = _state.copyWith(
+      world: newWorld,
+      unlockedFish: unlockResolver.unlockedFish,
+      unlockedDecor: unlockResolver.unlockedDecor,
+    );
 
-  notifyListeners();
+    notifyListeners();
 
-  // Optional: trigger achievement checks
-  achievementManager?.checkAchievements();
+    // Optional: trigger achievement checks
+    achievementManager?.checkAchievements();
+  }
 }
-
-}
-

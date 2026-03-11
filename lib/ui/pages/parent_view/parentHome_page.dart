@@ -1,10 +1,10 @@
 // ignore_for_file: file_names, unused_field, unused_element, use_build_context_synchronously, deprecated_member_use
-import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentAccount_page.dart';
+import 'package:com.brightbuds/data/models/parent_model.dart';
+import 'package:com.brightbuds/ui/pages/parent_view/parentAccount_page.dart';
 import 'package:intl/intl.dart';
-import 'package:brightbuds_new/cbt/catalogs/cbt_catalog.dart';
-import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
+import 'package:com.brightbuds/cbt/catalogs/cbt_catalog.dart';
+import 'package:com.brightbuds/cbt/providers/cbt_provider.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -795,8 +795,6 @@ class _ParentDashboardPageState extends State<ParentDashboardPage> {
 
     final parentId = _parent?.uid ?? widget.parentId;
     final childId = child['cid'];
-
-  
 
     // Initialize Hive if not yet
     await cbtProv.initHive();

@@ -1,10 +1,10 @@
 // ignore_for_file: file_names
 
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistHome_page.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistJournalView_page.dart';
-import 'package:brightbuds_new/ui/pages/therapist_view/therapistTaskList_page.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/ui/pages/therapist_view/therapistHome_page.dart';
+import 'package:com.brightbuds/ui/pages/therapist_view/therapistJournalView_page.dart';
+import 'package:com.brightbuds/ui/pages/therapist_view/therapistTaskList_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../data/providers/selected_child_provider.dart';

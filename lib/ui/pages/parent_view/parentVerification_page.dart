@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
-import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
+import 'package:com.brightbuds/ui/pages/parent_view/parentNav_page.dart';
+import 'package:com.brightbuds/ui/pages/parentlogin_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';

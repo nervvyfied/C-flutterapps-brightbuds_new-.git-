@@ -1,14 +1,14 @@
 // ignore_for_file: unnecessary_null_comparison
 
 import 'dart:async';
-import 'package:brightbuds_new/aquarium/manager/achievement_manager.dart';
-import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
-import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
-import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/notifications/fcm_service.dart';
-import 'package:brightbuds_new/notifications/notification_service.dart';
-import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:com.brightbuds/aquarium/manager/achievement_manager.dart';
+import 'package:com.brightbuds/aquarium/manager/unlockManager.dart';
+import 'package:com.brightbuds/aquarium/notifiers/achievement_notifier.dart';
+import 'package:com.brightbuds/aquarium/progression/level_calculator.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/notifications/fcm_service.dart';
+import 'package:com.brightbuds/notifications/notification_service.dart';
+import 'package:com.brightbuds/utils/network_helper.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show ScaffoldMessenger, Text, BuildContext, SnackBar, TimeOfDay;
@@ -77,7 +77,6 @@ class TaskProvider extends ChangeNotifier {
 
   void setCurrentUser(String uid, UserType type) {
     currentUser = CurrentUser(uid: uid, type: type);
-  
   }
 
   void clearCurrentUser() {
@@ -184,7 +183,6 @@ class TaskProvider extends ChangeNotifier {
       if (fetchedParentId != null) {
         actualParentId = fetchedParentId;
       } else {
-      
         return;
       }
     }
@@ -196,71 +194,65 @@ class TaskProvider extends ChangeNotifier {
         .doc(childId)
         .collection('tasks');
 
-    _taskSubscription = query.snapshots().listen(
-      (snapshot) async {
-        bool updated = false;
+    _taskSubscription = query.snapshots().listen((snapshot) async {
+      bool updated = false;
 
-        for (var change in snapshot.docChanges) {
-          final data = change.doc.data();
-          if (data == null) continue;
+      for (var change in snapshot.docChanges) {
+        final data = change.doc.data();
+        if (data == null) continue;
 
-          final task = TaskModel.fromMap(data).copyWith(id: change.doc.id);
-          final index = _tasks.indexWhere((t) => t.id == task.id);
+        final task = TaskModel.fromMap(data).copyWith(id: change.doc.id);
+        final index = _tasks.indexWhere((t) => t.id == task.id);
 
-          switch (change.type) {
-            case DocumentChangeType.added:
-              if (index == -1) {
-                _tasks.add(task);
-                await _taskBox?.put(task.id, task);
-                updated = true;
-              } else {
+        switch (change.type) {
+          case DocumentChangeType.added:
+            if (index == -1) {
+              _tasks.add(task);
+              await _taskBox?.put(task.id, task);
+              updated = true;
+            } else {
+              _tasks[index] = task;
+              await _taskBox?.put(task.id, task);
+              updated = true;
+            }
+            break;
+
+          case DocumentChangeType.modified:
+            if (index != -1) {
+              final localTask = _tasks[index];
+              if (task.lastUpdated != null &&
+                  (localTask.lastUpdated == null ||
+                      task.lastUpdated!.isAfter(localTask.lastUpdated!))) {
                 _tasks[index] = task;
                 await _taskBox?.put(task.id, task);
                 updated = true;
               }
-              break;
+            } else {
+              _tasks.add(task);
+              await _taskBox?.put(task.id, task);
+              updated = true;
+            }
+            break;
 
-            case DocumentChangeType.modified:
-              if (index != -1) {
-                final localTask = _tasks[index];
-                if (task.lastUpdated != null &&
-                    (localTask.lastUpdated == null ||
-                        task.lastUpdated!.isAfter(localTask.lastUpdated!))) {
-                  _tasks[index] = task;
-                  await _taskBox?.put(task.id, task);
-                  updated = true;
-                }
-              } else {
-                _tasks.add(task);
-                await _taskBox?.put(task.id, task);
-                updated = true;
-              }
-              break;
-
-            case DocumentChangeType.removed:
-              if (index != -1) {
-                _tasks.removeAt(index);
-                await _taskBox?.delete(task.id);
-                updated = true;
-              }
-              break;
-          }
+          case DocumentChangeType.removed:
+            if (index != -1) {
+              _tasks.removeAt(index);
+              await _taskBox?.delete(task.id);
+              updated = true;
+            }
+            break;
         }
+      }
 
-        if (updated) {
-          _tasks.sort(
-            (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
-              a.lastUpdated ?? DateTime(0),
-            ),
-          );
-          notifyListeners();
-         
-        }
-      },
-      onError: (e) {
-      
-      },
-    );
+      if (updated) {
+        _tasks.sort(
+          (a, b) => (b.lastUpdated ?? DateTime(0)).compareTo(
+            a.lastUpdated ?? DateTime(0),
+          ),
+        );
+        notifyListeners();
+      }
+    }, onError: (e) {});
   }
 
   // Add this flag to prevent multiple resets
@@ -272,16 +264,12 @@ class TaskProvider extends ChangeNotifier {
     if (_hasCheckedDailyReset) return;
 
     try {
-    
-
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final lastReset = await getLastResetDate();
 
-    
       // Case 1: First time ever running the app
       if (lastReset == null) {
-       
         await resetDailyTasks();
         await setLastResetDate(today);
         _hasCheckedDailyReset = true;
@@ -296,19 +284,12 @@ class TaskProvider extends ChangeNotifier {
       );
 
       if (lastResetDay.isBefore(today)) {
-      
         await resetDailyTasks();
         await setLastResetDate(today);
-
-      
-      } else {
-      
-      }
+      } else {}
 
       _hasCheckedDailyReset = true;
-    } catch (e, stack) {
-     
-    }
+    } catch (e, stack) {}
   }
 
   // Modify initHive to check on app launch
@@ -319,8 +300,6 @@ class TaskProvider extends ChangeNotifier {
 
     // Check for daily reset immediately when Hive is initialized
     await checkAndPerformDailyResetOnLaunch();
-
- 
   }
 
   // Also check when loading tasks (backup check)
@@ -351,7 +330,6 @@ class TaskProvider extends ChangeNotifier {
         if (fetchedParentId != null) {
           actualParentId = fetchedParentId;
         } else {
-        
           return;
         }
       }
@@ -382,12 +360,8 @@ class TaskProvider extends ChangeNotifier {
   Future<void> _loadCurrentChild(String childId) async {
     try {
       currentChild = await _userRepo.fetchChildAndCacheById(childId);
-      if (currentChild != null) {
-     
-      }
-    } catch (e) {
-   
-    }
+      if (currentChild != null) {}
+    } catch (e) {}
   }
 
   void _setLoading(bool value) {
@@ -409,7 +383,6 @@ class TaskProvider extends ChangeNotifier {
         if (fetchedParentId != null) {
           actualParentId = fetchedParentId;
         } else {
-         
           return;
         }
       }
@@ -447,11 +420,7 @@ class TaskProvider extends ChangeNotifier {
 
       _tasks = merged.values.toList();
       if (updated) notifyListeners();
-
-    
-    } catch (e) {
-    
-    }
+    } catch (e) {}
   }
 
   // ---------------- GET PARENT ID FOR CHILD ----------------
@@ -478,9 +447,7 @@ class TaskProvider extends ChangeNotifier {
           }
         }
       }
-    } catch (e) {
-     
-    }
+    } catch (e) {}
 
     return null;
   }
@@ -545,7 +512,6 @@ class TaskProvider extends ChangeNotifier {
       // Sync to Firestore
       await _syncToFirestore(newTask, parentIdOverride: actualParentId);
     } catch (e) {
-    
       _showSnackBar(context, "Failed to add task: ${e.toString()}");
     }
   }
@@ -594,11 +560,8 @@ class TaskProvider extends ChangeNotifier {
             actualParentId; // Ensure correct parentId in document
 
         await docRef.set(data, SetOptions(merge: true));
-       
       }
-    } catch (e, stack) {
-     
-    }
+    } catch (e, stack) {}
   }
 
   Future<void> rejectTaskWithMessage({
@@ -635,8 +598,6 @@ class TaskProvider extends ChangeNotifier {
     await _syncToFirestore(updatedTask);
 
     notifyListeners();
-
-   
   }
 
   Future<void> rejectTaskWithMessageForParent({
@@ -669,7 +630,6 @@ class TaskProvider extends ChangeNotifier {
     await _syncToFirestore(updatedTask);
 
     notifyListeners();
-
   }
 
   Future<void> acceptTask(String taskId, String childId) async {
@@ -690,11 +650,7 @@ class TaskProvider extends ChangeNotifier {
 
       // ✅ Use the centralized updateTask method
       await updateTask(updatedTask);
-
-    
-    } catch (e) {
-     
-    }
+    } catch (e) {}
   }
 
   // ---------------- UPDATE TASK ----------------
@@ -705,7 +661,6 @@ class TaskProvider extends ChangeNotifier {
     final oldTask = _tasks[index];
 
     if (!canManageTask(oldTask)) {
-     
       return;
     }
 
@@ -753,8 +708,6 @@ class TaskProvider extends ChangeNotifier {
         await scheduleTaskAlarm(mergedTask);
       }
     }
-
-
   }
 
   // ---------------- DELETE TASK ----------------
@@ -769,7 +722,6 @@ class TaskProvider extends ChangeNotifier {
     final task = _tasks[index];
 
     if (!canManageTask(task)) {
-   
       return;
     }
 
@@ -802,10 +754,7 @@ class TaskProvider extends ChangeNotifier {
           .collection('tasks')
           .doc(taskId)
           .delete();
-     
-    } catch (e) {
-  
-    }
+    } catch (e) {}
 
     notifyListeners();
   }
@@ -868,9 +817,7 @@ class TaskProvider extends ChangeNotifier {
     // Persist via repository so repo/pending logic knows about change
     try {
       await _taskRepo.saveTask(updatedTask);
-    } catch (e) {
-   
-    }
+    } catch (e) {}
 
     notifyListeners();
 
@@ -889,16 +836,9 @@ class TaskProvider extends ChangeNotifier {
             parentId: updatedTask.parentId,
             childId: updatedTask.childId,
           );
-        } catch (e) {
-      
-        }
-       
-      } catch (e) {
-      
-      }
-    } else {
-     
-    }
+        } catch (e) {}
+      } catch (e) {}
+    } else {}
 
     // ✅ Update streak
     await _streakRepo.updateStreak(
@@ -966,9 +906,7 @@ class TaskProvider extends ChangeNotifier {
 
     try {
       await _taskRepo.saveTask(updatedTask);
-    } catch (e) {
-    
-    }
+    } catch (e) {}
 
     notifyListeners();
 
@@ -982,16 +920,9 @@ class TaskProvider extends ChangeNotifier {
             parentId: actualParentId,
             childId: updatedTask.childId,
           );
-        } catch (e) {
-        
-        }
-      
-      } catch (e) {
-    
-      }
-    } else {
-    
-    }
+        } catch (e) {}
+      } catch (e) {}
+    } else {}
 
     // ✅ Clean duplicates and re-sort by lastUpdated
     final uniqueTasks = <String, TaskModel>{for (var t in _tasks) t.id: t};
@@ -1026,9 +957,7 @@ class TaskProvider extends ChangeNotifier {
         itemName: task.name,
         type: 'task_completed',
       );
-    } catch (e) {
-    
-    }
+    } catch (e) {}
   }
 
   // ---------------- VERIFY TASK ----------------
@@ -1040,13 +969,11 @@ class TaskProvider extends ChangeNotifier {
 
     // 🔒 Guard 1: Already verified → do nothing
     if (task.verified) {
-   
       return;
     }
 
     // 🔒 Guard 2: Task must be done first
     if (!task.isDone) {
-    
       return;
     }
 
@@ -1089,13 +1016,9 @@ class TaskProvider extends ChangeNotifier {
           parentId: verifiedTask.parentId,
           childId: verifiedTask.childId,
         );
-      } catch (e) {
-       
-      }
+      } catch (e) {}
     }
     _checkAchievements(currentChild!);
-
- 
   }
 
   // ---------------- ALARMS ----------------
@@ -1128,8 +1051,6 @@ class TaskProvider extends ChangeNotifier {
       payload: task.id,
     );
 
-   
-
     await _sendFcmAlarm(task);
   }
 
@@ -1154,11 +1075,8 @@ class TaskProvider extends ChangeNotifier {
             'taskName': task.name,
           },
         );
-     
       }
-    } catch (e) {
-    
-    }
+    } catch (e) {}
   }
 
   Future<void> cancelTaskAlarm(TaskModel task) async {
@@ -1254,7 +1172,6 @@ class TaskProvider extends ChangeNotifier {
       final lastReset = await getLastResetDate();
 
       if (lastReset == null) {
-      
         await resetDailyTasks();
         await setLastResetDate(today);
         return;
@@ -1267,15 +1184,10 @@ class TaskProvider extends ChangeNotifier {
       );
 
       if (lastResetDay.isBefore(today)) {
-       
         await resetDailyTasks();
         await setLastResetDate(today);
-      } else {
-       
-      }
-    } catch (e, stack) {
-      
-    }
+      } else {}
+    } catch (e, stack) {}
   }
 
   // ---------------- DAILY RESET SCHEDULER ----------------
@@ -1294,14 +1206,11 @@ class TaskProvider extends ChangeNotifier {
       // Schedule again for the next day
       startDailyResetScheduler();
     });
-
-   
   }
 
   void stopDailyResetScheduler() {
     _midnightTimer?.cancel();
     _midnightTimer = null;
-  
   }
 
   // ---------------- SYNC ----------------
@@ -1341,11 +1250,8 @@ class TaskProvider extends ChangeNotifier {
           token: parentToken,
           data: {'type': type, 'childName': childName, 'itemName': itemName},
         );
-      
       }
-    } catch (e) {
-     
-    }
+    } catch (e) {}
   }
 
   // ---------------- CLEANUP ----------------

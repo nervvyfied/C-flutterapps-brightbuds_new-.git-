@@ -60,7 +60,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '953113321611',
     projectId: 'brightbuds-15065',
     storageBucket: 'brightbuds-15065.firebasestorage.app',
-    iosBundleId: 'com.example.brightbudsNew',
+    iosBundleId: 'com.brightbudsNew',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
@@ -71,5 +71,4 @@ class DefaultFirebaseOptions {
     authDomain: 'brightbuds-15065.firebaseapp.com',
     storageBucket: 'brightbuds-15065.firebasestorage.app',
   );
-
 }

@@ -6,7 +6,7 @@ import '/data/models/journal_model.dart';
 import '../../../data/providers/journal_provider.dart';
 import 'childJournalAdd_page.dart';
 import 'childJournalEdit_page.dart';
-import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:com.brightbuds/utils/network_helper.dart';
 
 class JournalListPage extends StatefulWidget {
   final String parentId;
@@ -87,9 +87,7 @@ class _JournalListPageState extends State<JournalListPage> {
           parentId: widget.parentId,
           childId: widget.childId,
         );
-      } catch (e) {
-      
-      }
+      } catch (e) {}
     }
 
     if (!mounted) return;

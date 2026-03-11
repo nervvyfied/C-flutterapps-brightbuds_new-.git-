@@ -1,6 +1,5 @@
-
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/services/firestore_service.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/services/firestore_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -361,14 +360,12 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
     final user = auth.currentUserModel;
 
     if (user == null || user is! TherapistUser) {
-    
       if (!mounted) return;
       setState(() => isLoading = false);
       return;
     }
 
     final therapistUid = user.uid;
-   
 
     try {
       final therapistSnap = await FirebaseFirestore.instance
@@ -377,7 +374,6 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
           .get();
 
       if (!therapistSnap.exists) {
-    
         if (!mounted) return;
         setState(() {
           therapistData = null;
@@ -414,8 +410,6 @@ class _TherapistAccountSidebarState extends State<TherapistAccountSidebar> {
         isLoading = false;
       });
     } catch (e, stack) {
-    
-    
       if (!mounted) return;
       setState(() {
         therapistData = null;

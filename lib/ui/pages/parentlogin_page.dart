@@ -2,10 +2,10 @@
 
 import 'dart:async';
 
-import 'package:brightbuds_new/ui/pages/parent_view/parentForgotPass_page.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentNav_page.dart';
-import 'package:brightbuds_new/ui/pages/parent_view/parentVerification_page.dart';
-import 'package:brightbuds_new/ui/pages/role_page.dart';
+import 'package:com.brightbuds/ui/pages/parent_view/parentForgotPass_page.dart';
+import 'package:com.brightbuds/ui/pages/parent_view/parentNav_page.dart';
+import 'package:com.brightbuds/ui/pages/parent_view/parentVerification_page.dart';
+import 'package:com.brightbuds/ui/pages/role_page.dart';
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

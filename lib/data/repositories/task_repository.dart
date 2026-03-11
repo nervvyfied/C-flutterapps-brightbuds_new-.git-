@@ -1,5 +1,5 @@
-import 'package:brightbuds_new/data/repositories/streak_repository.dart';
-import 'package:brightbuds_new/data/repositories/user_repository.dart';
+import 'package:com.brightbuds/data/repositories/streak_repository.dart';
+import 'package:com.brightbuds/data/repositories/user_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
@@ -21,7 +21,6 @@ class TaskRepository {
     try {
       await _taskBox.put(task.id, task);
     } catch (e) {
-    
       rethrow;
     }
   }
@@ -50,7 +49,6 @@ class TaskRepository {
   Future<void> saveTaskRemote(TaskModel task) async {
     try {
       if (task.parentId.isEmpty || task.childId.isEmpty) {
-      
         return;
       }
 
@@ -58,17 +56,11 @@ class TaskRepository {
 
       final data = task.toFirestore();
       if (data.isEmpty) {
-      
         return;
       }
 
-   
       await ref.set(data, SetOptions(merge: true));
-
-    
-    } catch (e, st) {
-     
-    }
+    } catch (e, st) {}
   }
 
   Future<TaskModel?> getTaskRemote(
@@ -146,33 +138,27 @@ class TaskRepository {
     // 4️⃣ Save locally and remotely
     await saveTaskLocal(updatedTask);
     await saveTaskRemote(updatedTask);
-
-
   }
 
   Future<void> updateTask(TaskModel task) async {
-  try {
-    if (task.id.isEmpty) {
-      throw Exception("Cannot update task: taskId is empty.");
+    try {
+      if (task.id.isEmpty) {
+        throw Exception("Cannot update task: taskId is empty.");
+      }
+
+      // Preserve alarm + update timestamp
+      final existing = _taskBox.get(task.id);
+      final updatedTask = task.copyWith(
+        alarm: task.alarm ?? existing?.alarm,
+        lastUpdated: DateTime.now(),
+      );
+
+      // ✅ LOCAL ONLY
+      await saveTaskLocal(updatedTask);
+    } catch (e) {
+      rethrow;
     }
-
-    // Preserve alarm + update timestamp
-    final existing = _taskBox.get(task.id);
-    final updatedTask = task.copyWith(
-      alarm: task.alarm ?? existing?.alarm,
-      lastUpdated: DateTime.now(),
-    );
-
-    // ✅ LOCAL ONLY
-    await saveTaskLocal(updatedTask);
-
- 
-  } catch (e) {
- 
-    rethrow;
   }
-}
-
 
   /// Delete task both locally and remotely
   Future<void> deleteTask(
@@ -245,12 +231,9 @@ class TaskRepository {
   Future<void> pushPendingLocalChanges() async {
     final localTasks = getAllTasksLocal();
 
-    
-
     for (final task in localTasks) {
       try {
         if (task.parentId.isEmpty || task.childId.isEmpty) {
-        
           continue;
         }
 
@@ -265,23 +248,13 @@ class TaskRepository {
         final remoteUpdated =
             remote?.lastUpdated ?? DateTime.fromMillisecondsSinceEpoch(0);
 
-      
-
         if (remote == null) {
-        
           await saveTaskRemote(task);
         } else if (localUpdated.isAfter(remoteUpdated)) {
-         
           await saveTaskRemote(task);
-        } else {
-        
-        }
-      } catch (e, st) {
-       
-      }
+        } else {}
+      } catch (e, st) {}
     }
-
-   
   }
 
   /// Merge remote tasks into local Hive (respecting lastUpdated)
@@ -310,13 +283,11 @@ class TaskRepository {
       // 1️⃣ Get local task
       final localTask = getTaskLocal(taskId);
       if (localTask == null) {
-       
         return;
       }
 
       // 2️⃣ Check childId validity
       if (childId.isEmpty) {
-       
         return;
       }
 
@@ -329,15 +300,12 @@ class TaskRepository {
 
       // 4️⃣ Save locally first
       await saveTaskLocal(updatedTask);
-     
 
       // 5️⃣ Save remotely
       final parentId = localTask.parentId;
       if (parentId.isEmpty) {
-      
       } else {
         await saveTaskRemote(updatedTask);
-       
       }
 
       // 6️⃣ Update streak (safe check for child existence)
@@ -349,57 +317,45 @@ class TaskRepository {
 
       if (child != null) {
         await _streakRepo.updateStreak(child.cid, parentId, taskId);
-      
-      } else {
-       
-      }
+      } else {}
     } catch (e, st) {
-    
       rethrow;
     }
   }
 
   Future<void> verifyTask(String taskId, String childId) async {
-  try {
-    // 1️⃣ Get local task
-    final localTask = getTaskLocal(taskId);
-    if (localTask == null) {
-    
-      return;
-    }
-
-    if (localTask.verified) {
-     
-      return;
-    }
-
-    final parentId = localTask.parentId;
-    if (parentId.isEmpty || childId.isEmpty) {
-     
-      return;
-    }
-
-    // 2️⃣ Mark task as verified
-    final updatedTask = localTask.copyWith(verified: true);
-    await saveTask(updatedTask);
-
-  
-
-    // 3️⃣ Get or fetch child
-    final userRepo = UserRepository();
-    var child = userRepo.getCachedChild(childId);
-
-    if (child == null) {
-      child = await userRepo.fetchChildAndCache(parentId, childId);
-      if (child == null) {
-       
+    try {
+      // 1️⃣ Get local task
+      final localTask = getTaskLocal(taskId);
+      if (localTask == null) {
         return;
       }
-    }
 
-  } catch (e, st) {
-  
-    rethrow;
+      if (localTask.verified) {
+        return;
+      }
+
+      final parentId = localTask.parentId;
+      if (parentId.isEmpty || childId.isEmpty) {
+        return;
+      }
+
+      // 2️⃣ Mark task as verified
+      final updatedTask = localTask.copyWith(verified: true);
+      await saveTask(updatedTask);
+
+      // 3️⃣ Get or fetch child
+      final userRepo = UserRepository();
+      var child = userRepo.getCachedChild(childId);
+
+      if (child == null) {
+        child = await userRepo.fetchChildAndCache(parentId, childId);
+        if (child == null) {
+          return;
+        }
+      }
+    } catch (e, st) {
+      rethrow;
+    }
   }
-}
 }

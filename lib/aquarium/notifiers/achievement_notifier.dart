@@ -1,5 +1,5 @@
-import 'package:brightbuds_new/aquarium/models/achievement_definition.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:com.brightbuds/aquarium/models/achievement_definition.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
 import 'package:flutter/material.dart';
 
 class AchievementNotifier extends ChangeNotifier {

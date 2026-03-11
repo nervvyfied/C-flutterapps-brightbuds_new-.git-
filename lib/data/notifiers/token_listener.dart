@@ -1,6 +1,6 @@
-import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/data/notifiers/tokenDialog.dart';
-import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
+import 'package:com.brightbuds/data/notifiers/tokenDialog.dart';
+import 'package:com.brightbuds/data/notifiers/tokenNotifier.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:confetti/confetti.dart';
@@ -20,8 +20,9 @@ class _TokenListenerState extends State<TokenListener> {
   @override
   void initState() {
     super.initState();
-    _confettiController =
-        ConfettiController(duration: const Duration(seconds: 2));
+    _confettiController = ConfettiController(
+      duration: const Duration(seconds: 2),
+    );
 
     // ✅ Fetch unseen tasks after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -40,7 +41,10 @@ class _TokenListenerState extends State<TokenListener> {
     super.dispose();
   }
 
-  Future<void> _showTokenDialog(BuildContext context, TokenNotifier notifier) async {
+  Future<void> _showTokenDialog(
+    BuildContext context,
+    TokenNotifier notifier,
+  ) async {
     if (_dialogShown || notifier.newTasks.isEmpty) return;
     _dialogShown = true;
 
@@ -56,16 +60,15 @@ class _TokenListenerState extends State<TokenListener> {
 
     await showDialog(
       context: context,
-      builder: (_) => XPDialog(
-        tasks: tasksToShow,
-        confettiController: _confettiController,
-      ),
+      builder: (_) =>
+          XPDialog(tasks: tasksToShow, confettiController: _confettiController),
     );
 
     // Mark tasks as seen AFTER the dialog closes
     final unseenKey = 'seen_verified_tasks_${notifier.childId}';
-    final seenIds =
-        List<String>.from(notifier.settingsBox.get(unseenKey, defaultValue: []));
+    final seenIds = List<String>.from(
+      notifier.settingsBox.get(unseenKey, defaultValue: []),
+    );
     seenIds.addAll(tasksToShow.map((t) => t.id));
     await notifier.settingsBox.put(unseenKey, seenIds);
 

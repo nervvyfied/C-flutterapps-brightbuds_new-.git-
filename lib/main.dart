@@ -1,27 +1,27 @@
-import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
-import 'package:brightbuds_new/aquarium/notifiers/achievement_listener.dart';
-import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
-import 'package:brightbuds_new/aquarium/notifiers/unlock_listener.dart';
-import 'package:brightbuds_new/aquarium/pages/achievement_page.dart';
-import 'package:brightbuds_new/aquarium/notifiers/unlockNotifier.dart';
-import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
-import 'package:brightbuds_new/cbt/models/assigned_cbt_model.dart';
-import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
-import 'package:brightbuds_new/cbt/providers/cbt_provider.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/models/journal_model.dart';
-import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/data/providers/journal_provider.dart';
-import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/notifications/notification_service.dart';
-import 'package:brightbuds_new/ui/pages/Therapistlogin_page.dart';
-import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
-import 'package:brightbuds_new/ui/pages/childlogin_page.dart';
-import 'package:brightbuds_new/ui/widgets/splash_screen.dart';
+import 'package:com.brightbuds/aquarium/manager/unlockManager.dart';
+import 'package:com.brightbuds/aquarium/notifiers/achievement_listener.dart';
+import 'package:com.brightbuds/aquarium/notifiers/achievement_notifier.dart';
+import 'package:com.brightbuds/aquarium/notifiers/unlock_listener.dart';
+import 'package:com.brightbuds/aquarium/pages/achievement_page.dart';
+import 'package:com.brightbuds/aquarium/notifiers/unlockNotifier.dart';
+import 'package:com.brightbuds/aquarium/providers/progression_provider.dart';
+import 'package:com.brightbuds/cbt/models/assigned_cbt_model.dart';
+import 'package:com.brightbuds/cbt/models/cbt_exercise_model.dart';
+import 'package:com.brightbuds/cbt/providers/cbt_provider.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/data/models/journal_model.dart';
+import 'package:com.brightbuds/data/models/parent_model.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
+import 'package:com.brightbuds/data/providers/journal_provider.dart';
+import 'package:com.brightbuds/data/providers/selected_child_provider.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/notifications/notification_service.dart';
+import 'package:com.brightbuds/ui/pages/Therapistlogin_page.dart';
+import 'package:com.brightbuds/ui/pages/parentlogin_page.dart';
+import 'package:com.brightbuds/ui/pages/childlogin_page.dart';
+import 'package:com.brightbuds/ui/widgets/splash_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -53,7 +53,7 @@ final AndroidNotificationChannel _androidChannel = AndroidNotificationChannel(
 
 Future<void> _initFlutterLocalNotifications() async {
   const AndroidInitializationSettings initializationSettingsAndroid =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
+      AndroidInitializationSettings('@mipmap/launcher_icon');
 
   const InitializationSettings initSettings = InitializationSettings(
     android: initializationSettingsAndroid,

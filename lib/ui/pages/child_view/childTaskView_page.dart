@@ -1,15 +1,15 @@
 // ignore_for_file: file_names, use_build_context_synchronously, deprecated_member_use
 
 import 'dart:async';
-import 'package:brightbuds_new/aquarium/manager/unlockManager.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
+import 'package:com.brightbuds/aquarium/manager/unlockManager.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:brightbuds_new/data/notifiers/tokenNotifier.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/ui/pages/role_page.dart';
-import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:com.brightbuds/data/notifiers/tokenNotifier.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/ui/pages/role_page.dart';
+import 'package:com.brightbuds/utils/network_helper.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -136,103 +136,93 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
         .collection('tasks')
         .snapshots();
 
-    _notificationSubscription = stream.listen(
-      (snapshot) async {
-        if (!mounted) return;
+    _notificationSubscription = stream.listen((snapshot) async {
+      if (!mounted) return;
 
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
 
-          final rejectionReason = (data['rejectionReason'] ?? '').toString();
-          if (rejectionReason.isEmpty) continue;
+        final rejectionReason = (data['rejectionReason'] ?? '').toString();
+        if (rejectionReason.isEmpty) continue;
 
-          // ✅ Check if this rejection is meant to be shown to the child
-          final showToChild = (data['showToChild'] ?? false) as bool;
-          if (!showToChild) continue; // skip if it's for parent only
+        // ✅ Check if this rejection is meant to be shown to the child
+        final showToChild = (data['showToChild'] ?? false) as bool;
+        if (!showToChild) continue; // skip if it's for parent only
 
-          final taskId = doc.id;
+        final taskId = doc.id;
 
-          // 🛑 Prevent duplicate dialogs
-          final rawShown =
-              _settingsBox.get(
-                    'shown_rejections_${widget.childId}',
-                    defaultValue: [],
-                  )
-                  as List<dynamic>;
+        // 🛑 Prevent duplicate dialogs
+        final rawShown =
+            _settingsBox.get(
+                  'shown_rejections_${widget.childId}',
+                  defaultValue: [],
+                )
+                as List<dynamic>;
 
-          final shownIds = rawShown.whereType<String>().toList();
+        final shownIds = rawShown.whereType<String>().toList();
 
-          if (shownIds.contains(taskId)) continue;
+        if (shownIds.contains(taskId)) continue;
 
-          shownIds.add(taskId);
-          await _settingsBox.put(
-            'shown_rejections_${widget.childId}',
-            shownIds,
-          );
+        shownIds.add(taskId);
+        await _settingsBox.put('shown_rejections_${widget.childId}', shownIds);
 
-          final taskName = (data['name'] ?? '').toString();
-          final reminderMessage = (data['reminderMessage'] ?? '').toString();
+        final taskName = (data['name'] ?? '').toString();
+        final reminderMessage = (data['reminderMessage'] ?? '').toString();
 
-          // 🔊 Play notification sound (same as XP)
-          try {
-            if (kIsWeb) {
-              await _audioPlayer.play(
-                UrlSource('assets/audios/notification/ding.mp3'),
-              );
-            } else {
-              await _audioPlayer.play(
-                AssetSource('audios/notification/ding.mp3'),
-              );
-            }
-          } catch (e) {
-       
+        // 🔊 Play notification sound (same as XP)
+        try {
+          if (kIsWeb) {
+            await _audioPlayer.play(
+              UrlSource('assets/audios/notification/ding.mp3'),
+            );
+          } else {
+            await _audioPlayer.play(
+              AssetSource('audios/notification/ding.mp3'),
+            );
           }
+        } catch (e) {}
 
-          // ⚠️ Show dialog AFTER frame builds
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (!mounted) return;
+        // ⚠️ Show dialog AFTER frame builds
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!mounted) return;
 
-            await showDialog(
-              context: context,
-              barrierDismissible: false,
-              builder: (_) => AlertDialog(
-                title: const Text("Message from your therapist/parent"),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (taskName.isNotEmpty) Text("📌 Task Name: $taskName"),
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => AlertDialog(
+              title: const Text("Message from your therapist/parent"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (taskName.isNotEmpty) Text("📌 Task Name: $taskName"),
+                  const SizedBox(height: 6),
+                  Text("📝 Reason: $rejectionReason"),
+                  if (reminderMessage.isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    Text("📝 Reason: $rejectionReason"),
-                    if (reminderMessage.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text("⏰ Reminder: $reminderMessage"),
-                    ],
+                    Text("⏰ Reminder: $reminderMessage"),
                   ],
-                ),
-                actions: [
-                  Center(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("OK"),
-                    ),
-                  ),
                 ],
               ),
-            );
+              actions: [
+                Center(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("OK"),
+                  ),
+                ),
+              ],
+            ),
+          );
 
-            // 🔥 Clear rejection so it never shows again
-            await doc.reference.update({
-              'rejectionReason': '',
-              'reminderMessage': '',
-            });
+          // 🔥 Clear rejection so it never shows again
+          await doc.reference.update({
+            'rejectionReason': '',
+            'reminderMessage': '',
           });
-        }
-      },
-      onError: (e) {
-     
-      },
-    );
+        });
+      }
+    }, onError: (e) {});
   }
 
   /// Real-time task listener — reloads provider tasks and checks for new tokens
@@ -295,9 +285,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
 
         tokenNotifier.addNewlyVerifiedTasks(newlyVerifiedTasks);
       }
-    }, onError: (e) {
-      
-    });
+    }, onError: (e) {});
   }
 
   /// Listen to real-time XP updates and sync to Hive safely
@@ -336,9 +324,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
               AssetSource('audios/notification/ding.mp3'),
             );
           }
-        } catch (e) {
-       
-        }
+        } catch (e) {}
       }
 
       // ✅ Update UI immediately
@@ -355,19 +341,10 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
           if (child != null) {
             final updatedChild = child.copyWith(xp: newXP);
             await childBox.put(widget.childId, updatedChild);
-          
           }
-        } catch (e) {
-        
-        }
-      } else {
-     
-      }
-
-   
-    }, onError: (e) {
-      
-    });
+        } catch (e) {}
+      } else {}
+    }, onError: (e) {});
   }
 
   /// Fetch XP from Firestore (offline-first) and sync to Hive safely
@@ -377,7 +354,6 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
     // ✅ Load cached Hive value immediately
     final cached = _settingsBox.get(cachedKey, defaultValue: 0);
     if (mounted) setState(() => _xp = cached);
-   
 
     // ✅ Fetch latest from Firestore if online
     if (await NetworkHelper.isOnline()) {
@@ -410,23 +386,12 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
               if (child != null) {
                 final updatedChild = child.copyWith(xp: fetched);
                 await childBox.put(widget.childId, updatedChild);
-              
               }
-            } catch (e) {
-            
-            }
-          } else {
-           
-          }
-
-        
+            } catch (e) {}
+          } else {}
         }
-      } catch (e) {
-      
-      }
-    } else {
-    
-    }
+      } catch (e) {}
+    } else {}
   }
 
   String _getGreeting() {
@@ -602,9 +567,7 @@ class _ChildQuestsPageState extends State<ChildQuestsPage> {
                                   }
 
                                   await _fetchXP();
-                                } catch (e) {
-                            
-                                }
+                                } catch (e) {}
                               },
                               checkColor: Colors.white,
                               activeColor: _getDifficultyColor(task.difficulty),

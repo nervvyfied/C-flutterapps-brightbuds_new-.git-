@@ -1,6 +1,6 @@
 import 'dart:math';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/repositories/user_repository.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/repositories/user_repository.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '/data/services/firestore_service.dart';
 import '/data/models/parent_model.dart';
@@ -142,7 +142,6 @@ class AuthService {
 
       return therapist;
     } catch (e) {
-    
       rethrow;
     }
   }
@@ -203,31 +202,30 @@ class AuthService {
   }
 
   Future<ChildUser> childLogin(String accessCode) async {
-  final normalizedCode = accessCode.trim().toUpperCase();
+    final normalizedCode = accessCode.trim().toUpperCase();
 
-  final result = await _firestore.getParentByAccessCodeWithChild(
-    normalizedCode,
-  );
-  if (result == null) throw Exception("Invalid access code");
+    final result = await _firestore.getParentByAccessCodeWithChild(
+      normalizedCode,
+    );
+    if (result == null) throw Exception("Invalid access code");
 
-  final parent = result['parent'] as ParentUser;
-  final child = result['child'] as ChildUser?;
-  if (child == null) throw Exception("Child not found");
+    final parent = result['parent'] as ParentUser;
+    final child = result['child'] as ChildUser?;
+    if (child == null) throw Exception("Child not found");
 
     final updatedChild = ChildUser(
       cid: child.cid,
       parentUid: parent.uid,
       name: child.name,
-      streak: child.streak, 
+      streak: child.streak,
       therapistUid: child.therapistUid,
     );
 
-  await _userRepo.cacheParent(parent);
-  await _userRepo.cacheChild(updatedChild);
+    await _userRepo.cacheParent(parent);
+    await _userRepo.cacheChild(updatedChild);
 
-  return updatedChild;
-}
-
+    return updatedChild;
+  }
 
   // ---------------- SIGN OUT ----------------
   Future<void> signOut() async {

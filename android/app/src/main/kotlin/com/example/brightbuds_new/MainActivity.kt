@@ -1,4 +1,4 @@
-package com.example.brightbuds_new
+package com.brightbuds
 
 import io.flutter.embedding.android.FlutterActivity
 

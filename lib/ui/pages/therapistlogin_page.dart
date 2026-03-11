@@ -1,11 +1,11 @@
 // ignore_for_file: use_build_context_synchronously, deprecated_member_use
 
 import 'dart:async';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/ui/pages/Therapist_view/TherapistForgotPass_page.dart';
-import 'package:brightbuds_new/ui/pages/Therapist_view/TherapistNav_page.dart';
-import 'package:brightbuds_new/ui/pages/Therapist_view/TherapistVerification_page.dart';
-import 'package:brightbuds_new/ui/pages/role_page.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/ui/pages/Therapist_view/TherapistForgotPass_page.dart';
+import 'package:com.brightbuds/ui/pages/Therapist_view/TherapistNav_page.dart';
+import 'package:com.brightbuds/ui/pages/Therapist_view/TherapistVerification_page.dart';
+import 'package:com.brightbuds/ui/pages/role_page.dart';
 import 'package:firebase_auth/firebase_auth.dart'
     show FirebaseAuthException, GoogleAuthProvider, FirebaseAuth;
 import 'package:flutter/material.dart';

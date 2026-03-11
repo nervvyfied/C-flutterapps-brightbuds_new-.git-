@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/services/firestore_service.dart';
-import 'package:brightbuds_new/main.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/services/firestore_service.dart';
+import 'package:com.brightbuds/main.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';

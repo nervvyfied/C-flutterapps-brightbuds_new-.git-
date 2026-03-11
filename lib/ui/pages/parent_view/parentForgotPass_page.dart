@@ -1,4 +1,4 @@
-import 'package:brightbuds_new/ui/pages/parentlogin_page.dart';
+import 'package:com.brightbuds/ui/pages/parentlogin_page.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -29,9 +29,9 @@ class _ParentForgotPassPageState extends State<ParentForgotPassPage> {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       setState(() => emailSent = true);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to send reset email: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Failed to send reset email: $e")));
     } finally {
       setState(() => isLoading = false);
     }
@@ -110,11 +110,7 @@ class _ParentForgotPassPageState extends State<ParentForgotPassPage> {
                   : Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Image.asset(
-                          'assets/bb3.png',
-                          width: 140,
-                          height: 140,
-                        ),
+                        Image.asset('assets/bb3.png', width: 140, height: 140),
                         const SizedBox(height: 20),
                         const Text(
                           "Forgot Password?",

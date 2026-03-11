@@ -1,9 +1,9 @@
-import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/ui/pages/child_view/childNav_page.dart';
-import 'package:brightbuds_new/ui/pages/role_page.dart' show ChooseRolePage;
+import 'package:com.brightbuds/aquarium/providers/progression_provider.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/ui/pages/child_view/childNav_page.dart';
+import 'package:com.brightbuds/ui/pages/role_page.dart' show ChooseRolePage;
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -54,7 +54,6 @@ class _ChildAuthPageState extends State<ChildAuthPage> {
         context,
         MaterialPageRoute(builder: (_) => const ChildNavigationShell()),
       );
-
     } on FirebaseAuthException catch (e) {
       String message;
       switch (e.code) {

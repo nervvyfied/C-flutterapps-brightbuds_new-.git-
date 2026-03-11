@@ -2,24 +2,24 @@
 
 import 'dart:async';
 import 'dart:math';
-import 'package:brightbuds_new/aquarium/catalogs/decor_catalog.dart';
-import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
-import 'package:brightbuds_new/aquarium/manager/aquarium_level_composer.dart';
-import 'package:brightbuds_new/aquarium/manager/tutorial_manager.dart';
-import 'package:brightbuds_new/aquarium/notifiers/achievement_notifier.dart';
-import 'package:brightbuds_new/aquarium/pages/world_unlocks_modal.dart';
-import 'package:brightbuds_new/aquarium/progression/level_calculator.dart';
-import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
-import 'package:brightbuds_new/aquarium/service/feedback_service.dart';
-import 'package:brightbuds_new/aquarium/widgets/floating_xp.dart';
-import 'package:brightbuds_new/aquarium/widgets/level_feedback_dialog.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/journal_provider.dart';
-import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/data/repositories/user_repository.dart';
-import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:com.brightbuds/aquarium/catalogs/decor_catalog.dart';
+import 'package:com.brightbuds/aquarium/catalogs/fish_catalog.dart';
+import 'package:com.brightbuds/aquarium/manager/aquarium_level_composer.dart';
+import 'package:com.brightbuds/aquarium/manager/tutorial_manager.dart';
+import 'package:com.brightbuds/aquarium/notifiers/achievement_notifier.dart';
+import 'package:com.brightbuds/aquarium/pages/world_unlocks_modal.dart';
+import 'package:com.brightbuds/aquarium/progression/level_calculator.dart';
+import 'package:com.brightbuds/aquarium/providers/progression_provider.dart';
+import 'package:com.brightbuds/aquarium/service/feedback_service.dart';
+import 'package:com.brightbuds/aquarium/widgets/floating_xp.dart';
+import 'package:com.brightbuds/aquarium/widgets/level_feedback_dialog.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/data/providers/journal_provider.dart';
+import 'package:com.brightbuds/data/providers/selected_child_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/data/repositories/user_repository.dart';
+import 'package:com.brightbuds/utils/network_helper.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
@@ -908,11 +908,8 @@ class _AquariumPageState extends State<AquariumPage>
     // ✅ Update level FIRST
     _lastLevel = level;
 
-   
-
     // ✅ NOW trigger unlocks for the NEW level
     if (levelChanged && previousLevel != -1) {
-   
       _unlockManager.checkLevelUnlocks(level);
     }
 
@@ -1317,9 +1314,7 @@ class _AquariumPageState extends State<AquariumPage>
                     'journals': journals,
                   },
                 );
-              } catch (e, st) {
-               
-              }
+              } catch (e, st) {}
             },
             child: Container(
               padding: const EdgeInsets.all(8),

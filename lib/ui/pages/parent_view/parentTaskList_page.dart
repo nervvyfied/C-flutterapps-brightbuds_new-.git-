@@ -1,12 +1,12 @@
 // ignore_for_file: file_names, deprecated_member_use, use_build_context_synchronously
 
 import 'dart:async';
-import 'package:brightbuds_new/data/models/parent_model.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/data/models/therapist_model.dart';
-import 'package:brightbuds_new/data/providers/auth_provider.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
-import 'package:brightbuds_new/data/providers/selected_child_provider.dart';
+import 'package:com.brightbuds/data/models/parent_model.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
+import 'package:com.brightbuds/data/models/therapist_model.dart';
+import 'package:com.brightbuds/data/providers/auth_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
+import 'package:com.brightbuds/data/providers/selected_child_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -143,9 +143,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
                     .collection('tasks')
                     .doc(task.id)
                     .update({'rejectionReason': '', 'reminderMessage': ''})
-                    .catchError((e) {
-                  
-                    });
+                    .catchError((e) {});
               }
             },
             child: const Text("OK"),
@@ -220,9 +218,7 @@ class _ParentTaskListScreenState extends State<ParentTaskListScreen> {
           _showRejectedTasksModal(rejectedTasks);
         }
       } catch (e) {
-        if (mounted){
-          
-        }
+        if (mounted) {}
       }
     });
   }

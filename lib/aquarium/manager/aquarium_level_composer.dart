@@ -1,12 +1,9 @@
-import 'package:brightbuds_new/aquarium/catalogs/decor_catalog.dart';
-import 'package:brightbuds_new/aquarium/catalogs/fish_catalog.dart';
+import 'package:com.brightbuds/aquarium/catalogs/decor_catalog.dart';
+import 'package:com.brightbuds/aquarium/catalogs/fish_catalog.dart';
 import '../models/fish_definition.dart';
 
 class AquariumLevelComposer {
-  static LevelData getLevelData({
-    required int level,
-    required int world,
-  }) {
+  static LevelData getLevelData({required int level, required int world}) {
     final fishes = FishCatalog.all
         .where((f) => f.world == world && f.unlockLevel <= level)
         .toList();
@@ -16,16 +13,18 @@ class AquariumLevelComposer {
         .toList();
 
     final decorData = decors
-    .map((d) => DecorData(
-          asset: d.assetPath,
-          anchorX: d.anchorX,
-          anchorY: d.anchorY,
-          layer: d.layer,
-          widthFactor: d.widthFactor,
-        ))
-    .toList();
+        .map(
+          (d) => DecorData(
+            asset: d.assetPath,
+            anchorX: d.anchorX,
+            anchorY: d.anchorY,
+            layer: d.layer,
+            widthFactor: d.widthFactor,
+          ),
+        )
+        .toList();
 
-return LevelData(fishes: fishes, decors: decorData);
+    return LevelData(fishes: fishes, decors: decorData);
   }
 }
 
@@ -43,5 +42,11 @@ class DecorData {
   final int layer;
   final double widthFactor;
 
-  DecorData({required this.asset, required this.anchorX, required this.anchorY ,required this.layer, required this.widthFactor});
+  DecorData({
+    required this.asset,
+    required this.anchorX,
+    required this.anchorY,
+    required this.layer,
+    required this.widthFactor,
+  });
 }

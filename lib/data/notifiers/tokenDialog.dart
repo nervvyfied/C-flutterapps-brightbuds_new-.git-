@@ -2,7 +2,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
-import 'package:brightbuds_new/data/models/task_model.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
 import 'package:lottie/lottie.dart';
 
 class XPDialog extends StatelessWidget {
@@ -78,13 +78,24 @@ class XPDialog extends StatelessWidget {
                       color: const Color(0xFFF7F2FF),
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: ListTile(
-                        leading: Image.asset('assets/XP.png', width: 24, height: 24), // XP/star icon
-                        title: Text(task.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        leading: Image.asset(
+                          'assets/XP.png',
+                          width: 24,
+                          height: 24,
+                        ), // XP/star icon
+                        title: Text(
+                          task.name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         trailing: Text(
                           '+${_getXPForDifficulty(task.difficulty)} XP',
-                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -100,7 +111,10 @@ class XPDialog extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
                 ),
                 onPressed: () => Navigator.pop(context),
                 child: const Text(
@@ -120,7 +134,13 @@ class XPDialog extends StatelessWidget {
             confettiController: confettiController,
             blastDirectionality: BlastDirectionality.explosive,
             shouldLoop: false,
-            colors: const [Colors.yellow, Colors.blue, Colors.pink, Colors.green, Colors.orange],
+            colors: const [
+              Colors.yellow,
+              Colors.blue,
+              Colors.pink,
+              Colors.green,
+              Colors.orange,
+            ],
             numberOfParticles: 30,
             gravity: 0.3,
           ),

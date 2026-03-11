@@ -1,5 +1,5 @@
-import 'package:brightbuds_new/aquarium/progression/achievement_resolver.dart';
-import 'package:brightbuds_new/data/models/journal_model.dart';
+import 'package:com.brightbuds/aquarium/progression/achievement_resolver.dart';
+import 'package:com.brightbuds/data/models/journal_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/achievement_definition.dart';
 import '../notifiers/achievement_notifier.dart';
@@ -12,42 +12,39 @@ class AchievementManager {
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
   final Set<String> _alreadyUnlockedCache = {};
 
-  AchievementManager({
-    required this.achievementNotifier,
-    required this.child,
-  });
+  AchievementManager({required this.achievementNotifier, required this.child});
 
   Future<void> check({
-  required List<TaskModel> tasks,
-  required List<JournalEntry> journals,
-}) async {
-  final resolver = AchievementResolver(
-    child: child,
-    tasks: tasks,
-    journals: journals,
-  );
+    required List<TaskModel> tasks,
+    required List<JournalEntry> journals,
+  }) async {
+    final resolver = AchievementResolver(
+      child: child,
+      tasks: tasks,
+      journals: journals,
+    );
 
-  final newAchievements = resolver.unlockedAchievements;
+    final newAchievements = resolver.unlockedAchievements;
 
-  if (newAchievements.isEmpty) return;
+    if (newAchievements.isEmpty) return;
 
-  for (final achievement in newAchievements) {
-    if (!child.unlockedAchievements.contains(achievement.id)) {
-      child.unlockedAchievements.add(achievement.id);
+    for (final achievement in newAchievements) {
+      if (!child.unlockedAchievements.contains(achievement.id)) {
+        child.unlockedAchievements.add(achievement.id);
 
-      // ✅ Update notifier immediately so UI unlocks instantly
-      achievementNotifier.setUnlocked(achievement);
+        // ✅ Update notifier immediately so UI unlocks instantly
+        achievementNotifier.setUnlocked(achievement);
 
-      // ✅ Persist to Firestore using correct field name
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(child.parentUid)
-          .collection('children')
-          .doc(child.cid)
-          .update({'unlockedAchievements': child.unlockedAchievements});
+        // ✅ Persist to Firestore using correct field name
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(child.parentUid)
+            .collection('children')
+            .doc(child.cid)
+            .update({'unlockedAchievements': child.unlockedAchievements});
+      }
     }
   }
-}
 
   /// Call this whenever relevant data changes (XP, level, journal, tasks)
   Future<void> checkAchievements() async {
@@ -77,9 +74,9 @@ class AchievementManager {
         .toList();
 
     final resolver = AchievementResolver(
-        child: child,
-        tasks: tasks,
-        journals: journals, // you might extend resolver to accept journals
+      child: child,
+      tasks: tasks,
+      journals: journals, // you might extend resolver to accept journals
     );
 
     final newAchievements = resolver.unlockedAchievements;
@@ -94,15 +91,18 @@ class AchievementManager {
     return child.unlockedAchievements.contains(achievement.id);
   }
 
-  Future<void> saveAchievementForChild(ChildUser child, String achievementId) async {
+  Future<void> saveAchievementForChild(
+    ChildUser child,
+    String achievementId,
+  ) async {
     if (!child.unlockedAchievements.contains(achievementId)) {
       child.unlockedAchievements.add(achievementId);
       await firestore
-        .collection('users')
-        .doc(child.parentUid)
-        .collection('children')
-        .doc(child.cid)
-        .update({'unlockedAchievements': child.unlockedAchievements});
+          .collection('users')
+          .doc(child.parentUid)
+          .collection('children')
+          .doc(child.cid)
+          .update({'unlockedAchievements': child.unlockedAchievements});
     }
   }
 

@@ -1,7 +1,6 @@
-
-import 'package:brightbuds_new/aquarium/providers/progression_provider.dart';
-import 'package:brightbuds_new/data/models/child_model.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
+import 'package:com.brightbuds/aquarium/providers/progression_provider.dart';
+import 'package:com.brightbuds/data/models/child_model.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -199,7 +198,6 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         isLoading = false;
       });
     } catch (e) {
-    
       setState(() {
         parentData = null;
         childrenList = [];
@@ -287,7 +285,6 @@ class _ParentAccountSidebarState extends State<ParentAccountSidebar> {
         const SnackBar(content: Text("Parent info updated successfully!")),
       );
     } catch (e) {
-   
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Failed to update: $e")));

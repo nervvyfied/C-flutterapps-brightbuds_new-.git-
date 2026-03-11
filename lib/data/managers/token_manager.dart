@@ -1,5 +1,5 @@
-import 'package:brightbuds_new/data/models/task_model.dart';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
+import 'package:com.brightbuds/data/models/task_model.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
 import 'package:hive/hive.dart';
 
 class TokenManager {

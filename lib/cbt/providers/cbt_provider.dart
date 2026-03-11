@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'package:brightbuds_new/data/providers/task_provider.dart';
+import 'package:com.brightbuds/data/providers/task_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
-import 'package:brightbuds_new/cbt/models/cbt_exercise_model.dart';
-import 'package:brightbuds_new/utils/network_helper.dart';
+import 'package:com.brightbuds/cbt/models/cbt_exercise_model.dart';
+import 'package:com.brightbuds/utils/network_helper.dart';
 import '../models/assigned_cbt_model.dart';
 import '../repositories/cbt_repository.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
